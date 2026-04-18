@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IL-Trade Journal PRO+</title>
+
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+  background: #0b0f14;
+  color: #e6edf3;
+  font-family: Arial, sans-serif;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+}
+
+h2 {
+  text-align: center;
+  width: 100%;
+  max-width: 480px;
+  margin: 12px 0 8px;
+  font-size: 18px;
+}
+
+h4 {
+  margin: 10px 0 4px;
+  font-size: 13px;
+  color: #8b949e;
+  font-weight: 500;
+}
+
+.card {
+  background: #161b22;
+  padding: 14px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  width: 100%;
+  max-width: 480px;
+}
+
+#list {
+  width: 100%;
+  max-width: 480px;
+}
+
+input, select, textarea {
+  width: 100%;
+  margin: 4px 0;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #30363d;
+  background: #0d1117;
+  color: #e6edf3;
+  font-size: 15px;
+  font-family: Arial, sans-serif;
+}
+
+input::placeholder, textarea::placeholder {
+  color: #484f58;
+}
+
+textarea {
+  height: 64px;
+  resize: vertical;
+}
+
+button {
+  padding: 8px 14px;
+  margin-top: 6px;
+  background: #238636;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 15px;
+  cursor: pointer;
+  width: 100%;
+}
+
+button:active { opacity: 0.8; }
+
+.btn-small {
+  width: auto;
+  padding: 5px 10px;
+  font-size: 13px;
+  margin-top: 6px;
+  margin-right: 6px;
+}
+
+.btn-danger { background: #b91c1c; }
+
+.profit { color: #3fb950; }
+.loss   { color: #f85149; }
+
+.trade-card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  padding: 12px;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+#loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 0;
+  color: #8b949e;
+  font-size: 14px;
+  gap: 14px;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid #30363d;
+  border-top-color: #238636;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+
+<body>
+
+<div id="loader">
+  <div class="spinner"></div>
+  <span>Подключение...</span>
+</div>
+
+<div id="app" style="display:none; flex-direction:column; align-items:center; width:100%;">
+
+  <h2>📊 IL-Trading Journal PRO+</h2>
+
+  <div class="card" id="form-card">
+
+    <input id="date" type="date">
+    <input id="time" type="time">
+
+    <select id="side">
+      <option value="LONG">LONG</option>
+      <option value="SHORT">SHORT</option>
+    </select>
+
+    <input id="asset"       placeholder="Актив">
+    <input id="deposit"     placeholder="Депозит ($)"  type="number">
+    <input id="riskPercent" placeholder="Риск %"       type="number">
+    <input id="entry"       placeholder="Вход"         type="number">
+    <input id="stop"        placeholder="Стоп"         type="number">
+
+    <h4>Частичный выход 1</h4>
+    <input id="tp1_price"   placeholder="Цена" type="number">
+    <input id="tp1_percent" placeholder="%"    type="number">
+
+    <h4>Частичный выход 2</h4>
+    <input id="tp2_price"   placeholder="Цена" type="number">
+    <input id="tp2_percent" placeholder="%"    type="number">
+
+    <input id="bplus" placeholder="Б+ ($)" type="number">
+    <textarea id="note" placeholder="Комментарий"></textarea>
+
+    <button onclick="saveTrade()">💾 Сохранить</button>
+  </div>
+
+  <div id="list"></div>
+</div>
+
+<!-- Firebase SDK (compat v9) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script>
+// ── Firebase ──────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey:            "AIzaSyBAZJPfxqE2JQ3ya_oDY50mUSIZwcx6VUo",
+  authDomain:        "il-trade.firebaseapp.com",
+  databaseURL:       "https://il-trade-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "il-trade",
+  storageBucket:     "il-trade.firebasestorage.app",
+  messagingSenderId: "582308491669",
+  appId:             "1:582308491669:web:a6d52ec80b7ff4a621869c"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.database();
+
+// ── Telegram ──────────────────────────────────────────────────────
+const tg     = window.Telegram.WebApp;
+tg.expand();
+tg.ready();
+const tgUser = tg.initDataUnsafe?.user;
+
+// ── State ─────────────────────────────────────────────────────────
+let uid       = null;
+let trades    = {};
+let editId    = null;
+let tradesRef = null;
+
+// ── Auth — Anonymous + сохранение Telegram-профиля ───────────────
+async function signIn() {
+  const cred = auth.currentUser
+    ? auth.currentUser
+    : (await auth.signInAnonymously()).user;
+
+  uid = cred.uid;
+
+  if (tgUser) {
+    await db.ref(`users/${uid}/tg`).set({
+      id:         tgUser.id         || null,
+      username:   tgUser.username   || null,
+      first_name: tgUser.first_name || null,
+      last_name:  tgUser.last_name  || null
+    });
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────
+(async () => {
+  try {
+    await signIn();
+
+    tradesRef = db.ref(`trades/${uid}`);
+
+    // Realtime подписка — обновляет UI при любом изменении
+    tradesRef.on("value", snap => {
+      trades = snap.val() || {};
+      render();
+    });
+
+    // Дата и время по умолчанию
+    const now = new Date();
+    document.getElementById("date").value = now.toISOString().slice(0, 10);
+    document.getElementById("time").value = now.toTimeString().slice(0, 5);
+
+    document.getElementById("loader").style.display = "none";
+    document.getElementById("app").style.display    = "flex";
+
+  } catch (e) {
+    document.getElementById("loader").innerHTML =
+      `<span style="color:#f85149">Ошибка: ${e.message}</span>`;
+  }
+})();
+
+// ── Calc ──────────────────────────────────────────────────────────
+function calcTrade(t) {
+  const risk$     = t.deposit * (t.riskPercent / 100);
+  const priceDiff = Math.abs(t.entry - t.stop);
+  const position  = priceDiff ? risk$ / (priceDiff / t.entry) : 0;
+  const leverage  = t.deposit ? position / t.deposit : 0;
+
+  function pnlCalc(price, percent) {
+    if (!price || !percent) return 0;
+    const size = (position / t.entry) * (percent / 100);
+    return t.side === "LONG"
+      ? (price - t.entry) * size
+      : (t.entry - price) * size;
+  }
+
+  const pnl1  = pnlCalc(t.tp1_price, t.tp1_percent);
+  const pnl2  = pnlCalc(t.tp2_price, t.tp2_percent);
+  const total = pnl1 + pnl2;
+  const rr    = risk$ ? total / risk$ : 0;
+
+  return { ...t, position, leverage, risk$, pnl: total, pnl1, pnl2, rr };
+}
+
+// ── Save ──────────────────────────────────────────────────────────
+async function saveTrade() {
+  const raw = {
+    id:          editId || Date.now(),
+    date:        val("date"),
+    time:        val("time"),
+    side:        val("side"),
+    asset:       val("asset"),
+    deposit:     +val("deposit"),
+    riskPercent: +val("riskPercent"),
+    entry:       +val("entry"),
+    stop:        +val("stop"),
+    tp1_price:   +val("tp1_price"),
+    tp1_percent: +val("tp1_percent"),
+    tp2_price:   +val("tp2_price"),
+    tp2_percent: +val("tp2_percent"),
+    bplus:       +val("bplus"),
+    note:        val("note")
+  };
+
+  const t = calcTrade(raw);
+
+  try {
+    await tradesRef.child(String(t.id)).set(t);
+    clearForm();
+    editId = null;
+  } catch (e) {
+    alert("Ошибка сохранения: " + e.message);
+  }
+}
+
+// ── Edit ──────────────────────────────────────────────────────────
+function editTrade(id) {
+  const t = trades[id];
+  if (!t) return;
+  ["date","time","side","asset","deposit","riskPercent",
+   "entry","stop","tp1_price","tp1_percent",
+   "tp2_price","tp2_percent","bplus","note"].forEach(k => {
+    const el = document.getElementById(k);
+    if (el) el.value = t[k] ?? "";
+  });
+  editId = id;
+  document.getElementById("form-card").scrollIntoView({ behavior: "smooth" });
+}
+
+// ── Delete ────────────────────────────────────────────────────────
+async function deleteTrade(id) {
+  if (!confirm("Удалить сделку?")) return;
+  try {
+    await tradesRef.child(String(id)).remove();
+  } catch (e) {
+    alert("Ошибка удаления: " + e.message);
+  }
+}
+
+// ── Render ────────────────────────────────────────────────────────
+function render() {
+  const list = document.getElementById("list");
+  const arr  = Object.values(trades).sort((a, b) => b.id - a.id);
+
+  if (!arr.length) {
+    list.innerHTML = `<p style="text-align:center;color:#484f58;font-size:14px;margin-top:20px;">Сделок пока нет</p>`;
+    return;
+  }
+
+  list.innerHTML = arr.map(t => `
+    <div class="trade-card">
+      <b>${t.date} / ${t.time}</b><br>
+      ${t.side} ${t.asset}<br>
+      Позиция: ${n(t.position)}$ &nbsp;(x${n(t.leverage, 1)})<br>
+      Вход: ${t.entry} &nbsp;|&nbsp; Стоп: ${t.stop}<br>
+      Риск: ${n(t.risk$)}$<br>
+      TP1: ${t.tp1_price} (${t.tp1_percent}%) = ${n(t.pnl1)}$<br>
+      TP2: ${t.tp2_price} (${t.tp2_percent}%) = ${n(t.pnl2)}$<br>
+      RR: 1:${n(t.rr, 2)}<br>
+      Прибыль: <span class="${t.pnl >= 0 ? 'profit' : 'loss'}">${n(t.pnl)}$</span><br>
+      Б+: ${t.bplus}$<br>
+      ${t.note ? `<i>${t.note}</i><br>` : ""}
+      <div>
+        <button class="btn-small" onclick="editTrade(${t.id})">✏️ Изменить</button>
+        <button class="btn-small btn-danger" onclick="deleteTrade(${t.id})">🗑 Удалить</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+const val = id => document.getElementById(id).value;
+const n   = (v, d = 2) => (isNaN(v) ? 0 : +v).toFixed(d);
+
+function clearForm() {
+  ["asset","deposit","riskPercent","entry","stop",
+   "tp1_price","tp1_percent","tp2_price","tp2_percent","bplus","note"]
+  .forEach(id => { document.getElementById(id).value = ""; });
+}
+</script>
+
+</body>
+</html>
