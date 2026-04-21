@@ -974,6 +974,30 @@ function clearForm() {
   selectStar(0);
   liveCalc();
 }
+  const stream = new EventSource("http://localhost:3000/stream");
+
+stream.onmessage = async function(event) {
+  const trade = JSON.parse(event.data);
+
+  // защита от дублей
+  if (trades[trade.id]) return;
+
+  const newTrade = {
+    ...trade,
+    deposit: trade.qty * trade.entry,
+    leverage: 1,
+    riskPercent: 0
+  };
+
+  await tradesRef.child(String(trade.id)).set(newTrade);
+
+  await addNotif({
+    icon: "📡",
+    title: `Новая сделка: ${trade.asset}`,
+    desc: `${trade.side} по ${trade.entry}`,
+    time: nowStr()
+  });
+};
 </script>
 </body>
 </html>
