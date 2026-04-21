@@ -3,15 +3,16 @@ import express from "express";
 import crypto from "crypto";
 import cors from "cors";
 
-const API_KEY = "ТВОЙ_API_KEY";
-const SECRET  = "ТВОЙ_SECRET_KEY";
+const API_KEY = process.env.API_KEY;
+const SECRET  = process.env.SECRET;
 
 const app = express();
 app.use(cors());
 
 let clients = [];
+let positions = {};
 
-// SSE поток в фронт
+// SSE
 app.get("/stream", (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -30,26 +31,22 @@ function broadcast(data) {
   });
 }
 
-// 🔐 подпись
 function sign(params) {
   const query = Object.keys(params)
     .sort()
     .map(k => `${k}=${params[k]}`)
     .join("&");
 
-  return crypto
-    .createHmac("sha256", SECRET)
+  return crypto.createHmac("sha256", SECRET)
     .update(query)
     .digest("hex");
 }
 
-// 🚀 подключение к приватному WS
-function connectPrivateWS() {
+// 🚀 WS
+function connectWS() {
   const ws = new WebSocket("wss://wbs.mexc.com/ws");
 
   ws.on("open", () => {
-    console.log("🔗 Connected to MEXC");
-
     const timestamp = Date.now();
 
     const params = {
@@ -59,7 +56,6 @@ function connectPrivateWS() {
 
     const signature = sign(params);
 
-    // 🔐 логин
     ws.send(JSON.stringify({
       method: "LOGIN",
       params: {
@@ -69,47 +65,97 @@ function connectPrivateWS() {
       }
     }));
 
-    // 📡 подписка на ОРДЕРА (твои)
     ws.send(JSON.stringify({
       method: "SUBSCRIPTION",
-      params: ["spot@private.orders"]
+      params: ["futures@private.orders"]
     }));
   });
 
   ws.on("message", (msg) => {
     const data = JSON.parse(msg.toString());
 
-    // 🎯 Ловим ТВОИ сделки
-    if (data?.c === "spot@private.orders" && data?.d) {
-      const d = data.d;
+    if (data?.c !== "futures@private.orders" || !data?.d) return;
 
-      const trade = {
-        id: d.i, // order id
-        asset: d.s,
-        entry: parseFloat(d.p),
-        qty: parseFloat(d.v),
-        side: d.S === 1 ? "LONG" : "SHORT",
-        status: d.X,
-        date: new Date().toISOString().slice(0,10),
-        time: new Date().toTimeString().slice(0,5)
-      };
+    const d = data.d;
 
-      console.log("📈 New Trade:", trade);
+    const symbol = d.s;
+    const price  = parseFloat(d.p);
+    const qty    = parseFloat(d.v);
+    const side   = d.S === 1 ? "BUY" : "SELL";
+    const status = d.X;
 
-      broadcast(trade);
+    if (status !== "FILLED") return;
+
+    if (!positions[symbol]) {
+      positions[symbol] = { size: 0, entry: 0 };
     }
+
+    let pos = positions[symbol];
+
+    if (side === "BUY") {
+      if (pos.size < 0) {
+        const closeQty = Math.min(qty, Math.abs(pos.size));
+        const pnl = (pos.entry - price) * closeQty;
+
+        emitTrade(symbol, pos.entry, price, closeQty, pnl, "SHORT");
+
+        pos.size += closeQty;
+
+        if (qty > closeQty) {
+          pos.entry = price;
+          pos.size = qty - closeQty;
+        }
+
+      } else {
+        const newSize = pos.size + qty;
+        pos.entry = (pos.entry * pos.size + price * qty) / newSize;
+        pos.size = newSize;
+      }
+    }
+
+    if (side === "SELL") {
+      if (pos.size > 0) {
+        const closeQty = Math.min(qty, pos.size);
+        const pnl = (price - pos.entry) * closeQty;
+
+        emitTrade(symbol, pos.entry, price, closeQty, pnl, "LONG");
+
+        pos.size -= closeQty;
+
+        if (qty > closeQty) {
+          pos.entry = price;
+          pos.size = -(qty - closeQty);
+        }
+
+      } else {
+        const newSize = Math.abs(pos.size) + qty;
+        pos.entry = (pos.entry * Math.abs(pos.size) + price * qty) / newSize;
+        pos.size = -newSize;
+      }
+    }
+
+    if (pos.size === 0) delete positions[symbol];
   });
 
   ws.on("close", () => {
-    console.log("❌ WS closed. Reconnecting...");
-    setTimeout(connectPrivateWS, 3000);
-  });
-
-  ws.on("error", (err) => {
-    console.log("WS error:", err.message);
+    setTimeout(connectWS, 3000);
   });
 }
 
-connectPrivateWS();
+function emitTrade(symbol, entry, exit, qty, pnl, side) {
+  broadcast({
+    id: Date.now() + Math.random(),
+    asset: symbol,
+    entry,
+    exit,
+    qty,
+    pnl,
+    side,
+    date: new Date().toISOString().slice(0,10),
+    time: new Date().toTimeString().slice(0,5)
+  });
+}
 
-app.listen(3000, () => console.log("🚀 Server started on 3000"));
+connectWS();
+
+app.listen(3000, () => console.log("Server running"));
