@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IL-Trade Journal PRO+</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #0b0f14;
+  color: #e6edf3;
+  font-family: Arial, sans-serif;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* ── HEADER ── */
+.app-header {
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  margin: 12px 0 10px;
+}
+.app-header h2 {
+  font-size: 18px;
+  text-align: center;
+}
+.notif-btn {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 50%;
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 18px;
+  position: absolute;
+  right: 0;
+}
+.notif-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #f85149;
+  color: white;
+  font-size: 10px;
+  font-weight: bold;
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  display: none;
+}
+
+/* ── NOTIFICATIONS PANEL ── */
+.notif-panel {
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
+  z-index: 100;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 60px;
+}
+.notif-panel.open { display: flex; }
+.notif-overlay {
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 99;
+}
+.notif-box {
+  position: relative;
+  z-index: 101;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 14px;
+  width: calc(100% - 20px);
+  max-width: 460px;
+  padding: 16px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.notif-box-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.notif-box-header span {
+  font-size: 16px;
+  font-weight: bold;
+}
+.notif-close {
+  background: none;
+  border: none;
+  color: #8b949e;
+  font-size: 20px;
+  cursor: pointer;
+  width: auto;
+  margin: 0;
+  padding: 0 4px;
+}
+.notif-item {
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.notif-item .notif-icon { font-size: 20px; line-height: 1.4; }
+.notif-item .notif-text { flex: 1; }
+.notif-item .notif-title { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+.notif-item .notif-desc  { font-size: 13px; color: #8b949e; }
+.notif-item .notif-time  { font-size: 11px; color: #484f58; margin-top: 4px; }
+.notif-item.unread { border-color: #1f6feb; }
+.notif-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.notif-action-btn {
+  flex: 1;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #30363d;
+  background: #0d1117;
+  color: #8b949e;
+  font-size: 13px;
+  cursor: pointer;
+  width: auto;
+  margin: 0;
+}
+.notif-action-btn:active { opacity: 0.7; }
+
+/* ── STATS ── */
+.stats-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+  max-width: 480px;
+  margin-bottom: 10px;
+}
+.stat-box {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.stat-label { font-size: 11px; color: #8b949e; }
+.stat-value { font-size: 20px; font-weight: bold; }
+
+/* ── FORM ── */
+.card {
+  background: #161b22;
+  padding: 14px;
+  margin-bottom: 10px;
+  border-radius: 10px;
+  width: 100%;
+  max-width: 480px;
+}
+#list { width: 100%; max-width: 480px; }
+
+input, select, textarea {
+  width: 100%;
+  margin: 4px 0;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #30363d;
+  background: #0d1117;
+  color: #e6edf3;
+  font-size: 15px;
+  font-family: Arial, sans-serif;
+}
+input::placeholder, textarea::placeholder { color: #484f58; }
+textarea { height: 60px; resize: vertical; }
+
+/* Two-col row */
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.row2 input { margin: 0; }
+
+/* ── LIVE CALC ── */
+.live-calc {
+  background: #0d1117;
+  border: 1px solid #238636;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 8px 0 4px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+}
+.lc-item { display: flex; flex-direction: column; }
+.lc-label { font-size: 11px; color: #8b949e; margin-bottom: 2px; }
+.lc-value { font-size: 16px; font-weight: bold; color: #58a6ff; }
+.lc-sub   { font-size: 11px; color: #484f58; margin-top: 1px; }
+.lc-item.full-row { grid-column: 1 / -1; }
+.lc-pnl-row { display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap; }
+.lc-pnl-col { display: flex; flex-direction: column; flex: 1; min-width: 80px; }
+.lc-pnl-col .lc-label { font-size: 10px; }
+.lc-pnl-col .lc-value { font-size: 15px; }
+
+/* ── LEVERAGE SLIDER ── */
+.lev-wrap { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.lev-wrap input[type="range"] { flex: 1; height: 4px; margin: 0; padding: 0; background: transparent; border: none; cursor: pointer; accent-color: #238636; }
+.lev-wrap input[type="number"] { width: 64px; flex-shrink: 0; margin: 0; text-align: center; font-weight: bold; color: #3fb950; border-color: #238636; }
+.lev-presets { display: flex; gap: 5px; margin: 4px 0 6px; }
+.lev-preset { flex: 1; padding: 5px 0; font-size: 13px; font-weight: bold; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #8b949e; cursor: pointer; text-align: center; width: auto; margin: 0; }
+.lev-preset.active { border-color: #238636; color: #3fb950; background: #1a3a1f; }
+
+/* ── PERIOD TABS ── */
+.period-tabs { display: flex; gap: 4px; margin-bottom: 10px; width: 100%; max-width: 480px; }
+.period-btn { flex: 1; padding: 7px 0; font-size: 13px; background: #161b22; border: 1px solid #30363d; border-radius: 8px; color: #8b949e; cursor: pointer; text-align: center; width: auto; margin: 0; }
+.period-btn.active { background: #1f6feb; border-color: #1f6feb; color: white; }
+
+/* ── SUMMARY CARDS ── */
+.summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; max-width: 480px; margin-bottom: 10px; }
+.summary-card { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 10px 12px; }
+.summary-card .sc-label { font-size: 11px; color: #8b949e; margin-bottom: 4px; }
+.summary-card .sc-value { font-size: 19px; font-weight: bold; }
+.summary-card .sc-sub   { font-size: 11px; color: #484f58; margin-top: 3px; }
+.summary-card.wide      { grid-column: 1 / -1; }
+.summary-card.wide .sc-inner { display: flex; gap: 16px; flex-wrap: wrap; }
+.summary-card.wide .sc-col   { display: flex; flex-direction: column; flex: 1; }
+.summary-empty { width: 100%; max-width: 480px; text-align: center; color: #484f58; font-size: 14px; padding: 20px 0; }
+
+/* ── BUTTONS ── */
+button {
+  padding: 8px 14px;
+  margin-top: 6px;
+  background: #238636;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 15px;
+  cursor: pointer;
+  width: 100%;
+}
+button:active { opacity: 0.8; }
+.btn-small  { width: auto; padding: 5px 10px; font-size: 13px; margin-top: 6px; margin-right: 6px; }
+.btn-danger { background: #b91c1c; }
+.btn-edit   { background: #1f6feb; }
+
+/* ── CONTROLS ── */
+.emotion-row { display: flex; gap: 8px; margin: 4px 0; flex-wrap: wrap; }
+.emotion-btn {
+  flex: 1; min-width: 60px; padding: 6px 4px;
+  background: #0d1117; border: 1px solid #30363d;
+  border-radius: 8px; color: #8b949e; font-size: 13px;
+  cursor: pointer; text-align: center; width: auto; margin-top: 0;
+}
+.emotion-btn.selected { border-color: #58a6ff; color: #e6edf3; background: #1c2d3f; }
+
+.rm-row { display: flex; gap: 8px; margin: 4px 0; }
+.rm-btn {
+  flex: 1; padding: 7px; background: #0d1117;
+  border: 1px solid #30363d; border-radius: 8px;
+  color: #8b949e; font-size: 14px; cursor: pointer;
+  text-align: center; width: auto; margin-top: 0;
+}
+.rm-btn.selected-yes { border-color: #3fb950; color: #3fb950; background: #1a3a1f; }
+.rm-btn.selected-no  { border-color: #f85149; color: #f85149; background: #3a1a1a; }
+
+.stars { display: flex; gap: 6px; margin: 4px 0; }
+.star { font-size: 24px; cursor: pointer; color: #30363d; transition: color 0.15s; user-select: none; }
+.star.active { color: #e3b341; }
+
+/* ── BADGES ── */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+.badge-win  { background: #1a3a1f; color: #3fb950; }
+.badge-loss { background: #3a1a1a; color: #f85149; }
+.badge-be   { background: #2a2a1a; color: #e3b341; }
+
+.profit  { color: #3fb950; }
+.loss    { color: #f85149; }
+
+/* ── TRADE CARD ── */
+.trade-card {
+  background: #161b22; border: 1px solid #30363d;
+  padding: 12px; border-radius: 10px;
+  margin-bottom: 10px; font-size: 14px; line-height: 1.8;
+}
+.trade-header {
+  display: flex; justify-content: space-between;
+  align-items: center; margin-bottom: 6px;
+}
+.trade-divider {
+  border: none; border-top: 1px solid #21262d;
+  margin: 6px 0;
+}
+
+.section-divider {
+  font-size: 11px; color: #484f58;
+  text-transform: uppercase; letter-spacing: 0.8px;
+  margin: 10px 0 4px; border-bottom: 1px solid #21262d; padding-bottom: 4px;
+}
+
+h4 { margin: 8px 0 4px; font-size: 13px; color: #8b949e; font-weight: 500; }
+
+/* ── LOADER ── */
+#loader {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: 60px 0;
+  color: #8b949e; font-size: 14px; gap: 14px;
+}
+.spinner {
+  width: 32px; height: 32px;
+  border: 3px solid #30363d; border-top-color: #238636;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="spinner"></div>
+  <span>Подключение...</span>
+</div>
+
+<div id="app" style="display:none; flex-direction:column; align-items:center; width:100%;">
+
+  <!-- ── HEADER ── -->
+  <div class="app-header" style="width:100%; max-width:480px;">
+    <h2>📊 IL-Trading Journal PRO+</h2>
+    <div class="notif-btn" onclick="toggleNotif()" id="notif-btn">
+      🔔
+      <span class="notif-badge" id="notif-badge">0</span>
+    </div>
+  </div>
+
+  <!-- ── УВЕДОМЛЕНИЯ ПАНЕЛЬ ── -->
+  <div class="notif-panel" id="notif-panel">
+    <div class="notif-overlay" onclick="toggleNotif()"></div>
+    <div class="notif-box">
+      <div class="notif-box-header">
+        <span>🔔 Уведомления</span>
+        <button class="notif-close" onclick="toggleNotif()">✕</button>
+      </div>
+      <div id="notif-list"></div>
+      <div class="notif-actions">
+        <button class="notif-action-btn" onclick="markAllRead()">✅ Прочитать все</button>
+        <button class="notif-action-btn" onclick="clearNotifs()">🗑 Очистить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── ПЕРИОД ── -->
+  <div class="period-tabs">
+    <button class="period-btn active" onclick="setPeriod('day',this)">День</button>
+    <button class="period-btn"        onclick="setPeriod('week',this)">Неделя</button>
+    <button class="period-btn"        onclick="setPeriod('month',this)">Месяц</button>
+    <button class="period-btn"        onclick="setPeriod('year',this)">Год</button>
+  </div>
+
+  <!-- ── ИТОГИ ПЕРИОДА ── -->
+  <div class="summary-grid" id="summary-grid">
+    <div class="summary-card">
+      <div class="sc-label">PnL за период</div>
+      <div class="sc-value" id="sp-pnl">$0</div>
+      <div class="sc-sub"  id="sp-pnl-sub">0 сделок</div>
+    </div>
+    <div class="summary-card">
+      <div class="sc-label">Винрейт</div>
+      <div class="sc-value" id="sp-wr">0%</div>
+      <div class="sc-sub"  id="sp-wr-sub">W 0 / L 0</div>
+    </div>
+    <div class="summary-card">
+      <div class="sc-label">Средний RR</div>
+      <div class="sc-value" id="sp-rr">—</div>
+      <div class="sc-sub">за период</div>
+    </div>
+    <div class="summary-card">
+      <div class="sc-label">Лучшая сделка</div>
+      <div class="sc-value" id="sp-best">—</div>
+      <div class="sc-sub"  id="sp-best-sub"></div>
+    </div>
+    <div class="summary-card wide">
+      <div class="sc-label" style="margin-bottom:8px;">Разбивка по дням</div>
+      <div class="sc-inner" id="sp-days"></div>
+    </div>
+  </div>
+
+  <!-- ── СТАТИСТИКА ── -->
+  <div class="stats-bar">
+    <div class="stat-box">
+      <span class="stat-label">Общий PnL</span>
+      <span class="stat-value" id="stat-pnl">$0</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Баланс</span>
+      <span class="stat-value" id="stat-balance">$0</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Винрейт</span>
+      <span class="stat-value" id="stat-wr">0%</span>
+    </div>
+    <div class="stat-box">
+      <span class="stat-label">Средний RR</span>
+      <span class="stat-value" id="stat-rr">0</span>
+    </div>
+  </div>
+
+  <!-- ── ФОРМА ── -->
+  <div class="card" id="form-card">
+
+    <div class="section-divider">Основное</div>
+    <div class="row2">
+      <input id="date" type="date">
+      <input id="time" type="time">
+    </div>
+
+    <select id="side" onchange="liveCalc()">
+      <option value="LONG">LONG</option>
+      <option value="SHORT">SHORT</option>
+    </select>
+
+    <input id="asset" placeholder="Актив (напр. BTCUSDT)">
+
+    <input id="deposit" placeholder="Депозит ($)" type="number" oninput="liveCalc()">
+    <h4>Плечо</h4>
+    <div class="lev-wrap">
+      <input type="range" id="leverage-slider" min="1" max="100" value="1" oninput="syncLev('slider')">
+      <input type="number" id="leverage" placeholder="x" value="1" min="1" max="100" oninput="syncLev('input')">
+    </div>
+    <div class="lev-presets">
+      <button class="lev-preset active" onclick="setLev(5)">x5</button>
+      <button class="lev-preset"        onclick="setLev(10)">x10</button>
+      <button class="lev-preset"        onclick="setLev(20)">x20</button>
+      <button class="lev-preset"        onclick="setLev(50)">x50</button>
+      <button class="lev-preset"        onclick="setLev(100)">x100</button>
+    </div>
+    <div class="row2">
+      <input id="riskPercent" placeholder="Риск %"       type="number" oninput="liveCalc()">
+      <input id="entry"       placeholder="Вход"         type="number" oninput="liveCalc()">
+    </div>
+    <input id="stop" placeholder="Стоп" type="number" oninput="liveCalc()">
+
+    <!-- ── ЖИВОЙ ПОДСЧЁТ ── -->
+    <div class="live-calc">
+      <div class="lc-item">
+        <span class="lc-label">Объём позиции</span>
+        <span class="lc-value" id="lc-pos">—</span>
+        <span class="lc-sub"  id="lc-pos-base">без плеча: —</span>
+      </div>
+      <div class="lc-item">
+        <span class="lc-label">Плечо</span>
+        <span class="lc-value" id="lc-lev">—</span>
+      </div>
+      <div class="lc-item">
+        <span class="lc-label">Риск $</span>
+        <span class="lc-value" id="lc-risk">—</span>
+        <span class="lc-sub"  id="lc-risk-pct"></span>
+      </div>
+      <div class="lc-item">
+        <span class="lc-label">Стоп %</span>
+        <span class="lc-value" id="lc-stop-pct">—</span>
+      </div>
+      <div class="lc-item">
+        <span class="lc-label">RR (к TP1)</span>
+        <span class="lc-value" id="lc-rr">—</span>
+      </div>
+      <div class="lc-item">
+        <span class="lc-label">PnL при Стопе</span>
+        <span class="lc-value" id="lc-pnl-stop" style="color:#f85149;">—</span>
+      </div>
+      <div class="lc-item full-row">
+        <span class="lc-label">PnL при TP1</span>
+        <div class="lc-pnl-row">
+          <div class="lc-pnl-col">
+            <span class="lc-label">с плечом</span>
+            <span class="lc-value" id="lc-pnl1">—</span>
+          </div>
+          <div class="lc-pnl-col">
+            <span class="lc-label">без плеча</span>
+            <span class="lc-value" id="lc-pnl1-base" style="color:#8b949e;">—</span>
+          </div>
+          <div class="lc-pnl-col">
+            <span class="lc-label">экспозиция</span>
+            <span class="lc-value" id="lc-exp">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-divider">Тейк профиты</div>
+    <h4>Частичный выход 1</h4>
+    <div class="row2">
+      <input id="tp1_price"   placeholder="Цена TP1"  type="number" oninput="liveCalc()">
+      <input id="tp1_percent" placeholder="% позиции" type="number">
+    </div>
+
+    <h4>Частичный выход 2</h4>
+    <div class="row2">
+      <input id="tp2_price"   placeholder="Цена TP2"  type="number">
+      <input id="tp2_percent" placeholder="% позиции" type="number">
+    </div>
+
+    <input id="bplus" placeholder="Б+ ($)" type="number">
+
+    <div class="section-divider">Анализ</div>
+    <div class="row2">
+      <select id="timeframe">
+        <option value="">Таймфрейм</option>
+        <option>1m</option><option>5m</option><option>15m</option>
+        <option>30m</option><option>1h</option><option>4h</option>
+        <option>1D</option><option>1W</option>
+      </select>
+      <select id="result">
+        <option value="">Результат</option>
+        <option value="win">✅ Win</option>
+        <option value="loss">❌ Loss</option>
+        <option value="be">➖ Break Even</option>
+      </select>
+    </div>
+
+    <input id="strategy" placeholder="Стратегия / Сетап">
+
+    <div class="section-divider">Психология</div>
+    <h4>Эмоции перед входом</h4>
+    <div class="emotion-row">
+      <button class="emotion-btn" onclick="selectEmotion('calm')"    id="em-calm">😌 Спокоен</button>
+      <button class="emotion-btn" onclick="selectEmotion('excited')" id="em-excited">😤 Азарт</button>
+      <button class="emotion-btn" onclick="selectEmotion('fear')"    id="em-fear">😰 Страх</button>
+      <button class="emotion-btn" onclick="selectEmotion('fomo')"    id="em-fomo">🔥 FOMO</button>
+    </div>
+
+    <h4>Соблюдал риск-менеджмент</h4>
+    <div class="rm-row">
+      <button class="rm-btn" onclick="selectRM(true)"  id="rm-yes">✅ Да</button>
+      <button class="rm-btn" onclick="selectRM(false)" id="rm-no">❌ Нет</button>
+    </div>
+
+    <h4>Качество входа</h4>
+    <div class="stars" id="stars-row">
+      <span class="star" onclick="selectStar(1)" id="star-1">★</span>
+      <span class="star" onclick="selectStar(2)" id="star-2">★</span>
+      <span class="star" onclick="selectStar(3)" id="star-3">★</span>
+      <span class="star" onclick="selectStar(4)" id="star-4">★</span>
+      <span class="star" onclick="selectStar(5)" id="star-5">★</span>
+    </div>
+
+    <textarea id="note" placeholder="Комментарий / заметки"></textarea>
+    <button onclick="saveTrade()">💾 Сохранить сделку</button>
+  </div>
+
+  <div id="list"></div>
+</div>
+
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script>
+// ── Firebase ──────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey:            "AIzaSyBAZJPfxqE2JQ3ya_oDY50mUSIZwcx6VUo",
+  authDomain:        "il-trade.firebaseapp.com",
+  databaseURL:       "https://il-trade-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "il-trade",
+  storageBucket:     "il-trade.firebasestorage.app",
+  messagingSenderId: "582308491669",
+  appId:             "1:582308491669:web:a6d52ec80b7ff4a621869c"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.database();
+
+// ── Telegram ──────────────────────────────────────────────────────
+const tg     = window.Telegram.WebApp;
+tg.expand();
+tg.ready();
+const tgUser = tg.initDataUnsafe?.user;
+
+// ── State ─────────────────────────────────────────────────────────
+let uid             = null;
+let trades          = {};
+let notifications   = [];
+let editId          = null;
+let tradesRef       = null;
+let notifsRef       = null;
+let selectedEmotion = null;
+let selectedRM      = null;
+let selectedStars   = 0;
+
+// ── Auth ──────────────────────────────────────────────────────────
+async function signIn() {
+  const cred = auth.currentUser
+    ? auth.currentUser
+    : (await auth.signInAnonymously()).user;
+  uid = cred.uid;
+  if (tgUser) {
+    await db.ref(`users/${uid}/tg`).set({
+      id:         tgUser.id         || null,
+      username:   tgUser.username   || null,
+      first_name: tgUser.first_name || null,
+      last_name:  tgUser.last_name  || null
+    });
+  }
+}
+
+// ── Boot ──────────────────────────────────────────────────────────
+(async () => {
+  try {
+    await signIn();
+
+    tradesRef = db.ref(`trades/${uid}`);
+    tradesRef.on("value", snap => {
+      trades = snap.val() || {};
+      render();
+      renderStats();
+      renderSummary();
+      checkDayReminder();
+    });
+
+    notifsRef = db.ref(`notifications/${uid}`);
+    notifsRef.on("value", snap => {
+      notifications = snap.val() ? Object.values(snap.val()) : [];
+      renderNotifs();
+    });
+
+    const now = new Date();
+    document.getElementById("date").value = now.toISOString().slice(0, 10);
+    document.getElementById("time").value = now.toTimeString().slice(0, 5);
+
+    document.getElementById("loader").style.display = "none";
+    document.getElementById("app").style.display    = "flex";
+
+    // Проверка напоминаний при открытии
+    setTimeout(checkReminders, 1500);
+
+  } catch (e) {
+    document.getElementById("loader").innerHTML =
+      `<span style="color:#f85149">Ошибка: ${e.message}</span>`;
+  }
+})();
+
+// ── Leverage slider sync ──────────────────────────────────────────
+function syncLev(source) {
+  const slider = document.getElementById("leverage-slider");
+  const input  = document.getElementById("leverage");
+  if (source === "slider") {
+    input.value = slider.value;
+  } else {
+    let v = Math.min(100, Math.max(1, +input.value || 1));
+    input.value  = v;
+    slider.value = v;
+  }
+  // Обновить активный пресет
+  document.querySelectorAll(".lev-preset").forEach(b => {
+    b.classList.toggle("active", +b.textContent.replace("x","") === +input.value);
+  });
+  liveCalc();
+}
+
+function setLev(v) {
+  document.getElementById("leverage").value        = v;
+  document.getElementById("leverage-slider").value = v;
+  document.querySelectorAll(".lev-preset").forEach(b => {
+    b.classList.toggle("active", +b.textContent.replace("x","") === v);
+  });
+  liveCalc();
+}
+
+// ── Live Calc ─────────────────────────────────────────────────────
+function liveCalc() {
+  const deposit     = +val("deposit");
+  const leverage    = +val("leverage") || 1;
+  const riskPercent = +val("riskPercent");
+  const entry       = +val("entry");
+  const stop        = +val("stop");
+  const tp1         = +val("tp1_price");
+  const side        = val("side");
+
+  const resetIds = ["lc-pos","lc-lev","lc-risk","lc-stop-pct","lc-rr","lc-pnl1","lc-pnl1-base","lc-pnl-stop","lc-exp"];
+  if (!deposit || !entry || !stop) {
+    resetIds.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = "—";
+    });
+    document.getElementById("lc-pos-base").textContent = "без плеча: —";
+    document.getElementById("lc-risk-pct").textContent = "";
+    return;
+  }
+
+  const posBase  = deposit;
+  const posFull  = deposit * leverage;
+  const diff     = Math.abs(entry - stop);
+  const stopPct  = (diff / entry) * 100;
+  const riskUSD  = riskPercent
+    ? deposit * (riskPercent / 100)
+    : (diff / entry) * posBase;
+
+  // PnL TP1 — с плечом и без
+  let pnl1 = 0, pnl1Base = 0;
+  if (tp1) {
+    const coinsLev  = posFull / entry;
+    const coinsBase = posBase / entry;
+    pnl1     = side === "LONG" ? (tp1 - entry) * coinsLev  : (entry - tp1) * coinsLev;
+    pnl1Base = side === "LONG" ? (tp1 - entry) * coinsBase : (entry - tp1) * coinsBase;
+  }
+  const rr = (tp1 && diff) ? Math.abs(tp1 - entry) / diff : 0;
+
+  // Вывод
+  document.getElementById("lc-pos").textContent      = "$" + fmt(posFull, 0);
+  document.getElementById("lc-pos-base").textContent = "без плеча: $" + fmt(posBase, 0);
+  document.getElementById("lc-lev").textContent      = "x" + leverage;
+  document.getElementById("lc-stop-pct").textContent = fmt(stopPct, 2) + "%";
+  document.getElementById("lc-exp").textContent      = "$" + fmt(posFull, 0);
+  document.getElementById("lc-rr").textContent       = tp1 ? "1:" + fmt(rr, 2) : "—";
+
+  const riskEl = document.getElementById("lc-risk");
+  riskEl.textContent  = "$" + fmt(riskUSD);
+  riskEl.style.color  = riskPercent > 3 ? "#f85149" : "#58a6ff";
+  document.getElementById("lc-risk-pct").textContent = riskPercent ? riskPercent + "% от депозита" : "";
+
+  const stopEl = document.getElementById("lc-pnl-stop");
+  stopEl.textContent = "-$" + fmt(riskUSD);
+
+  const p1El     = document.getElementById("lc-pnl1");
+  const p1BaseEl = document.getElementById("lc-pnl1-base");
+  if (tp1) {
+    p1El.textContent     = (pnl1 >= 0 ? "+" : "") + "$" + fmt(pnl1);
+    p1El.style.color     = pnl1 >= 0 ? "#3fb950" : "#f85149";
+    p1BaseEl.textContent = (pnl1Base >= 0 ? "+" : "") + "$" + fmt(pnl1Base);
+    p1BaseEl.style.color = pnl1Base >= 0 ? "#3fb950" : "#f85149";
+  } else {
+    p1El.textContent     = "—";
+    p1El.style.color     = "#58a6ff";
+    p1BaseEl.textContent = "—";
+    p1BaseEl.style.color = "#8b949e";
+  }
+}
+
+// ── Period Summary ────────────────────────────────────────────────
+let currentPeriod = "day";
+
+function setPeriod(period, btn) {
+  currentPeriod = period;
+  document.querySelectorAll(".period-btn").forEach(b => b.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+  renderSummary();
+}
+
+function getPeriodRange(period) {
+  const now   = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let from;
+  if (period === "day") {
+    from = today;
+  } else if (period === "week") {
+    const day = today.getDay() || 7;
+    from = new Date(today); from.setDate(today.getDate() - day + 1);
+  } else if (period === "month") {
+    from = new Date(today.getFullYear(), today.getMonth(), 1);
+  } else {
+    from = new Date(today.getFullYear(), 0, 1);
+  }
+  return from.toISOString().slice(0, 10);
+}
+
+function renderSummary() {
+  const from = getPeriodRange(currentPeriod);
+  const arr  = Object.values(trades).filter(t => t.date >= from && !t.archived);
+
+  if (!arr.length) {
+    document.getElementById("sp-pnl").textContent     = "$0";
+    document.getElementById("sp-pnl").style.color     = "#8b949e";
+    document.getElementById("sp-pnl-sub").textContent = "0 сделок";
+    document.getElementById("sp-wr").textContent      = "0%";
+    document.getElementById("sp-wr-sub").textContent  = "W 0 / L 0";
+    document.getElementById("sp-rr").textContent      = "—";
+    document.getElementById("sp-best").textContent    = "—";
+    document.getElementById("sp-best-sub").textContent= "";
+    document.getElementById("sp-days").innerHTML      =
+      '<span style="color:#484f58;font-size:13px;">Нет сделок за период</span>';
+    return;
+  }
+
+  const totalPnl = arr.reduce((s, t) => s + (t.pnl || 0), 0);
+  const closed   = arr.filter(t => t.result === "win" || t.result === "loss");
+  const wins     = closed.filter(t => t.result === "win").length;
+  const losses   = closed.filter(t => t.result === "loss").length;
+  const wr       = closed.length ? wins / closed.length * 100 : 0;
+  const validRR  = arr.filter(t => t.rr > 0);
+  const avgRR    = validRR.length ? validRR.reduce((s,t) => s+t.rr, 0) / validRR.length : 0;
+  const best     = arr.reduce((a, b) => (b.pnl||0) > (a.pnl||0) ? b : a, arr[0]);
+
+  const pnlEl = document.getElementById("sp-pnl");
+  pnlEl.textContent = (totalPnl >= 0 ? "+" : "") + "$" + fmt(totalPnl);
+  pnlEl.style.color = totalPnl >= 0 ? "#3fb950" : "#f85149";
+  document.getElementById("sp-pnl-sub").textContent = arr.length + " сделок";
+  document.getElementById("sp-wr").textContent      = fmt(wr, 1) + "%";
+  document.getElementById("sp-wr-sub").textContent  = `W ${wins} / L ${losses}`;
+  document.getElementById("sp-rr").textContent      = avgRR ? "1:" + fmt(avgRR, 2) : "—";
+  document.getElementById("sp-best").textContent    = best ? (best.pnl>=0?"+":"") + "$" + fmt(best.pnl) : "—";
+  document.getElementById("sp-best-sub").textContent= best ? best.asset + " " + best.side : "";
+
+  // Разбивка по дням (последние 7 или все за период)
+  const byDay = {};
+  arr.forEach(t => {
+    if (!byDay[t.date]) byDay[t.date] = { pnl: 0, count: 0 };
+    byDay[t.date].pnl   += t.pnl || 0;
+    byDay[t.date].count += 1;
+  });
+  const days = Object.entries(byDay).sort((a,b) => a[0].localeCompare(b[0])).slice(-7);
+  document.getElementById("sp-days").innerHTML = days.map(([date, d]) => `
+    <div class="sc-col" style="min-width:60px;">
+      <span style="font-size:10px;color:#484f58;">${date.slice(5)}</span>
+      <span style="font-size:14px;font-weight:bold;color:${d.pnl>=0?'#3fb950':'#f85149'};">
+        ${d.pnl>=0?"+":""}${fmt(d.pnl)}$
+      </span>
+      <span style="font-size:10px;color:#8b949e;">${d.count} сд.</span>
+    </div>`).join("") || '<span style="color:#484f58;font-size:13px;">Нет данных</span>';
+}
+
+// ── Calc (for save) ───────────────────────────────────────────────
+function calcTrade(t) {
+  const leverage    = t.leverage || 1;
+  const positionFull = t.deposit * leverage;      // объём с плечом
+  const positionBase = t.deposit;                  // объём без плеча
+  const riskUSD      = t.deposit * (t.riskPercent / 100);
+
+  const priceDiff = Math.abs(t.entry - t.stop);
+  const stopPct   = t.entry ? (priceDiff / t.entry) * 100 : 0;
+
+  // PnL считается от объёма С плечом
+  function pnlCalc(price, percent) {
+    if (!price || !percent) return 0;
+    const coins = (positionFull / t.entry) * (percent / 100);
+    return t.side === "LONG"
+      ? (price - t.entry) * coins
+      : (t.entry - price) * coins;
+  }
+
+  // PnL без плеча (для сравнения)
+  function pnlBaseCalc(price, percent) {
+    if (!price || !percent) return 0;
+    const coins = (positionBase / t.entry) * (percent / 100);
+    return t.side === "LONG"
+      ? (price - t.entry) * coins
+      : (t.entry - price) * coins;
+  }
+
+  const pnl1     = pnlCalc(t.tp1_price, t.tp1_percent);
+  const pnl2     = pnlCalc(t.tp2_price, t.tp2_percent);
+  const pnl1Base = pnlBaseCalc(t.tp1_price, t.tp1_percent);
+  const pnl2Base = pnlBaseCalc(t.tp2_price, t.tp2_percent);
+  const total    = pnl1 + pnl2;
+  const totalBase = pnl1Base + pnl2Base;
+  const rr       = riskUSD ? total / riskUSD : 0;
+
+  return {
+    ...t,
+    positionFull, positionBase,
+    riskUSD, stopPct,
+    pnl: total, pnl1, pnl2,
+    pnlBase: totalBase, pnl1Base, pnl2Base,
+    rr
+  };
+}
+
+// ── Save ──────────────────────────────────────────────────────────
+async function saveTrade() {
+  const raw = {
+    id:          editId || Date.now(),
+    date:        val("date"),
+    time:        val("time"),
+    side:        val("side"),
+    asset:       val("asset"),
+    deposit:     +val("deposit"),
+    leverage:    +val("leverage") || 1,
+    riskPercent: +val("riskPercent"),
+    entry:       +val("entry"),
+    stop:        +val("stop"),
+    tp1_price:   +val("tp1_price"),
+    tp1_percent: +val("tp1_percent"),
+    tp2_price:   +val("tp2_price"),
+    tp2_percent: +val("tp2_percent"),
+    bplus:       +val("bplus"),
+    timeframe:   val("timeframe"),
+    strategy:    val("strategy"),
+    result:      val("result"),
+    emotion:     selectedEmotion || "",
+    followedRM:  selectedRM,
+    quality:     selectedStars,
+    note:        val("note")
+  };
+
+  const t = calcTrade(raw);
+
+  try {
+    await tradesRef.child(String(t.id)).set(t);
+
+    // Добавляем уведомление о сохранении
+    await addNotif({
+      icon:  t.result === "win" ? "✅" : t.result === "loss" ? "❌" : "💾",
+      title: `Сделка сохранена: ${t.side} ${t.asset}`,
+      desc:  `PnL: ${t.pnl >= 0 ? "+" : ""}${fmt(t.pnl)}$ · RR: 1:${fmt(t.rr, 2)}`,
+      time:  nowStr()
+    });
+
+    clearForm();
+    editId = null;
+  } catch (e) {
+    alert("Ошибка сохранения: " + e.message);
+  }
+}
+
+// ── Edit ──────────────────────────────────────────────────────────
+function editTrade(id) {
+  const t = trades[id];
+  if (!t) return;
+  ["date","time","side","asset","deposit","leverage","riskPercent","entry","stop",
+   "tp1_price","tp1_percent","tp2_price","tp2_percent","bplus",
+   "timeframe","strategy","result","note"].forEach(k => {
+    const el = document.getElementById(k);
+    if (el) el.value = t[k] ?? "";
+  });
+  selectEmotion(t.emotion || null);
+  selectRM(t.followedRM);
+  selectStar(t.quality || 0);
+  // Синхронизировать слайдер плеча
+  const levVal = t.leverage || 1;
+  document.getElementById("leverage").value        = levVal;
+  document.getElementById("leverage-slider").value = levVal;
+  document.querySelectorAll(".lev-preset").forEach(b => {
+    b.classList.toggle("active", +b.textContent.replace("x","") === levVal);
+  });
+  liveCalc();
+  editId = id;
+  document.getElementById("form-card").scrollIntoView({ behavior: "smooth" });
+}
+
+// ── Delete ────────────────────────────────────────────────────────
+async function deleteTrade(id) {
+  if (!confirm("Удалить сделку?")) return;
+  try {
+    await tradesRef.child(String(id)).remove();
+  } catch (e) {
+    alert("Ошибка удаления: " + e.message);
+  }
+}
+
+// ── Stats ─────────────────────────────────────────────────────────
+function renderStats() {
+  const arr = Object.values(trades);
+  if (!arr.length) return;
+
+  const totalPnl = arr.reduce((s, t) => s + (t.pnl || 0), 0);
+  const deposit  = arr[arr.length - 1]?.deposit || 0;
+  const balance  = deposit + totalPnl;
+
+  const closed   = arr.filter(t => t.result === "win" || t.result === "loss");
+  const wins     = closed.filter(t => t.result === "win").length;
+  const winrate  = closed.length ? wins / closed.length * 100 : 0;
+
+  const validRR  = arr.filter(t => t.rr > 0);
+  const avgRR    = validRR.length
+    ? validRR.reduce((s, t) => s + t.rr, 0) / validRR.length : 0;
+
+  const pnlEl = document.getElementById("stat-pnl");
+  pnlEl.textContent = (totalPnl >= 0 ? "+" : "") + "$" + fmt(totalPnl);
+  pnlEl.style.color = totalPnl >= 0 ? "#3fb950" : "#f85149";
+
+  document.getElementById("stat-balance").textContent = "$" + fmt(balance);
+  document.getElementById("stat-wr").textContent      = fmt(winrate, 1) + "%";
+  document.getElementById("stat-rr").textContent      = "1:" + fmt(avgRR, 2);
+}
+
+// ── Render trades ─────────────────────────────────────────────────
+const emotionLabel = { calm:"😌 Спокоен", excited:"😤 Азарт", fear:"😰 Страх", fomo:"🔥 FOMO" };
+const resultBadge  = {
+  win:  '<span class="badge badge-win">WIN</span>',
+  loss: '<span class="badge badge-loss">LOSS</span>',
+  be:   '<span class="badge badge-be">BE</span>',
+};
+
+function render() {
+  renderSummary();
+  const list = document.getElementById("list");
+  const arr  = Object.values(trades).sort((a, b) => b.id - a.id);
+  if (!arr.length) {
+    list.innerHTML = `<p style="text-align:center;color:#484f58;font-size:14px;margin-top:20px;">Сделок пока нет</p>`;
+    return;
+  }
+  list.innerHTML = arr.map(t => {
+    const stars = t.quality
+      ? `<span style="color:#e3b341;font-size:15px;">${"★".repeat(t.quality)}${"☆".repeat(5-t.quality)}</span><br>`
+      : "";
+    const rmText = t.followedRM === true
+      ? '<span style="color:#3fb950">✅ РМ соблюдён</span><br>'
+      : t.followedRM === false
+      ? '<span style="color:#f85149">❌ РМ нарушен</span><br>' : "";
+    const lev = t.leverage || 1;
+    return `
+    <div class="trade-card">
+      <div class="trade-header">
+        <b>${t.date} / ${t.time}</b>
+        ${resultBadge[t.result] || ""}
+      </div>
+      <b style="font-size:16px;">${t.side} ${t.asset}</b>
+      ${t.timeframe ? `<span style="color:#8b949e;font-size:13px;"> · ${t.timeframe}</span>` : ""}
+      ${t.strategy  ? `<br><span style="color:#8b949e;font-size:13px;">📐 ${t.strategy}</span>` : ""}
+      <hr class="trade-divider">
+      Объём: <b>${fmt(t.positionFull,0)}$</b> (x${lev})
+      &nbsp;|&nbsp; без плеча: <b>${fmt(t.positionBase||t.deposit,0)}$</b><br>
+      Вход: ${t.entry} &nbsp;|&nbsp; Стоп: ${t.stop} (${fmt(t.stopPct,2)}%)<br>
+      Риск: ${fmt(t.riskUSD)}$<br>
+      <hr class="trade-divider">
+      TP1: ${t.tp1_price} (${t.tp1_percent}%)<br>
+      &nbsp;&nbsp;с плечом: <span class="${t.pnl1>=0?'profit':'loss'}">${fmt(t.pnl1)}$</span>
+      &nbsp;|&nbsp; без плеча: <span style="color:#8b949e">${fmt(t.pnl1Base||0)}$</span><br>
+      TP2: ${t.tp2_price} (${t.tp2_percent}%)<br>
+      &nbsp;&nbsp;с плечом: <span class="${t.pnl2>=0?'profit':'loss'}">${fmt(t.pnl2)}$</span>
+      &nbsp;|&nbsp; без плеча: <span style="color:#8b949e">${fmt(t.pnl2Base||0)}$</span><br>
+      <hr class="trade-divider">
+      RR: 1:${fmt(t.rr,2)}<br>
+      Итог с плечом: <span class="${t.pnl>=0?'profit':'loss'}"><b>${fmt(t.pnl)}$</b></span>
+      &nbsp;|&nbsp; без плеча: <span style="color:#8b949e">${fmt(t.pnlBase||0)}$</span><br>
+      ${t.bplus ? `Б+: ${t.bplus}$<br>` : ""}
+      ${t.emotion ? `Эмоции: ${emotionLabel[t.emotion]||t.emotion}<br>` : ""}
+      ${rmText}${stars}
+      ${t.note ? `<i style="color:#8b949e;">${t.note}</i><br>` : ""}
+      <div style="margin-top:4px;">
+        <button class="btn-small btn-edit"   onclick="editTrade(${t.id})">✏️ Изменить</button>
+        <button class="btn-small btn-danger" onclick="deleteTrade(${t.id})">🗑 Удалить</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+// ── NOTIFICATIONS ─────────────────────────────────────────────────
+function toggleNotif() {
+  const panel = document.getElementById("notif-panel");
+  panel.classList.toggle("open");
+  if (panel.classList.contains("open")) markAllRead();
+}
+
+async function addNotif(data) {
+  if (!notifsRef) return;
+  const id = Date.now();
+  await notifsRef.child(String(id)).set({ id, ...data, read: false });
+}
+
+async function markAllRead() {
+  const updates = {};
+  notifications.forEach(n => { updates[`${n.id}/read`] = true; });
+  if (Object.keys(updates).length) await notifsRef.update(updates);
+}
+
+async function clearNotifs() {
+  if (!confirm("Очистить все уведомления?")) return;
+  await notifsRef.remove();
+}
+
+function renderNotifs() {
+  const list    = document.getElementById("notif-list");
+  const badge   = document.getElementById("notif-badge");
+  const unread  = notifications.filter(n => !n.read).length;
+  const sorted  = [...notifications].sort((a,b) => b.id - a.id);
+
+  badge.style.display   = unread > 0 ? "flex" : "none";
+  badge.textContent     = unread > 9 ? "9+" : unread;
+
+  if (!sorted.length) {
+    list.innerHTML = `<p style="text-align:center;color:#484f58;font-size:14px;padding:20px 0;">Уведомлений нет</p>`;
+    return;
+  }
+
+  list.innerHTML = sorted.map(n => `
+    <div class="notif-item ${n.read ? "" : "unread"}">
+      <div class="notif-icon">${n.icon || "🔔"}</div>
+      <div class="notif-text">
+        <div class="notif-title">${n.title}</div>
+        <div class="notif-desc">${n.desc || ""}</div>
+        <div class="notif-time">${n.time || ""}</div>
+      </div>
+    </div>
+  `).join("");
+}
+
+// ── Reminders ─────────────────────────────────────────────────────
+function checkReminders() {
+  const now   = new Date();
+  const hour  = now.getHours();
+  const today = now.toISOString().slice(0,10);
+
+  const todayTrades = Object.values(trades).filter(t => t.date === today);
+
+  // Напоминание добавить сделку — если открыли приложение и сделок сегодня нет
+  if (todayTrades.length === 0 && hour >= 10) {
+    addNotif({
+      icon:  "📝",
+      title: "Сделок сегодня нет",
+      desc:  "Не забудь записать свои сделки за день",
+      time:  nowStr()
+    });
+  }
+
+  // Итоги дня — после 20:00
+  if (hour >= 20 && todayTrades.length > 0) {
+    const dayPnl  = todayTrades.reduce((s,t) => s + (t.pnl||0), 0);
+    const dayWins = todayTrades.filter(t => t.result === "win").length;
+    addNotif({
+      icon:  dayPnl >= 0 ? "📈" : "📉",
+      title: `Итоги дня — ${today}`,
+      desc:  `Сделок: ${todayTrades.length} · Побед: ${dayWins} · PnL: ${dayPnl>=0?"+":""}${fmt(dayPnl)}$`,
+      time:  nowStr()
+    });
+  }
+}
+
+function checkDayReminder() {
+  // Дополнительная проверка при обновлении данных
+}
+
+// ── UI Controls ───────────────────────────────────────────────────
+function selectEmotion(key) {
+  selectedEmotion = key;
+  ["calm","excited","fear","fomo"].forEach(k =>
+    document.getElementById("em-"+k)?.classList.toggle("selected", k===key));
+}
+function selectRM(v) {
+  selectedRM = v;
+  document.getElementById("rm-yes")?.classList.toggle("selected-yes", v===true);
+  document.getElementById("rm-no")?.classList.toggle("selected-no",  v===false);
+}
+function selectStar(num) {
+  selectedStars = num;
+  for (let i=1; i<=5; i++)
+    document.getElementById("star-"+i)?.classList.toggle("active", i<=num);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+const val = id => document.getElementById(id)?.value ?? "";
+const fmt = (v, d=2) => (isNaN(v) ? 0 : +v).toFixed(d);
+const nowStr = () => new Date().toLocaleString("ru-RU", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" });
+
+function clearForm() {
+  ["asset","deposit","riskPercent","entry","stop",
+   "tp1_price","tp1_percent","tp2_price","tp2_percent",
+   "bplus","strategy","note"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+  document.getElementById("result").value    = "";
+  document.getElementById("timeframe").value = "";
+  // Сброс плеча на x1
+  setLev(1);
+  selectEmotion(null);
+  selectRM(null);
+  selectStar(0);
+  liveCalc();
+}
+</script>
+</body>
+</html>
