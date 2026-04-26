@@ -1033,10 +1033,9 @@ const firebaseConfig = {
   messagingSenderId: "582308491669",
   appId:             "1:582308491669:web:a6d52ec80b7ff4a621869c"
 };
-firebase.initializeApp(firebaseConfig);
-const auth = firebase.auth();
-const db   = firebase.database();
 
+// ТОЛЬКО объявляем переменные, чтобы избежать фатальной ошибки при блокировщике
+let auth, db;
 
 // ── Telegram ──────────────────────────────────────────────────────
 // Telegram WebApp — безопасная инициализация (работает и вне Telegram)
@@ -1048,7 +1047,7 @@ const tgUser = tg.initDataUnsafe?.user || null;
 // ── State ─────────────────────────────────────────────────────────
 let uid             = null;
 let trades          = {};
-let notifications   = [];
+let notifications   =[];
 let editId          = null;
 let tradesRef       = null;
 let notifsRef       = null;
@@ -1111,17 +1110,6 @@ function setLev(v) {
 }
 
 // ── Live Calc ────────────────────────────────────────────────────
-// Формулы:
-//   riskUSD         = deposit × riskPercent%
-//   posBase         = riskUSD                     ← объём без плеча
-//   posFull         = riskUSD × leverage           ← объём с плечом
-//   stopPct         = |entry - stop| / entry
-//   PnL_stop        = -(riskUSD × leverage × stopPct)  ← с плечом
-//   coins_lev       = posFull / entry              ← монет С плечом (для PnL)
-//   tp1Coins        = coins_lev × (tp1_percent/100)
-//   pnl1            = (tp1Price - entry) × tp1Coins    ← С плечом
-//   remainCoins     = coins_lev - tp1Coins          ← остаток после TP1
-//   pnl2            = (tp2Price - entry) × remainCoins ← С плечом
 function liveCalc() {
   const deposit    = +val("deposit");
   const leverage   = +val("leverage") || 1;
@@ -1133,7 +1121,7 @@ function liveCalc() {
   const tp2Price   = +val("tp2_price");
   const side       = val("side");
 
-  const allIds = ["lc-pos-base","lc-pos","lc-risk","lc-stop-pct","lc-lev",
+  const allIds =["lc-pos-base","lc-pos","lc-risk","lc-stop-pct","lc-lev",
                   "lc-pnl-stop","lc-pnl1","lc-vol-tp1","lc-rr1",
                   "lc-pnl2","lc-vol-tp2","lc-pnl-total"];
   if (!deposit || !entry || !stop || !riskPct) {
@@ -1211,8 +1199,7 @@ function liveCalc() {
     S("lc-pnl1",    (pnl1 >= 0 ? "+" : "") + "$" + fmt(pnl1, 2), c1);
     S("lc-vol-tp1", "$" + fmt(volTp1, 2), "#8b949e");
     S("lc-rr1",     rr1 ? "1:" + fmt(rr1, 2) : "—", "#58a6ff");
-  } else {
-    ["lc-pnl1","lc-vol-tp1","lc-rr1"].forEach(id => S(id,"—","#58a6ff"));
+  } else {["lc-pnl1","lc-vol-tp1","lc-rr1"].forEach(id => S(id,"—","#58a6ff"));
   }
 
   if (tp2Price && remainCoinsCalc > 0) {
@@ -1221,8 +1208,7 @@ function liveCalc() {
     S("lc-pnl2",      (pnl2 >= 0 ? "+" : "") + "$" + fmt(pnl2, 2),      c2);
     S("lc-vol-tp2",   "$" + fmt(volTp2, 2),                              "#8b949e");
     S("lc-pnl-total", (pnlTotal >= 0 ? "+" : "") + "$" + fmt(pnlTotal, 2), ct);
-  } else {
-    ["lc-pnl2","lc-vol-tp2","lc-pnl-total"].forEach(id => S(id,"—","#58a6ff"));
+  } else {["lc-pnl2","lc-vol-tp2","lc-pnl-total"].forEach(id => S(id,"—","#58a6ff"));
   }
 }
 
@@ -1345,7 +1331,7 @@ async function saveTrade() {
     // If images caused the error, try saving without them
     if (safeImages.length > 0 && e.message && e.message.includes('size')) {
       try {
-        t.images = [];
+        t.images =[];
         await tradesRef.child(String(t.id)).set(t);
         alert("Сделка сохранена (без изображений — превышен лимит размера)");
         clearForm();
@@ -1422,7 +1408,7 @@ function render() {
     const posFull = riskUSD * lev;
 
     // Close history
-    const acts    = Array.isArray(t.closeActions) ? t.closeActions : [];
+    const acts    = Array.isArray(t.closeActions) ? t.closeActions :[];
     const closeHistory = acts.length
       ? acts.map(a =>
           `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;">
@@ -1450,12 +1436,9 @@ function render() {
 
     // Share text for Telegram
     const shareText = encodeURIComponent(
-      `📊 ${t.side} ${t.asset} | ${t.date}
-` +
-      `Вход: ${t.entry} | Стоп: ${t.stop}
-` +
-      `PnL: ${(t.pnl||0)>=0?'+':''}$${fmt(t.pnl||0)} | RR: ${rrDisplay}
-` +
+      `📊 ${t.side} ${t.asset} | ${t.date}\n` +
+      `Вход: ${t.entry} | Стоп: ${t.stop}\n` +
+      `PnL: ${(t.pnl||0)>=0?'+':''}$${fmt(t.pnl||0)} | RR: ${rrDisplay}\n` +
       `via IL-Trade Journal`
     );
     const tgShareUrl = `https://t.me/share/url?url=https://t.me&text=${shareText}`;
@@ -1895,7 +1878,7 @@ async function autoSyncOnOpen() {
 }
 
 // ── Image Upload ──────────────────────────────────────────────────
-let pendingImages = []; // base64 строки, до 3
+let pendingImages =[]; // base64 строки, до 3
 
 function handleImgSelect(e) {
   const files = Array.from(e.target.files);
@@ -1948,7 +1931,7 @@ function toggleTradeImg(el) {
 }
 
 function clearImgPreview() {
-  pendingImages = [];
+  pendingImages =[];
   const row = document.getElementById('img-preview-row');
   if (row) row.innerHTML = '';
   const btn = document.querySelector('.img-upload-btn');
@@ -1958,8 +1941,8 @@ function clearImgPreview() {
 // ── Open / Close Trade Logic ─────────────────────────────────────
 let closingTradeId   = null;
 let selectedCloseOpt = null;
-// Actions history for current modal session: [{type, price, pct, pnl, coinsUsed}]
-let closeActions     = [];
+// Actions history for current modal session:[{type, price, pct, pnl, coinsUsed}]
+let closeActions     =[];
 
 // ── Helpers ───────────────────────────────────────────────────────
 function tradeCoinsLev(t) {
@@ -1984,7 +1967,7 @@ function openCloseModal(id) {
   if (!t) return;
   closingTradeId   = id;
   selectedCloseOpt = null;
-  closeActions     = Array.isArray(t.closeActions) ? [...t.closeActions] : [];
+  closeActions     = Array.isArray(t.closeActions) ? [...t.closeActions] :[];
 
   const now = new Date();
   document.getElementById('cm-close-date').value = now.toISOString().slice(0,10);
@@ -2322,7 +2305,7 @@ function renderOpenTrades() {
     const pnlTotal = (pnlTp1||0) + (pnlTp2||0);
 
     // Частичные закрытия
-    const acts    = Array.isArray(t.closeActions) ? t.closeActions : [];
+    const acts    = Array.isArray(t.closeActions) ? t.closeActions :[];
     const usedPct = acts.reduce((s,a) => s+(a.pct||0), 0);
     const partPnl = acts.reduce((s,a) => s+(a.pnl||0), 0);
     const remPct  = 100 - usedPct;
@@ -2407,10 +2390,10 @@ function exportTrades(format) {
 
   if (!arr.length) { alert('Нет сделок за выбранный период'); return; }
 
-  const headers = ['Дата','Время','Актив','Сторона','Депозит','Плечо','Риск%',
+  const headers =['Дата','Время','Актив','Сторона','Депозит','Плечо','Риск%',
                    'Вход','Стоп','TP1','TP2','PnL','RR','Результат','Комментарий'];
 
-  const rows = arr.map(t => [
+  const rows = arr.map(t =>[
     t.date, t.time, t.asset, t.side,
     t.deposit, t.leverage||1, t.riskPercent,
     t.entry, t.stop, t.tp1_price||'', t.tp2_price||'',
@@ -2419,14 +2402,12 @@ function exportTrades(format) {
   ]);
 
   if (format === 'csv') {
-    const csvContent = [headers, ...rows].map(r => r.join(',')).join('
-');
-    const blob = new Blob(['﻿'+csvContent], {type:'text/csv;charset=utf-8;'});
+    const csvContent = [headers, ...rows].map(r => r.join(',')).join('\n');
+    const blob = new Blob(['\uFEFF'+csvContent], {type:'text/csv;charset=utf-8;'});
     downloadBlob(blob, `il-trade-${from||'all'}-${to||'all'}.csv`);
   } else {
     // Simple XLS (tab-separated, works in Excel)
-    const xlsContent = [headers, ...rows].map(r => r.join('	')).join('
-');
+    const xlsContent =[headers, ...rows].map(r => r.join('\t')).join('\n');
     const blob = new Blob([xlsContent], {type:'application/vnd.ms-excel'});
     downloadBlob(blob, `il-trade-${from||'all'}-${to||'all'}.xls`);
   }
@@ -2448,8 +2429,7 @@ const val = id => document.getElementById(id)?.value ?? "";
 const fmt = (v, d=2) => (isNaN(v) ? 0 : +v).toFixed(d);
 const nowStr = () => new Date().toLocaleString("ru-RU", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" });
 
-function clearForm() {
-  ["asset","deposit","riskPercent","entry","stop",
+function clearForm() {["asset","deposit","riskPercent","entry","stop",
    "tp1_price","tp1_percent","tp2_price","note"].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = "";
@@ -2482,14 +2462,30 @@ function clearForm() {
   };
 
   try {
-    // 1. Firebase SDK
+    // 1. Проверяем загрузку Firebase
     if (typeof firebase === 'undefined') {
-      diag('d1', false, 'Firebase SDK не загружен. Проверьте интернет.'); return;
+      diag('d1', false, 'Firebase SDK не загружен. Отключите блокировщик рекламы или защиту от отслеживания Safari.'); 
+      return;
     }
     diag('d1', true);
 
+    // Безопасная инициализация
+    try {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+      }
+      auth = firebase.auth();
+      db = firebase.database();
+    } catch (initErr) {
+      diag('d1', false, 'Ошибка инициализации: ' + initErr.message); 
+      return;
+    }
+
     // 2. Auth object
-    try { auth.app; diag('d2', true); }
+    try { 
+      if (auth) diag('d2', true); 
+      else throw new Error("Auth пуст");
+    }
     catch(e) { diag('d2', false, 'Auth: ' + e.message); return; }
 
     // 3-4. Sign in
@@ -2526,35 +2522,4 @@ function clearForm() {
     });
 
     notifsRef.on('value', snap => {
-      notifications = snap.val() ? Object.values(snap.val()) : [];
-      renderNotifs();
-    });
-
-    // Set default date/time
-    const now = new Date();
-    const dateEl = document.getElementById('date');
-    const timeEl = document.getElementById('time');
-    if (dateEl) dateEl.value = now.toISOString().slice(0, 10);
-    if (timeEl) timeEl.value = now.toTimeString().slice(0, 5);
-
-    // Show app
-    document.getElementById('loader').style.display = 'none';
-    document.getElementById('app').style.display    = 'flex';
-
-    setTimeout(checkReminders, 1500);
-    loadMexcKeys().catch(() => {});
-    setTimeout(autoSyncOnOpen, 3000);
-
-  } catch(e) {
-    console.error('Boot error:', e);
-    status('Ошибка');
-    const de = document.getElementById('diag-err');
-    if (de) { de.style.display = 'block'; de.textContent = e.message; }
-    const rb = document.getElementById('retry-btn');
-    if (rb) rb.style.display = 'block';
-  }
-})();
-</script>
-
-</body>
-</html>
+      notifications = snap.val() ? Object.values(snap.val()) :
