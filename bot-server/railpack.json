@@ -1,8 +1,11 @@
 {
-  "build": {
-    "cmd": "npm install"
-  },
+
+  "provider": "node",
+
   "deploy": {
-    "cmd": "node index.js"
+
+    "startCommand": "node index.js"
+
   }
+
 }
