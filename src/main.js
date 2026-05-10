@@ -152,7 +152,7 @@ async function signIn(auth) {
 
     // 5. Firebase realtime listeners
     state.tradesRef.on('value', snap => {
-      clearTimeout(fallbackTimer);
+      clearTimeout(_emergencyTimer); //
       state.trades = snap.val() || {};
       renderJournal(state.trades);
       renderStats(state.trades);
