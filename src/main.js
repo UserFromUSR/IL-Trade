@@ -1,14 +1,6 @@
 // src/main.js
 // Точка входа — инициализация Firebase, WebSocket, Firebase listeners, UI
-
-// ── АВАРИЙНЫЙ ФОЛБЭК (первое что выполняется) ─────────────────────
-// Показывает приложение через 4с в любом случае, даже если всё сломано
-const _emergencyTimer = setTimeout(() => {
-  const l = document.getElementById('loader');
-  const a = document.getElementById('app');
-  if (l) l.style.display = 'none';
-  if (a) a.style.display = 'flex';
-}, 4000);
+// Рефакторинг: Promise.allSettled boot, без _emergencyTimer
 
 import { initFirebase, getDb } from './config/firebase.js';
 import { MexcWebSocket }       from './api/mexc-ws.js';
@@ -24,19 +16,11 @@ import {
 } from './ui/handlers.js';
 import { getTgUser } from './api/telegram.js';
 
-// Функция для скрытия лоадера и показа основного интерфейса
-function showApp() {
-  const loader = document.getElementById('loader');
-  const appContainer = document.getElementById('app');
-  if (loader) loader.style.display = 'none';
-  if (appContainer) appContainer.style.display = 'flex'; // В твоем CSS app имеет flex или block
-}
-
-// ── Telegram WebApp ────────────────────────────────────────────────
+// ── Telegram WebApp ──────────────────────────────────────────────
 // tg.expand() и tg.ready() вызываются автоматически при импорте telegram.js
 const tgUser = getTgUser();
 
-// ── Глобальное состояние ──────────────────────────────────────────
+// ── Глобальное состояние ────────────────────────────────────────
 const state = {
   uid:                null,
   trades:             {},
@@ -62,132 +46,170 @@ const state = {
     autoPostPartial: true,
     autoPostClose:   true
   },
-  // Live
   livePendingRequests: [],
   liveWhitelist:       [],
-  // Close modal
   closingTradeId:   null,
   selectedCloseOpt: null,
   closeActions:     []
 };
 
-// ── Auth ──────────────────────────────────────────────────────────
-async function signIn(auth) {
-  const cred = auth.currentUser
-    ? auth.currentUser
-    : await Promise.race([
-        auth.signInAnonymously().then(r => r.user),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('Таймаут 10с')), 10000))
-      ]);
+// ── UI helpers ──────────────────────────────────────────────────
+const loaderEl = document.getElementById('loader');
+const appEl    = document.getElementById('app');
 
-  state.uid = cred.uid;
-
-  if (tgUser?.id) {
-    getDb().ref(`users/${state.uid}/tg`).set({
-      id:         tgUser.id         || null,
-      username:   tgUser.username   || null,
-      first_name: tgUser.first_name || null,
-      last_name:  tgUser.last_name  || null
-    }).catch(() => {});
-  }
+function setStatus(text) {
+  const el = document.getElementById('loader-text');
+  if (el) el.textContent = text;
 }
 
-// ── Boot ──────────────────────────────────────────────────────────
+let _appShown = false;
+function showApp() {
+  if (_appShown) return;
+  _appShown = true;
+
+  const now = new Date();
+  const de = document.getElementById('date');
+  const te = document.getElementById('time');
+  if (de) de.value = now.toISOString().slice(0, 10);
+  if (te) te.value = now.toTimeString().slice(0, 5);
+
+  const ef = document.getElementById('export-from');
+  const et = document.getElementById('export-to');
+  if (ef) ef.value = now.toISOString().slice(0, 10);
+  if (et) et.value = now.toISOString().slice(0, 10);
+
+  if (loaderEl) loaderEl.style.display = 'none';
+  if (appEl)    appEl.style.display    = 'flex';
+}
+
+// ── Auth ────────────────────────────────────────────────────────
+async function signIn(auth) {
+  const AUTH_TIMEOUT_MS = 10_000;
+
+  const user = auth.currentUser || await Promise.race([
+    auth.signInAnonymously().then(r => r.user),
+    new Promise((_, rej) =>
+      setTimeout(() => rej(new Error('Auth timeout (10s)')), AUTH_TIMEOUT_MS)
+    )
+  ]);
+
+  state.uid = user.uid;
+
+  if (tgUser?.id) {
+    try {
+      await getDb().ref(`users/${state.uid}/tg`).set({
+        id:         tgUser.id         ?? null,
+        username:   tgUser.username   ?? null,
+        first_name: tgUser.first_name ?? null,
+        last_name:  tgUser.last_name  ?? null
+      });
+    } catch (e) {
+      console.warn('[main] Could not save Telegram user info:', e.message);
+    }
+  }
+
+  return user;
+}
+
+// ── Firebase listeners ──────────────────────────────────────────
+function attachFirebaseListeners(db) {
+  state.tradesRef   = db.ref(`trades/${state.uid}`);
+  state.notifsRef   = db.ref(`notifications/${state.uid}`);
+  state.settingsRef = db.ref(`settings/${state.uid}`);
+
+  // Trades — показываем приложение после первого снапшота
+  state.tradesRef.on('value', snap => {
+    state.trades = snap.val() || {};
+    renderJournal(state.trades);
+    renderStats(state.trades);
+    renderOpenTrades(state.trades, state.mexcWs);
+
+    if (document.getElementById('tab-itogi')?.classList.contains('active')) {
+      renderSummary(state.trades, getPeriodStart(state.currentPeriod));
+      renderDayHistory(state.trades, getPeriodStart(state.currentPeriod));
+    }
+    if (document.getElementById('tab-mexc')?.classList.contains('active')) {
+      renderMexcSummary(state.trades);
+    }
+
+    showApp(); // безопасно вызывать многократно — idempotent
+  }, err => {
+    console.error('[Firebase] trades listener error:', err);
+    showApp(); // всё равно показываем UI
+  });
+
+  state.notifsRef.on('value', snap => {
+    state.notifications = snap.val() ? Object.values(snap.val()) : [];
+    renderNotifs(state.notifications);
+  }, err => console.warn('[Firebase] notifs error:', err));
+
+  state.settingsRef.on('value', snap => {
+    state.settings = snap.val() || {};
+  }, err => console.warn('[Firebase] settings error:', err));
+}
+
+// ── MEXC WebSocket ──────────────────────────────────────────────
+function initMexcWs() {
+  state.mexcWs = new MexcWebSocket({
+    onPriceUpdate: () => {
+      renderOpenTrades(state.trades, state.mexcWs);
+    }
+  });
+  state.mexcWs.connect();
+}
+
+// ── Post-boot side effects ──────────────────────────────────────
+function runPostBootEffects() {
+  setTimeout(() => checkReminders(), 1500);
+  loadMexcKeys().catch(e => console.warn('[loadMexcKeys]', e));
+  setTimeout(() => autoSyncOnOpen(), 3000);
+  if (state.uid) loadUserSettings(getDb(), state.uid);
+}
+
+// ── Boot sequence ───────────────────────────────────────────────
 (async () => {
-  // Показываем лоадер сразу, скрываем app до готовности
-  const loaderEl = document.getElementById('loader');
-  const appEl    = document.getElementById('app');
   if (loaderEl) loaderEl.style.display = 'flex';
   if (appEl)    appEl.style.display    = 'none';
 
-  const setStatus = text => {
-    const el = document.getElementById('loader-text');
-    if (el) el.textContent = text;
-  };
-
-  // ── Показать приложение (один раз) ──────────────────────────────
-  let appShown = false;
-  const showApp = () => {
-    if (appShown) return;
-    appShown = true;
-
-    const now = new Date();
-    const de = document.getElementById('date');
-    const te = document.getElementById('time');
-    if (de) de.value = now.toISOString().slice(0, 10);
-    if (te) te.value = now.toTimeString().slice(0, 5);
-
-    const ef = document.getElementById('export-from');
-    const et = document.getElementById('export-to');
-    if (ef) ef.value = now.toISOString().slice(0, 10);
-    if (et) et.value = now.toISOString().slice(0, 10);
-
-    if (loaderEl) loaderEl.style.display = 'none';
-    if (appEl)    appEl.style.display    = 'flex';
-    clearTimeout(_emergencyTimer);
-
-    setTimeout(() => checkReminders(), 1500);
-    loadMexcKeys().catch(() => {});
-    setTimeout(() => autoSyncOnOpen(), 3000);
-    if (state.uid) loadUserSettings(getDb(), state.uid);
-  };
-
-  // Аварийный фолбэк — показываем через 3с в любом случае
-  const fallbackTimer = setTimeout(() => showApp(), 3000);
+  // Гарантированный фолбэк — если за 5с ничего не произошло, просто показать UI
+  const safetyValve = setTimeout(() => {
+    console.warn('[main] Safety valve triggered — showing app unconditionally');
+    showApp();
+  }, 5_000);
 
   try {
-    // 1. Firebase
+    // ① Firebase + Auth
     setStatus('Авторизация...');
     const { auth, db } = initFirebase();
     await signIn(auth);
 
-    // 2. DB refs
+    // ② Параллельно: MEXC WS + обработчики (не блокируют boot)
+    setStatus('Подключение...');
+    const [wsResult, handlersResult] = await Promise.allSettled([
+      Promise.resolve(initMexcWs()),
+      Promise.resolve(initHandlers(state, db))
+    ]);
+
+    if (wsResult.status === 'rejected') {
+      console.warn('[MEXC] init failed:', wsResult.reason);
+    }
+    if (handlersResult.status === 'rejected') {
+      console.error('[Handlers] init failed:', handlersResult.reason);
+    }
+
+    // ③ Firebase listeners (показывают UI при первом снапшоте)
     setStatus('Загрузка данных...');
-    state.tradesRef   = db.ref(`trades/${state.uid}`);
-    state.notifsRef   = db.ref(`notifications/${state.uid}`);
-    state.settingsRef = db.ref(`settings/${state.uid}`);
+    attachFirebaseListeners(db);
 
-    // 3. MEXC WebSocket (не блокирует загрузку)
-    state.mexcWs = new MexcWebSocket({
-      onPriceUpdate: () => {
-        renderOpenTrades(state.trades, state.mexcWs);
-      }
-    });
-    state.mexcWs.connect();
-
-    // 4. Обработчики событий
-    initHandlers(state, db);
-
-    // 5. Firebase realtime listeners
-    state.tradesRef.on('value', snap => {
-      clearTimeout(_emergencyTimer); //
-      state.trades = snap.val() || {};
-      renderJournal(state.trades);
-      renderStats(state.trades);
-      renderOpenTrades(state.trades, state.mexcWs);
-      if (document.getElementById('tab-itogi')?.classList.contains('active')) {
-        renderSummary(state.trades, getPeriodStart(state.currentPeriod));
-        renderDayHistory(state.trades, getPeriodStart(state.currentPeriod));
-      }
-      if (document.getElementById('tab-mexc')?.classList.contains('active')) {
-        renderMexcSummary(state.trades);
-      }
-      showApp();
-    });
-
-    state.notifsRef.on('value', snap => {
-      state.notifications = snap.val() ? Object.values(snap.val()) : [];
-      renderNotifs(state.notifications);
-    });
-
-    state.settingsRef.on('value', snap => {
-      state.settings = snap.val() || {};
-    });
+    // ④ Если снапшот не пришёл за 3с — всё равно показываем UI
+    setTimeout(() => showApp(), 3_000);
 
   } catch (e) {
-    // При любой ошибке — всё равно показываем приложение через 1с
-    console.error('Boot error:', e);
-    clearTimeout(fallbackTimer);
-    setTimeout(() => showApp(), 1000);
+    console.error('[main] Boot error:', e);
+    showApp();
+  } finally {
+    clearTimeout(safetyValve);
   }
+
+  runPostBootEffects();
 })();
