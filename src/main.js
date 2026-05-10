@@ -24,6 +24,14 @@ import {
 } from './ui/handlers.js';
 import { getTgUser } from './api/telegram.js';
 
+// Функция для скрытия лоадера и показа основного интерфейса
+function showApp() {
+  const loader = document.getElementById('loader');
+  const appContainer = document.getElementById('app');
+  if (loader) loader.style.display = 'none';
+  if (appContainer) appContainer.style.display = 'flex'; // В твоем CSS app имеет flex или block
+}
+
 // ── Telegram WebApp ────────────────────────────────────────────────
 // tg.expand() и tg.ready() вызываются автоматически при импорте telegram.js
 const tgUser = getTgUser();
