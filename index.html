@@ -1,0 +1,830 @@
+<!-- Loader -->
+<div id="loader" style="display: none;">
+  <div class="spinner"></div>
+  <span id="loader-text">Подключение к MEXC...</span>
+</div>
+
+<!-- Main App -->
+<div id="app" style="display: flex;">
+
+  <!-- APP CONTAINER - centered fixed-width wrapper -->
+  <div class="app-container">
+
+    <!-- ANODIZED METAL TOP BAR -->
+    <div class="anodized-bar"></div>
+
+    <!-- ШАПКА -->
+    <div class="app-header">
+      <h2>📊 IL-Trading Journal PRO+</h2>
+      <div class="notif-btn" id="notif-btn">
+        🔔<span class="notif-badge" id="notif-badge" style="display: flex;">1</span>
+      </div>
+    </div>
+
+    <!-- ── TAB NAVIGATION (TOP HORIZONTAL) ── -->
+    <div class="tabs-nav">
+      <button class="tnav-btn" data-tab="journal">
+        <span class="tab-icon">📒</span>
+        <span class="tab-label">Журнал</span>
+      </button>
+      <button class="tnav-btn" id="open-tab-btn" data-tab="open">
+        <span class="tab-icon">🟢</span>
+        <span class="tab-label">Открытые</span>
+      </button>
+      <button class="tnav-btn active" data-tab="itogi">
+        <span class="tab-icon">📊</span>
+        <span class="tab-label">Итоги</span>
+      </button>
+      <button class="tnav-btn" id="live-tab-btn" data-tab="live">
+        <span class="tab-icon">🔴</span>
+        <span class="tab-label">LIVE</span>
+      </button>
+      <button class="tnav-btn" data-tab="mexc">
+        <span class="tab-icon">📡</span>
+        <span class="tab-label">MEXC</span>
+      </button>
+      <button class="tnav-btn" data-tab="channel">
+        <span class="tab-icon">📢</span>
+        <span class="tab-label">Канал</span>
+      </button>
+    </div>
+
+  <!-- ──────────── TAB: ЖУРНАЛ ──────────── -->
+  <div class="tab-page" id="tab-journal">
+
+    <!-- УВЕДОМЛЕНИЯ ПАНЕЛЬ -->
+    <div class="notif-panel" id="notif-panel">
+      <div class="notif-overlay" id="notif-overlay"></div>
+      <div class="notif-box">
+        <div class="notif-box-header">
+          <span>🔔 Уведомления</span>
+          <button class="notif-close" id="notif-close-btn">✕</button>
+        </div>
+        <div id="notif-list">
+    <div class="notif-item unread">
+      <div class="notif-icon">📝</div>
+      <div class="notif-text">
+        <div class="notif-title">Сделок сегодня нет</div>
+        <div class="notif-desc">Не забудь записать свои сделки за день</div>
+        <div class="notif-time">09.05, 12:56</div>
+      </div>
+    </div>
+  </div>
+        <div class="notif-actions">
+          <button class="notif-action-btn" id="mark-all-read-btn">✅ Прочитать все</button>
+          <button class="notif-action-btn" id="clear-notifs-btn">🗑 Очистить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- СТАТИСТИКА -->
+    <div class="stats-bar">
+      <div class="stat-box">
+        <span class="stat-label">Общий PnL</span>
+        <span class="stat-value" id="stat-pnl">$0</span>
+      </div>
+      <div class="stat-box">
+        <span class="stat-label">Баланс</span>
+        <span class="stat-value" id="stat-balance">$0</span>
+      </div>
+      <div class="stat-box">
+        <span class="stat-label">Винрейт</span>
+        <span class="stat-value" id="stat-wr">0%</span>
+      </div>
+      <div class="stat-box">
+        <span class="stat-label">Средний RR</span>
+        <span class="stat-value" id="stat-rr">0</span>
+      </div>
+    </div>
+
+    <!-- ФОРМА -->
+    <div class="card" id="form-card">
+      <div class="section-divider">Основное</div>
+      <div class="row2">
+        <input id="date" type="date">
+        <input id="time" type="time">
+      </div>
+
+      <!-- LONG/SHORT КНОПКИ -->
+      <div class="side-selector">
+        <button class="side-btn active" id="side-long" data-side="LONG">🟢 LONG</button>
+        <button class="side-btn" id="side-short" data-side="SHORT">🔴 SHORT</button>
+      </div>
+      <input type="hidden" id="side" value="LONG">
+
+      <input id="asset" placeholder="Актив (напр. BTCUSDT)">
+
+      <input id="deposit" placeholder="Депозит ($)" type="number">
+      <h4>Плечо</h4>
+      <div class="lev-wrap">
+        <input type="range" id="leverage-slider" min="1" max="300" value="10">
+        <input type="number" id="leverage" value="10" min="1" max="300">
+      </div>
+      <div class="lev-presets">
+        <button class="lev-preset" data-lev="10">x10</button>
+        <button class="lev-preset" data-lev="50">x50</button>
+        <button class="lev-preset" data-lev="75">x75</button>
+        <button class="lev-preset" data-lev="100">x100</button>
+        <button class="lev-preset" data-lev="300">x300</button>
+      </div>
+      <div class="row2">
+        <input id="riskPercent" placeholder="Риск %" type="number">
+        <input id="entry" placeholder="Вход" type="number">
+      </div>
+      <input id="stop" placeholder="Стоп" type="number">
+
+      <!-- ЖИВОЙ ПОДСЧЁТ -->
+      <div class="live-calc">
+        <div class="lc-item">
+          <span class="lc-label">Объём без плеча</span>
+          <span class="lc-value" id="lc-pos-base">—</span>
+          <span class="lc-sub" id="lc-pos-base-note"></span>
+        </div>
+        <div class="lc-item">
+          <span class="lc-label">Объём с плечом</span>
+          <span class="lc-value" id="lc-pos">—</span>
+        </div>
+        <div class="lc-item">
+          <span class="lc-label">Риск $</span>
+          <span class="lc-value" id="lc-risk">—</span>
+          <span class="lc-sub" id="lc-risk-pct"></span>
+        </div>
+        <div class="lc-item">
+          <span class="lc-label">Стоп %</span>
+          <span class="lc-value" id="lc-stop-pct">—</span>
+        </div>
+
+        <hr class="lc-divider">
+
+        <div class="lc-item full-row">
+          <span class="lc-label">PnL при TP1 <span style="color:#484f58;">(без плеча, с учётом % фиксации)</span></span>
+          <div class="lc-row3">
+            <div class="lc-col">
+              <span class="lc-label">Прибыль</span>
+              <span class="lc-value" id="lc-pnl1">—</span>
+            </div>
+            <div class="lc-col">
+              <span class="lc-label">Объём TP1</span>
+              <span class="lc-value" id="lc-vol-tp1" style="color:#8b949e;">—</span>
+            </div>
+            <div class="lc-col">
+              <span class="lc-label">RR</span>
+              <span class="lc-value" id="lc-rr1">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="lc-item full-row">
+          <span class="lc-label">PnL при TP2 <span style="color:#484f58;">(остаток после TP1)</span></span>
+          <div class="lc-row3">
+            <div class="lc-col">
+              <span class="lc-label">Прибыль</span>
+              <span class="lc-value" id="lc-pnl2">—</span>
+            </div>
+            <div class="lc-col">
+              <span class="lc-label">Объём TP2</span>
+              <span class="lc-value" id="lc-vol-tp2" style="color:#8b949e;">—</span>
+            </div>
+            <div class="lc-col">
+              <span class="lc-label">Итого PnL</span>
+              <span class="lc-value" id="lc-pnl-total">—</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="lc-item">
+          <span class="lc-label">PnL при Стопе</span>
+          <span class="lc-value" id="lc-pnl-stop" style="color:#f85149;">—</span>
+        </div>
+        <div class="lc-item">
+          <span class="lc-label">Плечо</span>
+          <span class="lc-value" id="lc-lev">—</span>
+        </div>
+      </div>
+
+      <div class="section-divider">Тейк профиты</div>
+      <h4>Частичный выход 1</h4>
+      <div class="row2">
+        <input id="tp1_price" placeholder="Цена TP1" type="number">
+        <input id="tp1_percent" placeholder="% фиксации" type="number" value="50">
+      </div>
+
+      <h4>Частичный выход 2 (Б+)</h4>
+      <div class="row2">
+        <input id="tp2_price" placeholder="Цена TP2" type="number">
+      </div>
+
+      <!-- АРГУМЕНТЫ -->
+      <div class="section-divider">Аргументы</div>
+      <div class="args-grid" id="args-grid">
+        <label class="arg-checkbox"><input type="checkbox" id="arg-azgard-cloud"> Azgard Cloud</label>
+        <label class="arg-checkbox"><input type="checkbox" id="arg-azgard-anomaly"> Azgard Anomaly</label>
+        <label class="arg-checkbox"><input type="checkbox" id="arg-algoalpha"> AlgoAlpha Santiment</label>
+        <label class="arg-checkbox"><input type="checkbox" id="arg-technique"> Техника</label>
+        <label class="arg-checkbox"><input type="checkbox" id="arg-candles"> Свечи</label>
+        <label class="arg-checkbox"><input type="checkbox" id="arg-ob"> OB</label>
+        <label class="arg-checkbox"><input type="checkbox" id="arg-fvg"> FVG</label>
+        <label class="arg-checkbox"><input type="checkbox" id="arg-obfvg"> OB+FVG</label>
+        <label class="arg-checkbox"><input type="checkbox" id="arg-fibonacci"> Fibonacci</label>
+        <label class="arg-checkbox"><input type="checkbox" id="arg-smartmoney"> SmartMoney</label>
+      </div>
+
+      <div class="section-divider">Психология</div>
+      <h4>Эмоции перед входом</h4>
+      <div class="emotion-row">
+        <button class="emotion-btn" id="em-calm" data-emotion="calm">😌 Спокоен</button>
+        <button class="emotion-btn" id="em-excited" data-emotion="excited">😤 Азарт</button>
+        <button class="emotion-btn" id="em-fear" data-emotion="fear">😰 Страх</button>
+        <button class="emotion-btn" id="em-fomo" data-emotion="fomo">🔥 FOMO</button>
+      </div>
+
+      <h4>Соблюдал риск-менеджмент</h4>
+      <div class="rm-row">
+        <button class="rm-btn" id="rm-yes" data-rm="true">✅ Да</button>
+        <button class="rm-btn" id="rm-no" data-rm="false">❌ Нет</button>
+      </div>
+
+      <h4>Качество входа</h4>
+      <div class="stars" id="stars-row">
+        <span class="star" data-star="1" id="star-1">★</span>
+        <span class="star" data-star="2" id="star-2">★</span>
+        <span class="star" data-star="3" id="star-3">★</span>
+        <span class="star" data-star="4" id="star-4">★</span>
+        <span class="star" data-star="5" id="star-5">★</span>
+      </div>
+
+      <textarea id="note" placeholder="Комментарий / заметки"></textarea>
+
+      <!-- Прикрепление изображений -->
+      <div class="img-upload-wrap">
+        <input type="file" id="img-input" accept="image/*" multiple="" style="display:none;">
+        <div class="img-upload-btn" id="img-upload-trigger">
+          📎 Прикрепить изображения (до 3)
+        </div>
+        <div class="img-preview-row" id="img-preview-row"></div>
+      </div>
+
+      <button id="save-trade-btn">💾 Сохранить сделку</button>
+    </div>
+
+    <div id="list"><p style="text-align:center;color:#484f58;font-size:14px;margin-top:20px;">Закрытых сделок нет</p></div>
+  </div><!-- /tab-journal -->
+
+  <!-- ──────────── TAB: ОТКРЫТЫЕ СДЕЛКИ ──────────── -->
+  <div class="tab-page" id="tab-open">
+    <div class="open-hint">
+      <p>Нажми «Управление закрытием» чтобы зафиксировать результат сделки</p>
+    </div>
+    <div id="open-list"><p style="text-align:center;color:#484f58;font-size:14px;padding:30px 0;">Нет открытых сделок</p></div>
+  </div><!-- /tab-open -->
+
+  <!-- ──────────── TAB: ИТОГИ ──────────── -->
+  <div class="tab-page active" id="tab-itogi">
+    <div class="stats-period">
+      <button class="stats-period-btn active" data-period="day">День</button>
+      <button class="stats-period-btn" data-period="week">Неделя</button>
+      <button class="stats-period-btn" data-period="month">Месяц</button>
+      <button class="stats-period-btn" data-period="year">Год</button>
+    </div>
+
+    <div class="summary-grid">
+      <div class="summary-card">
+        <div class="sc-label">PnL за период</div>
+        <div class="sc-value" id="sp-pnl" style="color: rgb(139, 148, 158);">$0</div>
+        <div class="sc-sub" id="sp-sub">0 сделок</div>
+      </div>
+      <div class="summary-card">
+        <div class="sc-label">Винрейт</div>
+        <div class="sc-value" id="sp-wr">0%</div>
+        <div class="sc-sub" id="sp-wr-sub">W 0 / L 0</div>
+      </div>
+      <div class="summary-card">
+        <div class="sc-label">Средний RR</div>
+        <div class="sc-value" id="sp-rr">—</div>
+        <div class="sc-sub">за период</div>
+      </div>
+      <div class="summary-card">
+        <div class="sc-label">Лучшая сделка</div>
+        <div class="sc-value" id="sp-best">—</div>
+        <div class="sc-sub" id="sp-best-sub"></div>
+      </div>
+      <div class="summary-card wide">
+        <div class="sc-label" style="margin-bottom:8px;">Разбивка по дням</div>
+        <div class="days-row" id="sp-days"><span style="color:#484f58;font-size:13px;">Нет сделок за период</span></div>
+      </div>
+    </div>
+
+    <div class="day-history" id="day-history"></div>
+
+    <!-- Экспорт -->
+    <div class="card export-card" style="width:100%;box-sizing:border-box;">
+      <div class="section-divider">📤 Экспорт сделок</div>
+      <div class="row2" style="margin-bottom:8px;">
+        <input id="export-from" type="date" placeholder="С даты" style="margin:0;width:100%;">
+        <input id="export-to" type="date" placeholder="По дату" style="margin:0;width:100%;">
+      </div>
+      <div class="row2">
+        <button id="export-csv-btn" class="btn-blue-export">📄 CSV</button>
+        <button id="export-xls-btn" class="btn-green-export">📊 Excel (XLS)</button>
+      </div>
+    </div>
+  </div><!-- /tab-itogi -->
+
+  <!-- ──────────── TAB: LIVE ──────────── -->
+  <div class="tab-page" id="tab-live">
+    <div class="live-header" id="live-header">
+      <div class="live-indicator">
+        <span class="live-dot"></span>
+        <span class="live-text">LIVE</span>
+      </div>
+      <div class="live-subtitle">Трансляции трейдеров в реальном времени</div>
+    </div>
+
+    <!-- Доступ запрещен -->
+    <div class="live-access-denied" id="live-access-denied" style="display:none;">
+      <div class="live-denied-card">
+        <div class="live-denied-icon">🔒</div>
+        <div class="live-denied-title">Доступ ограничен</div>
+        <div class="live-denied-desc">
+          Раздел LIVE доступен только с разрешения администратора.
+          Отправьте заявку для получения доступа.
+        </div>
+        <button id="open-live-request-btn" class="btn-live-request">📝 Запросить доступ</button>
+      </div>
+    </div>
+
+    <!-- Контент LIVE (если доступ разрешен) -->
+    <div class="live-content" id="live-content" style="display:none;">
+      <!-- Статус доступа -->
+      <div class="live-status-card" id="live-status-card">
+        <div class="live-status-label">Ваш статус:</div>
+        <div class="live-status-value" id="live-user-role">—</div>
+        <div class="live-status-expires" id="live-user-expires">Доступ истекает: —</div>
+      </div>
+
+      <!-- LIVE платформа -->
+      <div class="live-platform">
+        <div class="live-platform-nav">
+          <button class="live-platform-tab active" id="lpt-streams" data-live-tab="streams">
+            <span class="lpt-icon">🔴</span>
+            <span class="lpt-label">Трансляции</span>
+          </button>
+          <button class="live-platform-tab" id="lpt-profiles" data-live-tab="profiles">
+            <span class="lpt-icon">👤</span>
+            <span class="lpt-label">Профили</span>
+          </button>
+          <button class="live-platform-tab" id="lpt-archive" data-live-tab="archive">
+            <span class="lpt-icon">📼</span>
+            <span class="lpt-label">Архив</span>
+          </button>
+        </div>
+
+        <!-- Трансляции -->
+        <div class="live-platform-section" id="live-streams-section" style="display:flex;flex-direction:column;">
+          <div class="live-filter-row">
+            <button class="live-filter-btn active" data-stream-filter="live">🔴 Живые</button>
+            <button class="live-filter-btn" data-stream-filter="scheduled">📅 Расписание</button>
+            <button class="live-filter-btn" data-stream-filter="all">Все</button>
+          </div>
+          <div id="live-traders-list" class="live-traders-list">
+            <div class="live-empty">Загрузка...</div>
+          </div>
+        </div>
+
+        <!-- Профили -->
+        <div class="live-platform-section" id="live-profiles-section" style="display:none;flex-direction:column;">
+          <div id="live-profiles-list" class="live-profiles-list">
+            <div class="live-empty">Загрузка...</div>
+          </div>
+        </div>
+
+        <!-- Архив -->
+        <div class="live-platform-section" id="live-archive-section" style="display:none;flex-direction:column;">
+          <div id="live-archive-list" class="live-archive-list">
+            <div class="live-empty">Загрузка...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Секции по роли -->
+      <div id="live-viewer-section" style="display:none;">
+        <div class="live-help-card" id="live-help-btn-wrap">
+          <button id="live-help-btn" class="btn-live-help">❓ О разделе LIVE</button>
+        </div>
+      </div>
+
+      <div id="live-trader-section" style="display:none;">
+        <div class="live-trader-controls">
+          <button id="live-stream-btn" class="btn-live-stream">📹 Начать трансляцию</button>
+          <button id="live-mic-btn" class="btn-live-mic">🎤 Микрофон: Вкл</button>
+          <button id="live-schedule-btn" class="btn-live-schedule">📅 Запланировать эфир</button>
+        </div>
+        <div class="live-stream-preview" id="live-stream-preview">
+          <div class="live-preview-placeholder">Предпросмотр трансляции</div>
+        </div>
+        <div class="live-trader-stats-row">
+          <button id="live-stats-btn" class="btn-live-stats">📊 Моя статистика</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Админ панель -->
+    <div class="live-admin-panel" id="live-admin-panel" style="display:none;">
+      <div class="live-admin-header">
+        <div class="live-admin-title">⚙️ Управление LIVE</div>
+      </div>
+      <div class="live-admin-nav">
+        <button class="live-admin-nav-btn active" data-admin-section="requests">📋 Заявки</button>
+        <button class="live-admin-nav-btn" data-admin-section="users">👥 Пользователи</button>
+        <button class="live-admin-nav-btn" data-admin-section="streams">🔴 Трансляции</button>
+        <button class="live-admin-nav-btn" data-admin-section="archive">📼 Архив</button>
+      </div>
+      <div id="admin-section-requests" class="admin-section">
+        <div class="live-section-title">📋 Заявки на доступ</div>
+        <div id="live-requests-list"><div class="live-empty">Нет заявок</div></div>
+      </div>
+      <div id="admin-section-users" class="admin-section" style="display:none;">
+        <div class="live-section-title">👥 Разрешённые пользователи</div>
+        <div id="live-whitelist"><div class="live-empty">Список пуст</div></div>
+      </div>
+      <div id="admin-section-streams" class="admin-section" style="display:none;">
+        <div class="live-section-title">🔴 Активные трансляции</div>
+        <div id="admin-streams-list"><div class="live-empty">Нет трансляций</div></div>
+      </div>
+      <div id="admin-section-archive" class="admin-section" style="display:none;">
+        <div class="live-section-title">📼 Архив записей</div>
+        <div id="admin-archive-list"><div class="live-empty">Нет записей</div></div>
+      </div>
+    </div>
+  </div><!-- /tab-live -->
+
+  <!-- ──────────── TAB: MEXC ──────────── -->
+  <div class="tab-page" id="tab-mexc">
+    <div class="mexc-card">
+      <div class="section-divider mexc-header">🔑 API Ключи MEXC</div>
+      <p class="mexc-note">Ключи хранятся в Firebase и используются только для синхронизации ваших сделок.</p>
+      <input id="mexc-api-key" placeholder="API Key" type="password">
+      <input id="mexc-api-secret" placeholder="API Secret" type="password">
+      <button id="save-mexc-keys-btn" class="btn-blue-mexc">💾 Сохранить ключи</button>
+      <button id="delete-mexc-keys-btn" class="btn-red-mexc">🗑 Удалить ключи</button>
+    </div>
+
+    <div class="mexc-card">
+      <div class="section-divider mexc-header">📡 Синхронизация сделок</div>
+      <div class="mexc-status">
+        <div class="mexc-dot" id="mexc-dot" style="background: rgb(72, 79, 88);"></div>
+        <span id="mexc-status-text" style="color: rgb(139, 148, 158);">Ключи не настроены</span>
+      </div>
+      <div class="mexc-btn-row">
+        <button class="btn-gray-mexc" id="mexc-sync-btn">🔄 Синхронизировать</button>
+        <button class="btn-blue2" id="mexc-import-btn">📥 Импорт 50</button>
+      </div>
+      <div class="mexc-progress" id="mexc-progress">
+        <div class="spinner" style="margin:6px auto;"></div>
+        Загружаю сделки с MEXC...
+      </div>
+    </div>
+
+    <div class="mexc-card">
+      <div class="section-divider mexc-header">📊 Итоги MEXC сделок</div>
+      <div class="summary-grid" style="margin-bottom:0;">
+        <div class="summary-card">
+          <div class="sc-label">Всего PnL</div>
+          <div class="sc-value" id="mx-pnl">$0</div>
+          <div class="sc-sub" id="mx-sub">0 сделок</div>
+        </div>
+        <div class="summary-card">
+          <div class="sc-label">Винрейт</div>
+          <div class="sc-value" id="mx-wr">0%</div>
+          <div class="sc-sub" id="mx-wr-sub">W 0 / L 0</div>
+        </div>
+        <div class="summary-card">
+          <div class="sc-label">Лучшая</div>
+          <div class="sc-value" id="mx-best">—</div>
+          <div class="sc-sub" id="mx-best-sub"></div>
+        </div>
+        <div class="summary-card">
+          <div class="sc-label">Худшая</div>
+          <div class="sc-value" id="mx-worst">—</div>
+          <div class="sc-sub" id="mx-worst-sub"></div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /tab-mexc -->
+
+  <!-- ──────────── TAB: КАНАЛ ──────────── -->
+  <div class="tab-page" id="tab-channel">
+    <div class="channel-card">
+      <div class="section-divider channel-header">📢 Автопостинг в Telegram канал</div>
+      <p class="mexc-note">
+        Настройте автопостинг сделок в ваш Telegram канал. Бот будет публиковать открытые сделки, обновления при частичной фиксации и итоги закрытия.
+      </p>
+      <div class="channel-info">
+        <strong>Как настроить:</strong><br><br>
+        1. Добавьте бота <strong>@ILTradesbot</strong> администратором вашего канала<br><br>
+        2. Введите ID или username канала (например: <code>@my_trades</code> или <code>-100123456789</code>)<br><br>
+        3. Включите автопостинг переключателем<br><br>
+        4. Все новые сделки автоматически появятся в канале!
+      </div>
+    </div>
+
+    <div class="channel-card">
+      <div class="section-divider">🔗 Привязка канала</div>
+      <input id="channel-id" placeholder="ID канала (напр. @my_trades или -100123456789)">
+      <input id="channel-name" placeholder="Название канала (необязательно)">
+      <div class="channel-status">
+        <div class="channel-dot" id="channel-dot"></div>
+        <span id="channel-status-text">Канал не подключен</span>
+      </div>
+      <div id="channel-connected-display" style="display:none;">
+        <div class="channel-id-display">
+          <span id="channel-connected-id"></span>
+          <button class="channel-id-copy" id="copy-channel-id-btn">📋</button>
+        </div>
+      </div>
+      <button id="save-channel-btn" class="btn-channel-connect">💾 Сохранить настройки</button>
+      <button id="disconnect-channel-btn" class="btn-channel-disconnect">Отключить канал</button>
+    </div>
+
+    <div class="channel-card">
+      <div class="section-divider">⚙️ Настройки постинга</div>
+      <div class="channel-toggle">
+        <span class="channel-toggle-label">Автопостинг открытых сделок</span>
+        <div class="channel-toggle-switch" id="auto-post-open" data-option="autoPostOpen"></div>
+      </div>
+      <div class="channel-toggle">
+        <span class="channel-toggle-label">Уведомление о частичной фиксации</span>
+        <div class="channel-toggle-switch" id="auto-post-partial" data-option="autoPostPartial"></div>
+      </div>
+      <div class="channel-toggle">
+        <span class="channel-toggle-label">Уведомление о закрытии сделки</span>
+        <div class="channel-toggle-switch" id="auto-post-close" data-option="autoPostClose"></div>
+      </div>
+      <div class="channel-info" style="margin-top:12px;">
+        <strong>📝 Что публикуется:</strong><br><br>
+        • <strong>Открытая сделка:</strong> Актив, направление, вход, стоп, TP1/TP2, RR, изображение<br><br>
+        • <strong>Частичная фиксация:</strong> Ответ на пост сделки с обновлённым PnL и % закрытия<br><br>
+        • <strong>Закрытие:</strong> Финальный результат, итоговый PnL, скриншот (если есть)
+      </div>
+    </div>
+
+    <div class="channel-card">
+      <div class="section-divider">👁 Превью поста</div>
+      <div class="channel-preview">
+        <div class="channel-preview-label">Так будет выглядеть пост:</div>
+        <div class="channel-preview-text" id="channel-preview-text">📈 <strong>Открыта сделка</strong>
+
+<strong>BTC</strong> 🟢 LONG x10📍 Текущая цена: <strong>42,800</strong> (+0.71%)
+
+📅 Дата: 25.01.2025 14:30
+💰 Депозит: <strong>$1000</strong>
+💰 Объём: <strong>$100</strong> (1%) <span style="color:#58a6ff;">(x10)</span>
+
+📍 Вход: <strong>42,500</strong>
+🛑 Стоп: <strong>42,000</strong> (1.18%)
+💸 Стоп PnL: <strong style="color:#f85149;">−$11.80</strong>
+
+🎯 TP1: <strong>43,000</strong> (+1.18%)
+🎯 TP2: <strong>44,000</strong> (+3.53%)
+
+📊 Max прибыль TP1: <strong style="color:#3fb950;">+$11.80</strong>
+📊 Max прибыль TP2: <strong style="color:#3fb950;">+$35.29</strong>
+💰 Σ Прибыль: <strong style="color:#3fb950;">+4.71%</strong>
+
+📊 Плановый RR: <strong>1:2.50</strong>
+💵 Риск: <strong>$10</strong>
+💰 Live P&amp;L: <strong style="color:#3fb950;">+$7.06</strong> (+0.71%)
+
+📐 Стратегия: Azgard Cloud
+📋 <strong>История закрытий:</strong>
+1. <strong>Частичное закрытие TP1</strong> @ 43,000 (+1.18%) → <span style="color:#3fb950;">+$11.63</span> ⏰14:45</div>
+      </div>
+      <button id="refresh-preview-btn" class="btn-channel-connect" style="margin-top:8px;">🔄 Обновить превью</button>
+      <button id="test-post-btn" class="btn-channel-connect" style="margin-top:8px;">🧪 Тестовая публикация</button>
+    </div>
+  </div><!-- /tab-channel -->
+
+</div><!-- /app -->
+
+<!-- МОДАЛ ЗАКРЫТИЯ СДЕЛКИ -->
+<div class="close-modal-overlay" id="close-modal-overlay">
+  <div class="close-modal" id="close-modal">
+    <div class="cm-title" id="cm-trade-title">Закрыть сделку</div>
+    <div class="cm-sub" id="cm-trade-sub"></div>
+
+    <div id="cm-partials-wrap" style="display:none; margin-bottom:10px;">
+      <div class="cm-section">История закрытий</div>
+      <div id="cm-partials-list"></div>
+      <div class="cm-stats-row">
+        <span class="cm-stats-label">Закрыто объёма:</span>
+        <span id="cm-closed-pct">0%</span>
+      </div>
+      <div class="cm-stats-row">
+        <span class="cm-stats-label">Фактический RR:</span>
+        <span id="cm-actual-rr">—</span>
+      </div>
+      <div class="cm-stats-row">
+        <span class="cm-stats-label">Накопленный PnL:</span>
+        <span id="cm-total-pnl">$0</span>
+      </div>
+    </div>
+
+    <div class="cm-section">Время действия</div>
+    <div class="cm-time-row">
+      <input type="date" id="cm-close-date">
+      <input type="time" id="cm-close-time">
+    </div>
+
+    <div class="cm-section">Действие</div>
+    <div class="close-opts" id="close-opts">
+
+      <div class="close-opt" data-val="partial">
+        <span class="co-icon">✂️</span>
+        <div class="co-body">
+          <div class="co-title">Закрыть часть позиции</div>
+          <div class="co-desc">Зафиксировать часть объёма по своей цене</div>
+        </div>
+        <div class="co-check"></div>
+      </div>
+      <div class="co-extra" id="extra-partial">
+        <div class="co-extra-row">
+          <input type="number" id="partial-price" placeholder="Цена закрытия">
+          <input type="number" id="partial-percent" placeholder="% объёма (напр. 30)">
+        </div>
+        <div class="co-extra-result" id="partial-result">—</div>
+      </div>
+
+      <div class="close-opt" data-val="early">
+        <span class="co-icon">🚪</span>
+        <div class="co-body">
+          <div class="co-title">Ушёл раньше (весь остаток)</div>
+          <div class="co-desc">Закрыть весь оставшийся объём по своей цене</div>
+        </div>
+        <div class="co-check"></div>
+      </div>
+      <div class="co-extra" id="extra-early">
+        <div class="co-extra-row">
+          <input type="number" id="early-price" placeholder="Цена закрытия">
+          <div class="co-extra-result" id="early-result">—</div>
+        </div>
+      </div>
+
+      <div class="close-opt" data-val="tp1only">
+        <span class="co-icon">🎯</span>
+        <div class="co-body">
+          <div class="co-title">Взял TP1</div>
+          <div class="co-desc">Зафиксировать согласно TP1 и % фиксации</div>
+        </div>
+        <div class="co-check"></div>
+      </div>
+
+      <div class="close-opt" data-val="tp1tp2">
+        <span class="co-icon">✅</span>
+        <div class="co-body">
+          <div class="co-title">Взял TP1 + TP2</div>
+          <div class="co-desc">Оба тейка исполнены — максимальная прибыль</div>
+        </div>
+        <div class="co-check"></div>
+      </div>
+
+      <div class="close-opt" data-val="be">
+        <span class="co-icon">➖</span>
+        <div class="co-body">
+          <div class="co-title">Безубыток (остаток)</div>
+          <div class="co-desc">Остаток закрыт по цене входа</div>
+        </div>
+        <div class="co-check"></div>
+      </div>
+
+      <div class="close-opt" data-val="tp1be">
+        <span class="co-icon">🔵</span>
+        <div class="co-body">
+          <div class="co-title">TP1 + стоп в б/у</div>
+          <div class="co-desc">TP1 взят, остаток закрыт по безубытку</div>
+        </div>
+        <div class="co-check"></div>
+      </div>
+
+      <div class="close-opt" data-val="stop">
+        <span class="co-icon">❌</span>
+        <div class="co-body">
+          <div class="co-title">Стоп-лосс (остаток)</div>
+          <div class="co-desc">Остаток закрыт по стопу — убыток</div>
+        </div>
+        <div class="co-check"></div>
+      </div>
+
+      <div class="close-opt" data-val="customstop">
+        <span class="co-icon">⚡</span>
+        <div class="co-body">
+          <div class="co-title">Кастомный стоп (остаток)</div>
+          <div class="co-desc">Закрыть остаток по своей цене стопа</div>
+        </div>
+        <div class="co-check"></div>
+      </div>
+      <div class="co-extra" id="extra-customstop">
+        <div class="co-extra-row">
+          <input type="number" id="customstop-price" placeholder="Цена стоп-лосса">
+          <div class="co-extra-result" id="customstop-result">—</div>
+        </div>
+      </div>
+
+    </div>
+
+    <button id="apply-close-action-btn" class="btn-apply-action">➕ Применить действие</button>
+    <button id="cm-finalize-btn" class="btn-finalize">✅ Завершить и сохранить в журнал</button>
+    <button id="close-modal-cancel-btn" class="btn-cancel">Отмена</button>
+  </div>
+</div>
+
+<!-- ЛАЙТБОКС -->
+<div class="lightbox" id="lightbox">
+  <img id="lightbox-img" src="" alt="">
+</div>
+
+<!-- LIVE REQUEST MODAL -->
+<div class="live-modal-overlay" id="live-request-modal">
+  <div class="live-modal" id="live-request-modal-content">
+    <div class="live-modal-title">📝 Запрос доступа к LIVE</div>
+    <div class="live-modal-desc">Заполните форму для получения доступа к разделу LIVE</div>
+    <div class="live-form-group">
+      <label>Telegram Nickname</label>
+      <input id="live-req-nickname" placeholder="@your_nickname">
+    </div>
+    <div class="live-form-group">
+      <label>Telegram ID</label>
+      <input id="live-req-id" placeholder="Ваш Telegram ID" type="number">
+    </div>
+    <div class="live-form-group">
+      <label>Желаемая роль</label>
+      <div class="live-role-selector">
+        <button class="live-role-btn active" id="live-role-viewer" data-role="viewer">👁 Зритель</button>
+        <button class="live-role-btn" id="live-role-trader" data-role="trader">📹 Трейдер</button>
+      </div>
+    </div>
+    <div class="live-form-group">
+      <label>Желание</label>
+      <div class="live-viewshow-selector">
+        <button class="live-vs-btn active" id="live-vs-watch" data-vs="watch">👁 Только смотреть</button>
+        <button class="live-vs-btn" id="live-vs-show" data-vs="show">📹 Показывать себя</button>
+      </div>
+    </div>
+    <button id="submit-live-request-btn" class="btn-live-submit">Отправить заявку</button>
+    <button id="close-live-request-modal-btn" class="btn-live-cancel">Отмена</button>
+  </div>
+</div>
+
+<!-- LIVE ADMIN MODAL -->
+<div class="live-modal-overlay" id="live-admin-modal">
+  <div class="live-admin-modal" id="live-admin-modal-content">
+    <div class="live-modal-title">🔴 Управление участником</div>
+    <div id="live-admin-user-info"></div>
+    <div class="live-form-group">
+      <label>Роль</label>
+      <div class="live-role-selector">
+        <button class="live-role-btn" id="admin-role-viewer" data-admin-role="viewer">👁 Зритель</button>
+        <button class="live-role-btn" id="admin-role-trader" data-admin-role="trader">📹 Трейдер</button>
+      </div>
+    </div>
+    <div class="live-form-group">
+      <label>Срок доступа (дней)</label>
+      <input id="admin-access-days" type="number" value="1" min="1" max="30">
+    </div>
+    <div class="live-admin-actions">
+      <button id="approve-live-user-btn" class="btn-live-approve">✅ Одобрить</button>
+      <button id="extend-live-access-btn" class="btn-live-extend">⏰ Продлить</button>
+      <button id="block-live-user-btn" class="btn-live-block">🚫 Заблокировать</button>
+    </div>
+    <button id="close-live-admin-modal-btn" class="btn-live-cancel">Отмена</button>
+  </div>
+</div>
+
+</div><!-- /app-container -->
+
+<!-- Firebase SDK (compat, for legacy API compatibility) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script type="module" src="./src/main.js"></script>
+
+<style>
+/* ── Tab равная ширина ── */
+.tabs-nav {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+}
+.tnav-btn {
+  flex: 1;
+  text-align: center;
+  width: 100%;
+}
+
+@keyframes af-splash-logo {
+  0%      { transform: scale(1);      opacity: 0; }
+  27.778% { transform: scale(1.0278); opacity: 1; }
+  72.222% { transform: scale(1.0722); opacity: 1; }
+  100%    { transform: scale(1.1);    opacity: 0; }
+}
+</style>
