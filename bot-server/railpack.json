@@ -1,0 +1,8 @@
+{
+  "install": {
+    "cmd": "npm install"
+  },
+  "start": {
+    "cmd": "node index.js"
+  }
+}
