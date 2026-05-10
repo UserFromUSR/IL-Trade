@@ -1,5 +1,4 @@
-// src/main.js — ДИАГНОСТИЧЕСКАЯ ВЕРСИЯ
-// alert() на каждом шаге чтобы найти где зависает
+// src/main.js — ДИАГНОСТИКА v2 (ошибки на экране)
 
 import { initFirebase, getDb } from './config/firebase.js';
 import { MexcWebSocket }       from './api/mexc-ws.js';
@@ -37,6 +36,17 @@ function setStatus(text) {
   if (el) el.textContent = text;
 }
 
+function showError(msg) {
+  const el = document.getElementById('loader-text');
+  if (el) {
+    el.style.color = '#ff4444';
+    el.style.fontSize = '12px';
+    el.style.padding = '10px';
+    el.style.whiteSpace = 'pre-wrap';
+    el.textContent = '❌ ' + msg;
+  }
+}
+
 let _appShown = false;
 function showApp() {
   if (_appShown) return;
@@ -54,15 +64,8 @@ function showApp() {
   if (appEl)    appEl.style.display    = 'flex';
 }
 
-// ── АВАРИЙНЫЙ показ через 3с в любом случае ──────────────────────
-// (не очищается — всегда сработает)
-setTimeout(() => {
-  if (!_appShown) {
-    alert('⚠️ 3с прошло, принудительно открываю. Статус: ' +
-      (document.getElementById('loader-text')?.textContent || '?'));
-    showApp();
-  }
-}, 3000);
+// Принудительный показ через 6с — НЕ очищается никогда
+setTimeout(() => { if (!_appShown) showApp(); }, 6000);
 
 async function signIn(auth) {
   const user = auth.currentUser || await Promise.race([
@@ -87,8 +90,8 @@ function attachFirebaseListeners(db) {
     renderOpenTrades(state.trades, state.mexcWs);
     showApp();
   }, err => {
-    alert('Firebase trades error: ' + err.message);
-    showApp();
+    showError('Firebase error:\n' + err.message);
+    setTimeout(() => showApp(), 3000);
   });
 
   state.notifsRef.on('value', snap => {
@@ -115,53 +118,48 @@ function runPostBootEffects() {
   if (state.uid) loadUserSettings(getDb(), state.uid);
 }
 
-// ── Boot ─────────────────────────────────────────────────────────
 (async () => {
   if (loaderEl) loaderEl.style.display = 'flex';
   if (appEl)    appEl.style.display    = 'none';
 
   try {
-    // ШАГ 1
-    setStatus('Шаг 1: Firebase...');
+    setStatus('Шаг 1: Firebase init...');
     let auth, db;
     try {
-      const result = initFirebase();
-      auth = result.auth;
-      db   = result.db;
-      setStatus('Шаг 1: OK ✓');
+      ({ auth, db } = initFirebase());
     } catch(e) {
-      alert('❌ initFirebase упал: ' + e.message);
-      showApp(); return;
+      showError('initFirebase:\n' + e.message); return;
     }
 
-    // ШАГ 2
     setStatus('Шаг 2: Auth...');
     try {
       await signIn(auth);
-      setStatus('Шаг 2: OK ✓ uid=' + state.uid?.slice(0,8));
     } catch(e) {
-      alert('❌ signIn упал: ' + e.message);
-      showApp(); return;
+      showError('signIn:\n' + e.message); return;
     }
 
-    // ШАГ 3
-    setStatus('Шаг 3: Handlers...');
+    setStatus('Шаг 3: Init handlers...');
     try {
       initMexcWs();
       await Promise.resolve(initHandlers(state, db));
-      setStatus('Шаг 3: OK ✓');
     } catch(e) {
-      alert('❌ initHandlers упал: ' + e.message);
-      // не return — продолжаем
+      showError('initHandlers:\n' + e.message);
     }
 
-    // ШАГ 4
     setStatus('Шаг 4: Загрузка данных...');
     attachFirebaseListeners(db);
 
+    // Если данные не пришли за 4с — показываем ошибку и открываем через 2с
+    setTimeout(() => {
+      if (!_appShown) {
+        showError('Нет ответа от БД за 4с.\nОткрываю через 2с...');
+        setTimeout(() => showApp(), 2000);
+      }
+    }, 4000);
+
   } catch (e) {
-    alert('❌ Boot error: ' + e.message);
-    showApp();
+    showError('Boot error:\n' + e.message);
+    setTimeout(() => showApp(), 3000);
   }
 
   runPostBootEffects();
