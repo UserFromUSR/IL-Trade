@@ -1,6 +1,15 @@
 // src/main.js
 // Точка входа — инициализация Firebase, WebSocket, Firebase listeners, UI
 
+// ── АВАРИЙНЫЙ ФОЛБЭК (первое что выполняется) ─────────────────────
+// Показывает приложение через 4с в любом случае, даже если всё сломано
+const _emergencyTimer = setTimeout(() => {
+  const l = document.getElementById('loader');
+  const a = document.getElementById('app');
+  if (l) l.style.display = 'none';
+  if (a) a.style.display = 'flex';
+}, 4000);
+
 import { initFirebase, getDb } from './config/firebase.js';
 import { MexcWebSocket }       from './api/mexc-ws.js';
 import {
@@ -107,6 +116,7 @@ async function signIn(auth) {
 
     if (loaderEl) loaderEl.style.display = 'none';
     if (appEl)    appEl.style.display    = 'flex';
+    clearTimeout(_emergencyTimer);
 
     setTimeout(() => checkReminders(), 1500);
     loadMexcKeys().catch(() => {});
