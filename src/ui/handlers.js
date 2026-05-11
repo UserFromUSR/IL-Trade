@@ -515,7 +515,7 @@ function resetCloseOpts() {
   });
   ['early-result','partial-result'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) { el.textContent = '—'; el.style.color = var(--t2); }
+    if (el) { el.textContent = '—'; el.style.color = 'var(--t2)'; }
   });
   _state.selectedCloseOpt = null;
 }
@@ -544,11 +544,11 @@ function calcExtra() {
   if (_state.selectedCloseOpt === 'early') {
     const price = +document.getElementById('early-price')?.value;
     const resEl = document.getElementById('early-result');
-    if (!price) { if (resEl) { resEl.textContent = '—'; resEl.style.color = var(--t2); } return; }
+    if (!price) { if (resEl) { resEl.textContent = '—'; resEl.style.color = 'var(--t2)'; } return; }
     const { pnl, pct } = calcEarlyClose(t, price, coinsLev, rem);
     if (resEl) {
       resEl.textContent = (pnl >= 0 ? '+' : '') + '$' + fmt(pnl) + ' (' + pct.toFixed(2) + '%) · ' + rem.toFixed(0) + '% объёма';
-      resEl.style.color = pnl >= 0 ? var(--green) : var(--red);
+      resEl.style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
     }
   }
 
@@ -556,11 +556,11 @@ function calcExtra() {
     const price  = +document.getElementById('partial-price')?.value;
     const pct    = +document.getElementById('partial-percent')?.value;
     const resEl  = document.getElementById('partial-result');
-    if (!price || !pct) { if (resEl) { resEl.textContent = '—'; resEl.style.color = var(--t2); } return; }
+    if (!price || !pct) { if (resEl) { resEl.textContent = '—'; resEl.style.color = 'var(--t2)'; } return; }
     const { pnl: pnlCalc, pricePct, actualPct, remaining } = calcPartialClose(t, price, pct, coinsLev, rem);
     if (resEl) {
       resEl.textContent = (pnlCalc >= 0 ? '+' : '') + '$' + fmt(pnlCalc) + ' (' + pricePct.toFixed(2) + '%) · ' + actualPct.toFixed(0) + '% объёма · осталось ' + remaining.toFixed(0) + '%';
-      resEl.style.color = pnlCalc >= 0 ? var(--green) : var(--red);
+      resEl.style.color = pnlCalc >= 0 ? 'var(--green)' : 'var(--red)';
     }
   }
 }
@@ -863,7 +863,7 @@ function setMexcStatus(type, text) {
   const txt  = document.getElementById('mexc-status-text');
   const cols = { none: var(--t3), saved: var(--green), loading: 'var(--amber)', error: var(--red) };
   if (dot) dot.style.background = cols[type] || var(--t3);
-  if (txt) { txt.textContent = text; txt.style.color = type === 'error' ? var(--red) : var(--t2); }
+  if (txt) { txt.textContent = text; txt.style.color = type === 'error' ? 'var(--red)' : 'var(--t2)'; }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1059,7 +1059,7 @@ function generateTradePost(trade, action = 'open', includeLivePrice = true) {
     if (liveData?.currentPrice) {
       const sign    = liveData.changePct > 0 ? '+' : '';
       const pnlSign = liveData.totalPnl >= 0 ? '+' : '';
-      const col     = liveData.totalPnl >= 0 ? var(--green) : var(--red);
+      const col     = liveData.totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
       livePnlHtml   = `\n💰 <strong>Live P&L:</strong> <span style="color:${col};">${pnlSign}${fmt(liveData.totalPnl)}</span> (${sign}${liveData.changePct.toFixed(2)}%)`;
     }
   }
@@ -1068,7 +1068,7 @@ function generateTradePost(trade, action = 'open', includeLivePrice = true) {
   closeActionsData.forEach((a, i) => {
     const actPnlPct = a.price && trade.entry ? Math.abs(a.price - trade.entry) / trade.entry * 100 : 0;
     const actDir    = a.price > trade.entry ? '+' : a.price < trade.entry ? '−' : '';
-    const pnlColor  = (a.pnl || 0) >= 0 ? var(--green) : var(--red);
+    const pnlColor  = (a.pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)';
     actionHistory  += `\n${i + 1}. <strong>${a.label}</strong> @ ${a.price?.toLocaleString() || '—'} (${actDir}${actPnlPct.toFixed(2)}%) → <span style="color:${pnlColor};">${(a.pnl || 0) >= 0 ? '+' : ''}${fmt(a.pnl)}</span>`;
   });
 
@@ -1113,7 +1113,7 @@ ${trade.strategy ? `📐 Стратегия: ${trade.strategy}` : ''}
 ${actionHistory ? `📋 <strong>История закрытий:</strong>${actionHistory}` : ''}
 
 📊 Закрыто: <strong>${closedPct.toFixed(0)}%</strong> · Остаток: <strong>${remPct.toFixed(0)}%</strong>
-💰 P&L: <strong style="color:${realizedPnl >= 0 ? var(--green) : var(--red)};">${realizedPnl >= 0 ? '+' : ''}${fmt(realizedPnl)}</strong>
+💰 P&L: <strong style="color:${realizedPnl >= 0 ? 'var(--green)' : 'var(--red)'};">${realizedPnl >= 0 ? '+' : ''}${fmt(realizedPnl)}</strong>
 📊 Факт. RR: <strong>${actualRR > 0 ? '1:' + actualRR.toFixed(2) : '—'}</strong>
 
 🔗 <a href="https://t.me/ILTradesbot">Посмотреть сделку</a>`;
@@ -1136,7 +1136,7 @@ ${actionHistory ? `📋 <strong>История закрытий:</strong>${actio
 ${actionHistory ? `📋 <strong>История закрытий:</strong>${actionHistory}` : ''}
 
 📊 Результат: <strong>${rText}</strong>
-💰 Итоговый P&L: <strong style="color:${finalPnl >= 0 ? var(--green) : var(--red)};">${finalPnl >= 0 ? '+' : ''}${fmt(finalPnl)}</strong>
+💰 Итоговый P&L: <strong style="color:${finalPnl >= 0 ? 'var(--green)' : 'var(--red)'};">${finalPnl >= 0 ? '+' : ''}${fmt(finalPnl)}</strong>
 📊 Плановый RR: <strong>${plannedRR > 0 ? '1:' + plannedRR.toFixed(2) : '—'}</strong>
 📊 Фактический RR: <strong>${actualRR > 0 ? '1:' + actualRR.toFixed(2) : '—'}</strong>
 
@@ -1423,7 +1423,7 @@ async function _checkLiveAccess() {
         S('live-user-role',    entry.role === 'trader' ? '📹 Трейдер' : '👁 Зритель');
         S('live-user-expires', 'Доступ истекает: ' + (expiry ? expiry.toLocaleDateString('ru-RU') : '∞'));
         const roleEl = document.getElementById('live-user-role');
-        if (roleEl) roleEl.style.color = entry.role === 'trader' ? var(--green) : var(--blue);
+        if (roleEl) roleEl.style.color = entry.role === 'trader' ? 'var(--green)' : 'var(--blue)';
 
         const vs = document.getElementById('live-viewer-section');
         const ts = document.getElementById('live-trader-section');
@@ -1583,7 +1583,7 @@ async function _loadLiveProfiles() {
         <div class="live-profile-stats">
           <div class="live-profile-stat"><span class="live-profile-stat-val">${p.streams || 0}</span><span>Эфиров</span></div>
           <div class="live-profile-stat"><span class="live-profile-stat-val">${p.followers || 0}</span><span>Подписчиков</span></div>
-          <div class="live-profile-stat"><span class="live-profile-stat-val" style="color:${(p.winRate || 0) >= 50 ? var(--green) : var(--red)}">${p.winRate || 0}%</span><span>Винрейт</span></div>
+          <div class="live-profile-stat"><span class="live-profile-stat-val" style="color:${(p.winRate || 0) >= 50 ? 'var(--green)' : 'var(--red)'}">${p.winRate || 0}%</span><span>Винрейт</span></div>
         </div>
       </div>`).join('');
   } catch (e) { list.innerHTML = '<div class="live-empty">Ошибка загрузки профилей</div>'; }
