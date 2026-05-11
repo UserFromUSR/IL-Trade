@@ -861,8 +861,8 @@ export async function autoSyncOnOpen() {
 function setMexcStatus(type, text) {
   const dot  = document.getElementById('mexc-dot');
   const txt  = document.getElementById('mexc-status-text');
-  const cols = { none: var(--t3), saved: var(--green), loading: 'var(--amber)', error: var(--red) };
-  if (dot) dot.style.background = cols[type] || var(--t3);
+  const cols = { none: 'var(--t3)', saved: 'var(--green)', loading: 'var(--amber)', error: 'var(--red)' };
+  if (dot) dot.style.background = cols[type] || 'var(--t3)';
   if (txt) { txt.textContent = text; txt.style.color = type === 'error' ? 'var(--red)' : 'var(--t2)'; }
 }
 
