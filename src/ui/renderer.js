@@ -223,53 +223,68 @@ export function renderJournal(tradesObj) {
 export function renderOpenTrades(tradesObj, mexcWs) {
   const list = document.getElementById('open-list');
   if (!list) return;
-
+ 
   const arr = Object.values(tradesObj)
     .filter(t => !t.status || t.status === 'open')
     .sort((a, b) => b.id - a.id);
-
+ 
   const tabBtn = document.getElementById('open-tab-btn');
   if (tabBtn) {
     const label = tabBtn.querySelector('.tab-label');
     if (label) label.textContent = arr.length > 0 ? `Открытые (${arr.length})` : 'Открытые';
   }
-
+ 
   if (!arr.length) {
     list.innerHTML = '<p style="text-align:center;color:var(--t3);font-size:14px;padding:30px 0;">Нет открытых сделок</p>';
     return;
   }
-
+ 
   list.innerHTML = arr.map(t => {
     const lev      = t.leverage || 1;
     const riskUSD  = t.riskUSD || (t.deposit * (t.riskPercent || 0) / 100);
     const posFull  = riskUSD * lev;
     const coinsLev = posFull / t.entry;
-
+ 
     const tp1Pct   = t.tp1_percent || 50;
     const tp1Coins = coinsLev * (tp1Pct / 100);
     const pnlTp1   = t.tp1_price
       ? (t.side === 'LONG' ? (t.tp1_price - t.entry) * tp1Coins : (t.entry - t.tp1_price) * tp1Coins)
       : null;
-
+ 
     const remCoins = coinsLev - tp1Coins;
     const pnlTp2   = t.tp2_price && remCoins > 0
       ? (t.side === 'LONG' ? (t.tp2_price - t.entry) * remCoins : (t.entry - t.tp2_price) * remCoins)
       : null;
-
+ 
     const stopPct  = t.entry && t.stop ? Math.abs(t.entry - t.stop) / t.entry * 100 : 0;
     const pnlStop  = -(riskUSD * lev * (stopPct / 100));
     const pnlTotal = (pnlTp1 || 0) + (pnlTp2 || 0);
-
-    const acts     = Array.isArray(t.closeActions) ? t.closeActions : [];
-    const usedPct  = acts.reduce((s, a) => s + (a.pct || 0), 0);
-    const partPnl  = acts.reduce((s, a) => s + (a.pnl || 0), 0);
-    const remPct   = 100 - usedPct;
-
+ 
+    const acts    = Array.isArray(t.closeActions) ? t.closeActions : [];
+    const usedPct = acts.reduce((s, a) => s + (a.pct || 0), 0);
+    const partPnl = acts.reduce((s, a) => s + (a.pnl || 0), 0);
+    const remPct  = 100 - usedPct;
+ 
     const tp1ProfitPct = t.tp1_price && t.entry ? Math.abs(t.tp1_price - t.entry) / t.entry * 100 : 0;
     const tp2ProfitPct = t.tp2_price && t.entry ? Math.abs(t.tp2_price - t.entry) / t.entry * 100 : 0;
     const tp1PnlStr    = pnlTp1 !== null ? `${pnlTp1 >= 0 ? '+' : ''}${fmt(Math.abs(pnlTp1))}` : '—';
     const tp2PnlStr    = pnlTp2 !== null && pnlTp2 >= 0 ? `+${fmt(Math.abs(pnlTp2))}` : '—';
-
+ 
+    // ── НОВОЕ: source badge ──────────────────────────────────────
+    const isMexc      = t.source === 'mexc' || t.fromMexc === true;
+    const sourceBadge = isMexc
+      ? `<span class="source-badge source-badge--mexc">MEXC</span>`
+      : `<span class="source-badge source-badge--manual">Журнал</span>`;
+ 
+    // ── НОВОЕ: кнопка управления — скрыта для MEXC ────────────────
+    const closeBtn = isMexc
+      ? `<span style="font-size:11px;color:var(--t3);padding:6px 0;display:block;">
+           🤖 Закрытие автоматически через биржу
+         </span>`
+      : `<button data-open-close-modal="${t.id}">
+           🔒 Управление закрытием
+         </button>`;
+ 
     const actHistory = acts.length ? `
       <hr style="border:none;border-top:0.5px solid var(--sep);margin:8px 0;">
       <div style="font-size:11px;color:var(--t2);margin-bottom:6px;">📊 Частичные закрытия:</div>
@@ -292,14 +307,14 @@ export function renderOpenTrades(tradesObj, mexcWs) {
         <span style="color:var(--t2);">Закрыто <b style="color:var(--t1);">${usedPct.toFixed(0)}%</b> · Остаток <b style="color:var(--blue);">${remPct.toFixed(0)}%</b></span>
         <span style="color:${partPnl >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:bold;">${partPnl >= 0 ? '+' : ''}${fmt(partPnl)}</span>
       </div>` : '';
-
+ 
     const maxProfitPct = pnlTotal > 0 ? (pnlTotal / (t.deposit || 1) * 100) : 0;
-
-    const liveData       = mexcWs ? mexcWs.calculateLivePnl(t) : null;
-    const currentPrice   = liveData?.currentPrice || null;
-    const livePnl        = liveData?.totalPnl || null;
-    const liveChangePct  = liveData?.changePct || null;
-
+ 
+    const liveData      = mexcWs ? mexcWs.calculateLivePnl(t) : null;
+    const currentPrice  = liveData?.currentPrice || null;
+    const livePnl       = liveData?.totalPnl || null;
+    const liveChangePct = liveData?.changePct || null;
+ 
     let livePriceHtml = '';
     if (currentPrice) {
       const priceColor = liveChangePct > 0 ? 'var(--green)' : liveChangePct < 0 ? 'var(--red)' : 'var(--t1)';
@@ -324,7 +339,7 @@ export function renderOpenTrades(tradesObj, mexcWs) {
           <span class="live-price-value loading-dots">Загрузка...</span>
         </div>`;
     }
-
+ 
     return `
     <div class="trade-card">
       <div class="trade-header">
@@ -333,6 +348,7 @@ export function renderOpenTrades(tradesObj, mexcWs) {
       </div>
       <div class="live-trade-info">
         <b style="font-size:15px;">${t.side} ${t.asset}/USDT.P</b>
+        ${sourceBadge}
         ${livePriceHtml}
       </div><br>
       Объём: <b>${fmt(t.riskPercent || 0, 1)}%</b> от депозита (${fmt(riskUSD, 2)}$) <span style="color:var(--blue);">(х${lev})</span> <span style="color:var(--blue);">${fmt(posFull, 2)}$</span><br>
@@ -366,12 +382,10 @@ export function renderOpenTrades(tradesObj, mexcWs) {
       ${t.strategy ? `<div style="font-size:11px;color:#888;margin-top:4px;">📐 ${t.strategy}</div>` : ''}
       ${t.note ? `<i style="color:var(--t2);font-size:12px;">${t.note}</i><br>` : ''}
       ${t.images && t.images.length
-        ? `<div class="trade-imgs">${t.images.map(src => `<img class="trade-img-thumb" src="${src}" data-lightbox="${src.replace(/'/g, "\\'")}">`).join('')}</div>`
+        ? `<div class="trade-imgs">${t.images.map(src => `<img class="trade-img-thumb" src="${src}" data-lightbox="${src.replace(/'/g, "\\'")}">`)  .join('')}</div>`
         : ''}
       <div style="display:flex;gap:6px;margin-top:8px;">
-        <button data-open-close-modal="${t.id}">
-          🔒 Управление закрытием
-        </button>
+        ${closeBtn}
         <button class="btn-small btn-gray" data-share-trade="open-${t.id}">📤</button>
       </div>
     </div>`;
@@ -381,7 +395,7 @@ export function renderOpenTrades(tradesObj, mexcWs) {
 // ── Summary (Итоги) ──────────────────────────────────────────────
 export function renderSummary(tradesObj, from) {
   const arr = Object.values(tradesObj).filter(t => t.date >= from && !t.archived && t.status === 'closed');
-
+ 
   if (!arr.length) {
     S('sp-pnl', '$0', 'var(--t2)');
     S('sp-sub', '0 сделок');
@@ -392,9 +406,10 @@ export function renderSummary(tradesObj, from) {
     S('sp-best-sub', '');
     const de = document.getElementById('sp-days');
     if (de) de.innerHTML = '<span style="color:var(--t3);font-size:13px;">Нет сделок за период</span>';
+    _renderSourceStats([], [], document.getElementById('sp-source-stats'));
     return;
   }
-
+ 
   const totalPnl = arr.reduce((s, t) => s + (t.pnl || 0), 0);
   const closed   = arr.filter(t => t.result === 'win' || t.result === 'loss');
   const wins     = closed.filter(t => t.result === 'win').length;
@@ -403,7 +418,7 @@ export function renderSummary(tradesObj, from) {
   const vRR      = arr.filter(t => t.rr > 0);
   const avgRR    = vRR.length ? vRR.reduce((s, t) => s + t.rr, 0) / vRR.length : 0;
   const best     = arr.reduce((a, b) => (b.pnl || 0) > (a.pnl || 0) ? b : a, arr[0]);
-
+ 
   S('sp-pnl',     (totalPnl >= 0 ? '+' : '') + '$' + fmt(totalPnl), totalPnl >= 0 ? 'var(--green)' : 'var(--red)');
   S('sp-sub',     arr.length + ' сделок');
   S('sp-wr',      fmt(wr, 1) + '%');
@@ -411,14 +426,14 @@ export function renderSummary(tradesObj, from) {
   S('sp-rr',      avgRR ? '1:' + fmt(avgRR, 2) : '—');
   S('sp-best',    best ? (best.pnl >= 0 ? '+' : '') + '$' + fmt(best.pnl) : '—', best && best.pnl >= 0 ? 'var(--green)' : 'var(--red)');
   S('sp-best-sub', best ? best.asset + ' ' + best.side : '');
-
+ 
   const byDay = {};
   arr.forEach(t => {
     if (!byDay[t.date]) byDay[t.date] = { pnl: 0, cnt: 0 };
     byDay[t.date].pnl += t.pnl || 0;
     byDay[t.date].cnt++;
   });
-
+ 
   const days = Object.entries(byDay).sort((a, b) => a[0].localeCompare(b[0])).slice(-7);
   const de   = document.getElementById('sp-days');
   if (de) de.innerHTML = days.map(([date, d]) => `
@@ -427,6 +442,62 @@ export function renderSummary(tradesObj, from) {
       <span class="day-pnl" style="color:${d.pnl >= 0 ? 'var(--green)' : 'var(--red)'};">${d.pnl >= 0 ? '+' : ''}${fmt(d.pnl)}$</span>
       <span class="day-cnt">${d.cnt} сд.</span>
     </div>`).join('') || '<span style="color:var(--t3);font-size:13px;">Нет данных</span>';
+ 
+  // ── НОВОЕ: разбивка по источнику ─────────────────────────────
+  const manual = arr.filter(t => !t.source || t.source === 'manual');
+  const mexc   = arr.filter(t => t.source === 'mexc' || t.fromMexc === true);
+  _renderSourceStats(manual, mexc, document.getElementById('sp-source-stats'));
+}
+ 
+/**
+ * Рендерит блок разбивки статистики по источнику (ручные / MEXC).
+ * Добавь <div id="sp-source-stats"></div> в index.html после summary-grid.
+ */
+function _renderSourceStats(manual, mexc, container) {
+  if (!container) return;
+  if (!manual.length && !mexc.length) { container.innerHTML = ''; return; }
+ 
+  const _block = (label, color, arr) => {
+    if (!arr.length) return '';
+    const pnl  = arr.reduce((s, t) => s + (t.pnl || 0), 0);
+    const wl   = arr.filter(t => t.result === 'win' || t.result === 'loss');
+    const wins = wl.filter(t => t.result === 'win').length;
+    const wr   = wl.length ? wins / wl.length * 100 : 0;
+    const vRR  = arr.filter(t => t.rr > 0);
+    const avgRR = vRR.length ? vRR.reduce((s, t) => s + t.rr, 0) / vRR.length : 0;
+ 
+    return `
+      <div class="source-stats-block">
+        <div class="source-stats-title" style="color:${color};">${label}</div>
+        <div class="source-stats-row">
+          <div class="source-stat">
+            <span class="source-stat-label">PnL</span>
+            <span class="source-stat-val" style="color:${pnl >= 0 ? 'var(--green)' : 'var(--red)'};">
+              ${pnl >= 0 ? '+' : ''}$${fmt(pnl)}
+            </span>
+          </div>
+          <div class="source-stat">
+            <span class="source-stat-label">Сделок</span>
+            <span class="source-stat-val">${arr.length}</span>
+          </div>
+          <div class="source-stat">
+            <span class="source-stat-label">Винрейт</span>
+            <span class="source-stat-val">${fmt(wr, 1)}%</span>
+          </div>
+          <div class="source-stat">
+            <span class="source-stat-label">Ср. RR</span>
+            <span class="source-stat-val">${avgRR ? '1:' + fmt(avgRR, 2) : '—'}</span>
+          </div>
+        </div>
+      </div>`;
+  };
+ 
+  container.innerHTML = `
+    <div class="source-stats-wrap">
+      <div class="section-divider" style="margin:16px 0 8px;">Разбивка по источнику</div>
+      ${_block('📝 Ручные сделки', 'var(--blue)', manual)}
+      ${_block('📡 MEXC сделки',   'var(--amber)', mexc)}
+    </div>`;
 }
 
 // ── Day history ──────────────────────────────────────────────────
