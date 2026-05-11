@@ -22,7 +22,7 @@ export function renderLiveCalc(result) {
   if (!result) {
     allIds.forEach(id => {
       const el = document.getElementById(id);
-      if (el) { el.textContent = '—'; el.style.color = var(--blue); }
+      if (el) { el.textContent = '—'; el.style.color = 'var(--blue)'; }
     });
     const rp = document.getElementById('lc-risk-pct');
     const nb = document.getElementById('lc-pos-base-note');
@@ -38,16 +38,16 @@ export function renderLiveCalc(result) {
     pnlTotal, riskPercent
   } = result;
 
-  S('lc-pos-base',  '$' + fmt(posBase, 2),    var(--blue));
-  S('lc-pos',       '$' + fmt(posFull, 2),    var(--blue));
-  S('lc-lev',       'x' + leverage,            var(--blue));
-  S('lc-stop-pct',  fmt(stopPct * 100, 2) + '%', var(--blue));
-  S('lc-pnl-stop',  fmt(pnlStop, 2) + '$',    var(--red));
+  S('lc-pos-base',  '$' + fmt(posBase, 2),    'var(--blue)');
+  S('lc-pos',       '$' + fmt(posFull, 2),    'var(--blue)');
+  S('lc-lev',       'x' + leverage,            'var(--blue)');
+  S('lc-stop-pct',  fmt(stopPct * 100, 2) + '%', 'var(--blue)');
+  S('lc-pnl-stop',  fmt(pnlStop, 2) + '$',    'var(--red)');
 
   const riskEl = document.getElementById('lc-risk');
   if (riskEl) {
     riskEl.textContent = '$' + fmt(riskUSD, 2);
-    riskEl.style.color = (riskPercent || 0) > 3 ? var(--red) : var(--blue);
+    riskEl.style.color = (riskPercent || 0) > 3 ? 'var(--red)' : 'var(--blue)';
   }
 
   S('lc-risk-pct', (riskPercent || '') + '% от депозита');
@@ -56,22 +56,22 @@ export function renderLiveCalc(result) {
   if (nb) nb.textContent = '×' + leverage + ' = $' + fmt(posFull, 2);
 
   if (result.tp1Price && result.tp1FixPct > 0) {
-    const c1 = pnl1 >= 0 ? var(--green) : var(--red);
+    const c1 = pnl1 >= 0 ? 'var(--green)' : 'var(--red)';
     S('lc-pnl1',    (pnl1 >= 0 ? '+' : '') + '$' + fmt(pnl1, 2), c1);
-    S('lc-vol-tp1', '$' + fmt(volTp1, 2),                         var(--t2));
-    S('lc-rr1',     rr1 ? '1:' + fmt(rr1, 2) : '—',              var(--blue));
+    S('lc-vol-tp1', '$' + fmt(volTp1, 2),                         'var(--t2)');
+    S('lc-rr1',     rr1 ? '1:' + fmt(rr1, 2) : '—',              'var(--blue)');
   } else {
-    ['lc-pnl1','lc-vol-tp1','lc-rr1'].forEach(id => S(id, '—', var(--blue)));
+    ['lc-pnl1','lc-vol-tp1','lc-rr1'].forEach(id => S(id, '—', 'var(--blue)'));
   }
 
   if (result.tp2Price && remainCoinsCalc > 0) {
-    const c2 = pnl2 >= 0 ? var(--green) : var(--red);
-    const ct = pnlTotal >= 0 ? var(--green) : var(--red);
+    const c2 = pnl2 >= 0 ? 'var(--green)' : 'var(--red)';
+    const ct = pnlTotal >= 0 ? 'var(--green)' : 'var(--red)';
     S('lc-pnl2',      (pnl2 >= 0 ? '+' : '') + '$' + fmt(pnl2, 2),       c2);
-    S('lc-vol-tp2',   '$' + fmt(volTp2, 2),                               var(--t2));
+    S('lc-vol-tp2',   '$' + fmt(volTp2, 2),                               'var(--t2)');
     S('lc-pnl-total', (pnlTotal >= 0 ? '+' : '') + '$' + fmt(pnlTotal, 2), ct);
   } else {
-    ['lc-pnl2','lc-vol-tp2','lc-pnl-total'].forEach(id => S(id, '—', var(--blue)));
+    ['lc-pnl2','lc-vol-tp2','lc-pnl-total'].forEach(id => S(id, '—', 'var(--blue)'));
   }
 }
 
@@ -95,7 +95,7 @@ export function renderStats(tradesObj) {
   const pnlEl = document.getElementById('stat-pnl');
   if (pnlEl) {
     pnlEl.textContent = (totalPnl >= 0 ? '+' : '') + '$' + fmt(totalPnl);
-    pnlEl.style.color = totalPnl >= 0 ? var(--green) : var(--red);
+    pnlEl.style.color = totalPnl >= 0 ? 'var(--green)' : 'var(--red)';
   }
 
   S('stat-balance', '$' + fmt(balance));
@@ -149,7 +149,7 @@ export function renderJournal(tradesObj) {
       ? acts.map(a =>
           `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;">
             <span style="color:var(--t2);">${a.dt || ''} ${a.tm || ''} · ${a.label}</span>
-            <span style="color:${(a.pnl || 0) >= 0 ? var(--green) : var(--red)};font-weight:bold;">
+            <span style="color:${(a.pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:bold;">
               ${(a.pnl || 0) >= 0 ? '+' : ''}${fmt(a.pnl || 0)}$
             </span>
           </div>`).join('')
@@ -199,7 +199,7 @@ export function renderJournal(tradesObj) {
       <div style="display:flex;justify-content:space-between;align-items:center;
                   margin-top:6px;padding-top:6px;border-top:0.5px solid var(--sep);">
         <span style="font-size:13px;color:var(--t2);">Итог:</span>
-        <span style="font-size:16px;font-weight:bold;color:${(t.pnl || 0) >= 0 ? var(--green) : var(--red)};">
+        <span style="font-size:16px;font-weight:bold;color:${(t.pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)'};">
           ${(t.pnl || 0) >= 0 ? '+' : ''}${fmt(t.pnl || 0)}$ · RR ${actualRRDisplay}
         </span>
       </div>
@@ -283,14 +283,14 @@ export function renderOpenTrades(tradesObj, mexcWs) {
         <div class="action-history-item">
           <span style="color:var(--t2);">${a.label}</span>
           <span style="color:#888;font-size:10px;">${a.pct}% @ ${a.price} (${moveDir}${fmt(priceMovePct, 1)}%)</span>
-          <span style="color:${(a.pnl || 0) >= 0 ? var(--green) : var(--red)};font-weight:bold;">
+          <span style="color:${(a.pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:bold;">
             ${(a.pnl || 0) >= 0 ? '+' : ''}${fmt(a.pnl || 0)}
           </span>
         </div>`;
       }).join('')}
       <div class="action-history-summary">
         <span style="color:var(--t2);">Закрыто <b style="color:var(--t1);">${usedPct.toFixed(0)}%</b> · Остаток <b style="color:var(--blue);">${remPct.toFixed(0)}%</b></span>
-        <span style="color:${partPnl >= 0 ? var(--green) : var(--red)};font-weight:bold;">${partPnl >= 0 ? '+' : ''}${fmt(partPnl)}</span>
+        <span style="color:${partPnl >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:bold;">${partPnl >= 0 ? '+' : ''}${fmt(partPnl)}</span>
       </div>` : '';
 
     const maxProfitPct = pnlTotal > 0 ? (pnlTotal / (t.deposit || 1) * 100) : 0;
@@ -302,7 +302,7 @@ export function renderOpenTrades(tradesObj, mexcWs) {
 
     let livePriceHtml = '';
     if (currentPrice) {
-      const priceColor = liveChangePct > 0 ? var(--green) : liveChangePct < 0 ? var(--red) : var(--t1);
+      const priceColor = liveChangePct > 0 ? 'var(--green)' : liveChangePct < 0 ? 'var(--red)' : 'var(--t1)';
       const priceSign  = liveChangePct > 0 ? '+' : '';
       livePriceHtml = `
         <div class="live-price-badge">
@@ -312,7 +312,7 @@ export function renderOpenTrades(tradesObj, mexcWs) {
         </div>
         <div class="live-pnl-badge">
           <span class="live-pnl-label">💰 Live P&L:</span>
-          <span class="live-pnl-value" style="color:${livePnl >= 0 ? var(--green) : var(--red)};">
+          <span class="live-pnl-value" style="color:${livePnl >= 0 ? 'var(--green)' : 'var(--red)'};">
             ${livePnl >= 0 ? '+' : ''}${fmt(livePnl)}
             <span style="font-size:10px;opacity:0.8;">(${priceSign}${liveChangePct.toFixed(2)}%)</span>
           </span>
@@ -383,7 +383,7 @@ export function renderSummary(tradesObj, from) {
   const arr = Object.values(tradesObj).filter(t => t.date >= from && !t.archived && t.status === 'closed');
 
   if (!arr.length) {
-    S('sp-pnl', '$0', var(--t2));
+    S('sp-pnl', '$0', 'var(--t2)');
     S('sp-sub', '0 сделок');
     S('sp-wr', '0%');
     S('sp-wr-sub', 'W 0 / L 0');
@@ -404,12 +404,12 @@ export function renderSummary(tradesObj, from) {
   const avgRR    = vRR.length ? vRR.reduce((s, t) => s + t.rr, 0) / vRR.length : 0;
   const best     = arr.reduce((a, b) => (b.pnl || 0) > (a.pnl || 0) ? b : a, arr[0]);
 
-  S('sp-pnl',     (totalPnl >= 0 ? '+' : '') + '$' + fmt(totalPnl), totalPnl >= 0 ? var(--green) : var(--red));
+  S('sp-pnl',     (totalPnl >= 0 ? '+' : '') + '$' + fmt(totalPnl), totalPnl >= 0 ? 'var(--green)' : 'var(--red)');
   S('sp-sub',     arr.length + ' сделок');
   S('sp-wr',      fmt(wr, 1) + '%');
   S('sp-wr-sub',  `W ${wins} / L ${losses}`);
   S('sp-rr',      avgRR ? '1:' + fmt(avgRR, 2) : '—');
-  S('sp-best',    best ? (best.pnl >= 0 ? '+' : '') + '$' + fmt(best.pnl) : '—', best && best.pnl >= 0 ? var(--green) : var(--red));
+  S('sp-best',    best ? (best.pnl >= 0 ? '+' : '') + '$' + fmt(best.pnl) : '—', best && best.pnl >= 0 ? 'var(--green)' : 'var(--red)');
   S('sp-best-sub', best ? best.asset + ' ' + best.side : '');
 
   const byDay = {};
@@ -424,7 +424,7 @@ export function renderSummary(tradesObj, from) {
   if (de) de.innerHTML = days.map(([date, d]) => `
     <div class="day-col">
       <span class="day-date">${date.slice(5)}</span>
-      <span class="day-pnl" style="color:${d.pnl >= 0 ? var(--green) : var(--red)};">${d.pnl >= 0 ? '+' : ''}${fmt(d.pnl)}$</span>
+      <span class="day-pnl" style="color:${d.pnl >= 0 ? 'var(--green)' : 'var(--red)'};">${d.pnl >= 0 ? '+' : ''}${fmt(d.pnl)}$</span>
       <span class="day-cnt">${d.cnt} сд.</span>
     </div>`).join('') || '<span style="color:var(--t3);font-size:13px;">Нет данных</span>';
 }
@@ -477,7 +477,7 @@ export function renderDayHistory(tradesObj, from) {
         ? acts.map(a => `
           <div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--t2);">
             <span>${a.label}</span>
-            <span style="color:${(a.pnl || 0) >= 0 ? var(--green) : var(--red)};font-weight:bold;">${(a.pnl || 0) >= 0 ? '+' : ''}${fmt(a.pnl || 0)}</span>
+            <span style="color:${(a.pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:bold;">${(a.pnl || 0) >= 0 ? '+' : ''}${fmt(a.pnl || 0)}</span>
           </div>`).join('')
         : '';
 
@@ -521,7 +521,7 @@ export function renderDayHistory(tradesObj, from) {
             <span style="color:var(--green);font-weight:bold;">${(tp2PnlVal || 0) >= 0 ? '+' : ''}${fmt(Math.abs(tp2PnlVal || 0))}$</span>
           </div>` : ''}
           ${closeHistory ? `<div style="margin:4px 0 2px;font-size:10px;">📋 Выход:${closeHistory}</div>` : ''}
-          Итог: <span style="color:${(t.pnl || 0) >= 0 ? var(--green) : var(--red)};font-weight:bold;"><b>${(t.pnl || 0) >= 0 ? '+' : ''}${fmt(Math.abs(t.pnl || 0))}$</b></span><br>
+          Итог: <span style="color:${(t.pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:bold;"><b>${(t.pnl || 0) >= 0 ? '+' : ''}${fmt(Math.abs(t.pnl || 0))}$</b></span><br>
           ${t.strategy ? `<span style="color:var(--t2);font-size:11px;">📐 ${t.strategy}</span><br>` : ''}
           ${t.note ? `<i style="color:var(--t2);font-size:12px;">${t.note}</i><br>` : ''}
           ${t.images && t.images.length ? `<div class="trade-imgs">${t.images.map(src => `<img class="trade-img-thumb" src="${src}" data-lightbox="${src.replace(/'/g, "\\'")}">`).join('')}</div>` : ''}
@@ -541,7 +541,7 @@ export function renderDayHistory(tradesObj, from) {
           <div class="day-stat"><span class="day-stat-label">Старт</span><span class="day-stat-val">$${fmt(startBal, 0)}</span></div>
           <div class="day-stat"><span class="day-stat-label">Финиш</span><span class="day-stat-val">$${fmt(endBal, 0)}</span></div>
         </div>
-        <span class="day-row-pnl" style="color:${dayPnl >= 0 ? var(--green) : var(--red)};">${dayPnl >= 0 ? '+' : ''}${fmt(dayPnl)}$</span>
+        <span class="day-row-pnl" style="color:${dayPnl >= 0 ? 'var(--green)' : 'var(--red)'};">${dayPnl >= 0 ? '+' : ''}${fmt(dayPnl)}$</span>
         <span class="day-arrow">▶</span>
       </div>
       <div class="day-trades">${tradeCards}</div>
@@ -553,7 +553,7 @@ export function renderDayHistory(tradesObj, from) {
 export function renderMexcSummary(tradesObj) {
   const arr = Object.values(tradesObj).filter(t => t.fromMexc === true);
   if (!arr.length) {
-    S('mx-pnl', '$0', var(--t2)); S('mx-sub', '0 MEXC сделок');
+    S('mx-pnl', '$0', 'var(--t2)'); S('mx-sub', '0 MEXC сделок');
     S('mx-wr', '0%'); S('mx-wr-sub', 'W 0 / L 0');
     S('mx-best', '—'); S('mx-best-sub', '');
     S('mx-worst', '—'); S('mx-worst-sub', '');
@@ -567,13 +567,13 @@ export function renderMexcSummary(tradesObj) {
   const best     = arr.reduce((a, b) => (b.pnl || 0) > (a.pnl || 0) ? b : a, arr[0]);
   const worst    = arr.reduce((a, b) => (b.pnl || 0) < (a.pnl || 0) ? b : a, arr[0]);
 
-  S('mx-pnl',     (totalPnl >= 0 ? '+' : '') + '$' + fmt(totalPnl), totalPnl >= 0 ? var(--green) : var(--red));
+  S('mx-pnl',     (totalPnl >= 0 ? '+' : '') + '$' + fmt(totalPnl), totalPnl >= 0 ? 'var(--green)' : 'var(--red)');
   S('mx-sub',     arr.length + ' MEXC сделок');
   S('mx-wr',      fmt(wr, 1) + '%');
   S('mx-wr-sub',  `W ${wins} / L ${losses}`);
-  S('mx-best',    best ? (best.pnl >= 0 ? '+' : '') + '$' + fmt(best.pnl) : '—', var(--green));
+  S('mx-best',    best ? (best.pnl >= 0 ? '+' : '') + '$' + fmt(best.pnl) : '—', 'var(--green)');
   S('mx-best-sub', best ? best.asset + ' ' + best.side : '');
-  S('mx-worst',   worst ? (worst.pnl >= 0 ? '+' : '') + '$' + fmt(worst.pnl) : '—', var(--red));
+  S('mx-worst',   worst ? (worst.pnl >= 0 ? '+' : '') + '$' + fmt(worst.pnl) : '—', 'var(--red)');
   S('mx-worst-sub', worst ? worst.asset + ' ' + worst.side : '');
 }
 
@@ -659,7 +659,7 @@ export function renderCloseHistory(closeActions, closingTrade) {
     if (list) list.innerHTML = closeActions.map((a, i) => `
       <div class="action-history-item">
         <span style="color:var(--t2);">${a.label}</span>
-        <span style="color:${a.pnl >= 0 ? var(--green) : var(--red)};font-weight:bold;">
+        <span style="color:${a.pnl >= 0 ? 'var(--green)' : 'var(--red)'};font-weight:bold;">
           ${a.pnl >= 0 ? '+' : ''}$${fmt(a.pnl)}
         </span>
         <button data-remove-action="${i}" class="btn-remove-action">✕</button>
@@ -668,7 +668,7 @@ export function renderCloseHistory(closeActions, closingTrade) {
     if (pctEl) pctEl.textContent = usedPct.toFixed(0) + '% · осталось ' + rem.toFixed(0) + '%';
     if (pnlEl) {
       pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + fmt(pnl);
-      pnlEl.style.color = pnl >= 0 ? var(--green) : var(--red);
+      pnlEl.style.color = pnl >= 0 ? 'var(--green)' : 'var(--red)';
     }
     if (rrEl) {
       rrEl.textContent = actualRR > 0 ? '1:' + fmt(actualRR, 2) : '—';
