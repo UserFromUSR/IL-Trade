@@ -515,7 +515,7 @@ function resetCloseOpts() {
   });
   ['early-result','partial-result'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) { el.textContent = '—'; el.style.color = '#8b949e'; }
+    if (el) { el.textContent = '—'; el.style.color = var(--t2); }
   });
   _state.selectedCloseOpt = null;
 }
@@ -544,11 +544,11 @@ function calcExtra() {
   if (_state.selectedCloseOpt === 'early') {
     const price = +document.getElementById('early-price')?.value;
     const resEl = document.getElementById('early-result');
-    if (!price) { if (resEl) { resEl.textContent = '—'; resEl.style.color = '#8b949e'; } return; }
+    if (!price) { if (resEl) { resEl.textContent = '—'; resEl.style.color = var(--t2); } return; }
     const { pnl, pct } = calcEarlyClose(t, price, coinsLev, rem);
     if (resEl) {
       resEl.textContent = (pnl >= 0 ? '+' : '') + '$' + fmt(pnl) + ' (' + pct.toFixed(2) + '%) · ' + rem.toFixed(0) + '% объёма';
-      resEl.style.color = pnl >= 0 ? '#3fb950' : '#f85149';
+      resEl.style.color = pnl >= 0 ? var(--green) : var(--red);
     }
   }
 
@@ -556,11 +556,11 @@ function calcExtra() {
     const price  = +document.getElementById('partial-price')?.value;
     const pct    = +document.getElementById('partial-percent')?.value;
     const resEl  = document.getElementById('partial-result');
-    if (!price || !pct) { if (resEl) { resEl.textContent = '—'; resEl.style.color = '#8b949e'; } return; }
+    if (!price || !pct) { if (resEl) { resEl.textContent = '—'; resEl.style.color = var(--t2); } return; }
     const { pnl: pnlCalc, pricePct, actualPct, remaining } = calcPartialClose(t, price, pct, coinsLev, rem);
     if (resEl) {
       resEl.textContent = (pnlCalc >= 0 ? '+' : '') + '$' + fmt(pnlCalc) + ' (' + pricePct.toFixed(2) + '%) · ' + actualPct.toFixed(0) + '% объёма · осталось ' + remaining.toFixed(0) + '%';
-      resEl.style.color = pnlCalc >= 0 ? '#3fb950' : '#f85149';
+      resEl.style.color = pnlCalc >= 0 ? var(--green) : var(--red);
     }
   }
 }
@@ -861,9 +861,9 @@ export async function autoSyncOnOpen() {
 function setMexcStatus(type, text) {
   const dot  = document.getElementById('mexc-dot');
   const txt  = document.getElementById('mexc-status-text');
-  const cols = { none: '#484f58', saved: '#3fb950', loading: '#e3b341', error: '#f85149' };
-  if (dot) dot.style.background = cols[type] || '#484f58';
-  if (txt) { txt.textContent = text; txt.style.color = type === 'error' ? '#f85149' : '#8b949e'; }
+  const cols = { none: var(--t3), saved: var(--green), loading: 'var(--amber)', error: var(--red) };
+  if (dot) dot.style.background = cols[type] || var(--t3);
+  if (txt) { txt.textContent = text; txt.style.color = type === 'error' ? var(--red) : var(--t2); }
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1059,7 +1059,7 @@ function generateTradePost(trade, action = 'open', includeLivePrice = true) {
     if (liveData?.currentPrice) {
       const sign    = liveData.changePct > 0 ? '+' : '';
       const pnlSign = liveData.totalPnl >= 0 ? '+' : '';
-      const col     = liveData.totalPnl >= 0 ? '#3fb950' : '#f85149';
+      const col     = liveData.totalPnl >= 0 ? var(--green) : var(--red);
       livePnlHtml   = `\n💰 <strong>Live P&L:</strong> <span style="color:${col};">${pnlSign}${fmt(liveData.totalPnl)}</span> (${sign}${liveData.changePct.toFixed(2)}%)`;
     }
   }
@@ -1068,7 +1068,7 @@ function generateTradePost(trade, action = 'open', includeLivePrice = true) {
   closeActionsData.forEach((a, i) => {
     const actPnlPct = a.price && trade.entry ? Math.abs(a.price - trade.entry) / trade.entry * 100 : 0;
     const actDir    = a.price > trade.entry ? '+' : a.price < trade.entry ? '−' : '';
-    const pnlColor  = (a.pnl || 0) >= 0 ? '#3fb950' : '#f85149';
+    const pnlColor  = (a.pnl || 0) >= 0 ? var(--green) : var(--red);
     actionHistory  += `\n${i + 1}. <strong>${a.label}</strong> @ ${a.price?.toLocaleString() || '—'} (${actDir}${actPnlPct.toFixed(2)}%) → <span style="color:${pnlColor};">${(a.pnl || 0) >= 0 ? '+' : ''}${fmt(a.pnl)}</span>`;
   });
 
@@ -1079,18 +1079,18 @@ function generateTradePost(trade, action = 'open', includeLivePrice = true) {
 
 📅 Дата: ${dateStr.split('-').reverse().join('.')} ${timeStr}
 💰 Депозит: <strong>$${fmt(trade.deposit || 0)}</strong>
-💰 Объём: <strong>$${fmt(riskUSD)}</strong> ${trade.riskPercent ? '(' + trade.riskPercent + '%)' : ''} <span style="color:#58a6ff;">(x${leverage})</span>
+💰 Объём: <strong>$${fmt(riskUSD)}</strong> ${trade.riskPercent ? '(' + trade.riskPercent + '%)' : ''} <span style="color:var(--blue);">(x${leverage})</span>
 
 📍 Вход: <strong>${trade.entry?.toLocaleString() || '—'}</strong>
 🛑 Стоп: <strong>${trade.stop?.toLocaleString() || '—'}</strong> ${stopDist > 0 ? `(${stopDist.toFixed(2)}%)` : ''}
-💸 Стоп PnL: <strong style="color:#f85149;">${fmt(stopPnlLoss)}</strong>
+💸 Стоп PnL: <strong style="color:var(--red);">${fmt(stopPnlLoss)}</strong>
 
 🎯 TP1: <strong>${trade.tp1_price?.toLocaleString() || '—'}</strong> ${tp1ProfitPct > 0 ? `(+${fmt(tp1ProfitPct, 2)}%)` : ''}
 ${trade.tp2_price ? `🎯 TP2: <strong>${trade.tp2_price.toLocaleString()}</strong> ${tp2ProfitPct > 0 ? `(+${fmt(tp2ProfitPct, 2)}%)` : ''}` : ''}
 
-📊 Max прибыль TP1: <strong style="color:#3fb950;">+${fmt(maxProfitTP1)}</strong>
-${maxProfitTP2 > 0 ? `📊 Max прибыль TP2: <strong style="color:#3fb950;">+${fmt(maxProfitTP2)}</strong>` : ''}
-${totalProfitPct > 0 ? `💰 Σ Прибыль: <strong style="color:#3fb950;">+${fmt(totalProfitPct, 2)}%</strong>` : ''}
+📊 Max прибыль TP1: <strong style="color:var(--green);">+${fmt(maxProfitTP1)}</strong>
+${maxProfitTP2 > 0 ? `📊 Max прибыль TP2: <strong style="color:var(--green);">+${fmt(maxProfitTP2)}</strong>` : ''}
+${totalProfitPct > 0 ? `💰 Σ Прибыль: <strong style="color:var(--green);">+${fmt(totalProfitPct, 2)}%</strong>` : ''}
 
 📊 Плановый RR: <strong>${plannedRR > 0 ? '1:' + plannedRR.toFixed(2) : '—'}</strong>
 💵 Риск: <strong>$${fmt(riskUSD)}</strong>
@@ -1113,7 +1113,7 @@ ${trade.strategy ? `📐 Стратегия: ${trade.strategy}` : ''}
 ${actionHistory ? `📋 <strong>История закрытий:</strong>${actionHistory}` : ''}
 
 📊 Закрыто: <strong>${closedPct.toFixed(0)}%</strong> · Остаток: <strong>${remPct.toFixed(0)}%</strong>
-💰 P&L: <strong style="color:${realizedPnl >= 0 ? '#3fb950' : '#f85149'};">${realizedPnl >= 0 ? '+' : ''}${fmt(realizedPnl)}</strong>
+💰 P&L: <strong style="color:${realizedPnl >= 0 ? var(--green) : var(--red)};">${realizedPnl >= 0 ? '+' : ''}${fmt(realizedPnl)}</strong>
 📊 Факт. RR: <strong>${actualRR > 0 ? '1:' + actualRR.toFixed(2) : '—'}</strong>
 
 🔗 <a href="https://t.me/ILTradesbot">Посмотреть сделку</a>`;
@@ -1136,7 +1136,7 @@ ${actionHistory ? `📋 <strong>История закрытий:</strong>${actio
 ${actionHistory ? `📋 <strong>История закрытий:</strong>${actionHistory}` : ''}
 
 📊 Результат: <strong>${rText}</strong>
-💰 Итоговый P&L: <strong style="color:${finalPnl >= 0 ? '#3fb950' : '#f85149'};">${finalPnl >= 0 ? '+' : ''}${fmt(finalPnl)}</strong>
+💰 Итоговый P&L: <strong style="color:${finalPnl >= 0 ? var(--green) : var(--red)};">${finalPnl >= 0 ? '+' : ''}${fmt(finalPnl)}</strong>
 📊 Плановый RR: <strong>${plannedRR > 0 ? '1:' + plannedRR.toFixed(2) : '—'}</strong>
 📊 Фактический RR: <strong>${actualRR > 0 ? '1:' + actualRR.toFixed(2) : '—'}</strong>
 
@@ -1423,7 +1423,7 @@ async function _checkLiveAccess() {
         S('live-user-role',    entry.role === 'trader' ? '📹 Трейдер' : '👁 Зритель');
         S('live-user-expires', 'Доступ истекает: ' + (expiry ? expiry.toLocaleDateString('ru-RU') : '∞'));
         const roleEl = document.getElementById('live-user-role');
-        if (roleEl) roleEl.style.color = entry.role === 'trader' ? '#3fb950' : '#58a6ff';
+        if (roleEl) roleEl.style.color = entry.role === 'trader' ? var(--green) : var(--blue);
 
         const vs = document.getElementById('live-viewer-section');
         const ts = document.getElementById('live-trader-section');
@@ -1583,7 +1583,7 @@ async function _loadLiveProfiles() {
         <div class="live-profile-stats">
           <div class="live-profile-stat"><span class="live-profile-stat-val">${p.streams || 0}</span><span>Эфиров</span></div>
           <div class="live-profile-stat"><span class="live-profile-stat-val">${p.followers || 0}</span><span>Подписчиков</span></div>
-          <div class="live-profile-stat"><span class="live-profile-stat-val" style="color:${(p.winRate || 0) >= 50 ? '#3fb950' : '#f85149'}">${p.winRate || 0}%</span><span>Винрейт</span></div>
+          <div class="live-profile-stat"><span class="live-profile-stat-val" style="color:${(p.winRate || 0) >= 50 ? var(--green) : var(--red)}">${p.winRate || 0}%</span><span>Винрейт</span></div>
         </div>
       </div>`).join('');
   } catch (e) { list.innerHTML = '<div class="live-empty">Ошибка загрузки профилей</div>'; }
@@ -1633,7 +1633,7 @@ function _toggleLiveStream() {
   }
   if (preview) {
     preview.innerHTML = _liveStreamActive
-      ? '<div style="color:#f85149;font-size:14px;">🔴 ИДЁТ ТРАНСЛЯЦИЯ</div>'
+      ? '<div style="color:var(--red);font-size:14px;">🔴 ИДЁТ ТРАНСЛЯЦИЯ</div>'
       : '<div class="live-preview-placeholder">Предпросмотр трансляции</div>';
   }
 }
