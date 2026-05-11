@@ -253,6 +253,7 @@ export async function saveTrade() {
 
   const raw = {
     id:          _state.editId || Date.now(),
+    source: 'manual',
     date:        document.getElementById('date')?.value,
     time:        document.getElementById('time')?.value,
     side:        document.getElementById('side')?.value || 'LONG',
