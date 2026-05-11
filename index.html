@@ -7,12 +7,31 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#000000">
   <title>IL-Trade Journal PRO+</title>
+
+  <!-- ✅ FIX: styles moved to <head> to prevent FOUC and Linux path issues -->
+  <link rel="stylesheet" href="./src/styles.css">
+
   <script>
     // Platform detection
     if (window.Telegram && window.Telegram.WebApp) {
       document.documentElement.classList.add('tg-webapp');
       document.body && document.body.classList.add('tg-webapp');
     }
+
+    // ✅ FIX: Global error handler — catches ES-module load failures
+    // so loader never hangs silently on GitHub Pages
+    window.addEventListener('error', function(e) {
+      console.error('[Global Error]', e.message, e.filename);
+      const loaderText = document.getElementById('loader-text');
+      if (loaderText) loaderText.textContent = 'Ошибка загрузки: ' + e.message;
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      console.error('[Unhandled Promise]', e.reason);
+      const loaderText = document.getElementById('loader-text');
+      if (loaderText && loaderText.textContent.startsWith('Подключение')) {
+        loaderText.textContent = 'Ошибка модуля: ' + (e.reason?.message || e.reason);
+      }
+    });
   </script>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -829,7 +848,7 @@
 
 <script type="module" src="./src/main.js"></script>
 
-<link rel="stylesheet" href="./src/styles.css">
+<!-- ✅ FIX: removed duplicate <link> that was here (moved to <head>) -->
 <script>
 // ── Inline image expand (click to expand / collapse) ────────────
 document.addEventListener('click', function(e) {
