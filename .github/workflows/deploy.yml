@@ -15,13 +15,16 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install dependencies
+      # Устанавливаем зависимости ТОЛЬКО корневого package.json (фронтенд)
+      # bot-server/ имеет свой package.json и деплоится отдельно на Railway
+      - name: Install frontend deps
         run: npm install
 
-      - name: Build project
+      - name: Build frontend (Vite → dist/)
         run: npm run build
 
-      - uses: FirebaseExtended/action-hosting-deploy@v0
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_IL_TRADE }}
