@@ -182,13 +182,22 @@ app.post('/api/:projectId/channel/post', async (req, res) => {
  * В продакшене заменить на полную верификацию через HMAC-SHA256.
  */
 function _extractUidFromInitData(initData) {
-  try {
-    const params = new URLSearchParams(initData);
-    const user   = JSON.parse(decodeURIComponent(params.get('user') || '{}'));
-    return user.id ? String(user.id) : null;
-  } catch (_) {
-    return null;
-  }
+  const crypto = require('crypto');
+
+function verifyTelegramInitData(initData, botToken) {
+  const params = new URLSearchParams(initData);
+  const hash   = params.get('hash');
+  params.delete('hash');
+
+  const dataCheckStr = [...params.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n');
+
+  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
+  const calcHash  = crypto.createHmac('sha256', secretKey).update(dataCheckStr).digest('hex');
+
+  return calcHash === hash;
 }
 
 /**
