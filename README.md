@@ -1,7 +1,7 @@
 # 📓 IL-Trading Journal PRO+
 
 Торговый журнал как Telegram Mini App.  
-Стек: Vanilla JS + Vite · Firebase Realtime DB · MEXC WebSocket · Telegraf Bot
+Стек: Vanilla JS + Vite · Firebase Realtime DB · MEXC WebSocket · Telegraf Bot.
 
 ---
 
