@@ -81,7 +81,7 @@ function subscribeOpenTradeAssets() {
 function _bindForm() {
   // Live-calc инпуты (leverage обрабатывается отдельно через syncLev)
   ['deposit','riskPercent','entry','stop','tp1_price','tp1_percent','tp2_price'].forEach(id => {
-    document.getElementById(id)?.addEventListener('input', _triggerLiveCalc);
+  document.getElementById('asset')?.addEventListener('input',  _onAssetInput);
   });
 
   // Слайдер плеча
@@ -124,6 +124,10 @@ function _bindForm() {
   });
   document.getElementById('img-input')?.addEventListener('change', handleImgSelect);
 
+  // ── НОВОЕ: автоподстановка цены при вводе тикера ──────────────
+  document.getElementById('asset')?.addEventListener('input',  _onAssetInput);
+  document.getElementById('asset')?.addEventListener('change', _onAssetInput);
+ 
   // Сохранить сделку
   document.getElementById('save-trade-btn')?.addEventListener('click', saveTrade);
 }
@@ -138,6 +142,49 @@ function _triggerLiveCalc() {
     result.tp2Price    = v.tp2Price;
   }
   renderLiveCalc(result);
+}
+
+function _onAssetInput() {
+  const raw    = document.getElementById('asset')?.value?.trim().toUpperCase();
+  if (!raw || raw.length < 2) return;
+ 
+  // Нормализуем: BTCUSDT / BTC / BTC_USDT → всё работает
+  const asset = raw.endsWith('USDT') ? raw : raw + 'USDT';
+ 
+  if (!_state.mexcWs) return;
+ 
+  // Подписываемся на этот символ
+  _state.mexcWs.subscribe([asset]);
+ 
+  // Проверяем — вдруг цена уже есть в кэше
+  const cached = _state.mexcWs.getPrice(asset);
+  if (cached) {
+    _applyLivePrice(cached);
+    return;
+  }
+ 
+  // Ждём первую цену — слушаем через onPriceUpdate
+  // Используем флаг чтобы применить только один раз
+  const base = asset.replace('USDT', '').replace('_USDT', '');
+  let applied = false;
+ 
+  const originalOnPriceUpdate = _state.mexcWs._onPriceUpdate;
+  _state.mexcWs._onPriceUpdate = (updatedBase, data) => {
+    // Вызываем оригинальный обработчик
+    originalOnPriceUpdate(updatedBase, data);
+ 
+    // Если это наш тикер и цена ещё не применена
+    if (!applied && updatedBase === base) {
+      const currentAsset = document.getElementById('asset')?.value?.trim().toUpperCase();
+      const currentNorm  = currentAsset?.endsWith('USDT') ? currentAsset : currentAsset + 'USDT';
+      if (currentNorm === asset) {
+        applied = true;
+        _applyLivePrice(data.price);
+        // Восстанавливаем оригинал
+        _state.mexcWs._onPriceUpdate = originalOnPriceUpdate;
+      }
+    }
+  };
 }
 
 function _getLiveCalcInputs() {
