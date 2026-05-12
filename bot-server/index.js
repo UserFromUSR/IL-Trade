@@ -113,6 +113,24 @@ bot.on('inline_query', async ctx => {
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
+// CORS — разрешаем запросы с фронтенда
+app.use((req, res, next) => {
+  const allowed = [
+    'https://il-trade.web.app',
+    'https://userfromusr.github.io',
+    'http://localhost:5173',
+    'http://localhost:3000'
+  ];
+  const origin = req.headers.origin;
+  if (origin && allowed.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,x-telegram-init-data');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 
@@ -371,7 +389,11 @@ async function main() {
       console.log(`[Bot] HTTP server listening on port ${PORT}`);
     });
 
-    await bot.launch();
+    await bot.launch({
+      // Дропаем старые webhook/polling соединения перед запуском
+      dropPendingUpdates: true,
+      allowedUpdates: ['message', 'callback_query', 'inline_query']
+    });
     console.log('[Bot] ✅ IL-Trading Journal bot started');
     console.log(`[Bot] Mini App URL: ${MINI_APP_URL}`);
   } catch (e) {
