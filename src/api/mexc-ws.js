@@ -20,12 +20,12 @@ export class MexcWebSocket {
   }
 
   getPrice(asset) {
-    const base = asset.replace('USDT', '').replace('_USDT', '');
+    const base = this._normalizeBase(asset);
     return this._prices[base]?.price || null;
   }
 
   getPriceData(asset) {
-    const base = asset.replace('USDT', '').replace('_USDT', '');
+    const base = this._normalizeBase(asset);
     return this._prices[base] || null;
   }
 
@@ -145,8 +145,22 @@ export class MexcWebSocket {
 
   // ─── Private ────────────────────────────────────────────────────
 
+  // Нормализует любой формат актива → базовый тикер (BTC, ETH, ...)
+  // Поддерживает: BTCUSDT, BTC/USDT, BTC/USDT:USDT, BTCUSDT/USDT.P, BTC_USDT, BTC
+  _normalizeBase(asset) {
+    return (asset || '')
+      .replace('/USDT:USDT', '')  // BTC/USDT:USDT → BTC
+      .replace('/USDT.P', '')     // BTCUSDT/USDT.P → BTCUSDT (затем следующая строка)
+      .replace('USDT', '')        // BTCUSDT → BTC
+      .replace('/USDT', '')       // BTC/USDT → BTC
+      .replace('_USDT', '')       // BTC_USDT → BTC
+      .replace('/', '')           // BTC/ → BTC (остаток)
+      .toUpperCase()
+      .trim();
+  }
+
   _toSymbol(asset) {
-    return asset.replace('USDT', '').replace('_USDT', '') + '_USDT';
+    return this._normalizeBase(asset) + '_USDT';
   }
 
   _sendSubscriptions(assets) {
@@ -170,7 +184,7 @@ export class MexcWebSocket {
     if (data.data && data.data.length > 0) {
       const ticker    = data.data[0];
       const symbol    = ticker.symbol || data.symbol || '';
-      const baseAsset = symbol.replace('USDT', '').replace('_USDT', '');
+      const baseAsset = this._normalizeBase(symbol);
 
       if (baseAsset && ticker.last) {
         const price = parseFloat(ticker.last);
