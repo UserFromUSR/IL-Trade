@@ -115,6 +115,103 @@ app.use(express.json({ limit: '1mb' }));
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
+
+app.post('/api/sync', async (req, res) => {
+  try {
+    const { uid, apiKey, apiSecret, limit = 50 } = req.body;
+    if (!uid || !apiKey || !apiSecret) {
+      return res.status(400).json({ error: 'Missing uid, apiKey or apiSecret' });
+    }
+
+    if (!db) return res.status(503).json({ error: 'Firebase not initialized' });
+
+    // Динамически импортируем ccxt чтобы не ломать старт если пакет не установлен
+    let ccxt;
+    try { ccxt = require('ccxt'); } catch (e) {
+      return res.status(503).json({ error: 'ccxt not available: ' + e.message });
+    }
+
+    const exchange = new ccxt.mexc({
+      apiKey,
+      secret: apiSecret,
+      enableRateLimit: true,
+      options: { defaultType: 'swap' }
+    });
+
+    const SYMBOLS = [
+      'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT',
+      'BNB/USDT:USDT', 'XRP/USDT:USDT', 'DOGE/USDT:USDT',
+      'ADA/USDT:USDT', 'AVAX/USDT:USDT', 'DOT/USDT:USDT',
+      'LINK/USDT:USDT', 'TRX/USDT:USDT', 'ATOM/USDT:USDT',
+      'APT/USDT:USDT', 'SUI/USDT:USDT', 'OP/USDT:USDT',
+      'ARB/USDT:USDT', 'INJ/USDT:USDT'
+    ];
+
+    // Загружаем уже известные externalId
+    const knownSnap = await db.ref(`trades/${uid}`)
+      .orderByChild('source').equalTo('mexc').once('value');
+    const knownIds = new Set();
+    const existing = knownSnap.val();
+    if (existing) {
+      Object.values(existing).forEach(t => { if (t.externalId) knownIds.add(t.externalId); });
+    }
+
+    let imported = 0;
+
+    for (const symbol of SYMBOLS) {
+      let trades = [];
+      try {
+        trades = await exchange.fetchMyTrades(symbol, undefined, Number(limit));
+      } catch (_) { continue; }
+
+      for (const raw of trades) {
+        const externalId = String(raw.id || '');
+        if (!externalId || knownIds.has(externalId)) continue;
+        knownIds.add(externalId);
+
+        const sym    = (raw.symbol || '').replace('/USDT:USDT', 'USDT').replace('/', '');
+        const side   = raw.side === 'buy' ? 'LONG' : 'SHORT';
+        const price  = parseFloat(raw.price || 0);
+        const cost   = parseFloat(raw.cost || 0);
+        const pnl    = parseFloat(raw.info?.realizedPnl || raw.info?.profit || 0);
+        const ts     = raw.timestamp ? new Date(raw.timestamp) : new Date();
+        if (!price || !sym) continue;
+
+        const tradeId = `mexc_${raw.id}_${Math.random().toString(36).slice(2, 6)}`;
+        const isClosed = raw.info?.realizedPnl !== undefined;
+
+        await db.ref(`trades/${uid}/${tradeId}`).set({
+          id: tradeId, source: 'mexc', fromMexc: true,
+          externalId, date: ts.toISOString().slice(0, 10),
+          time: ts.toTimeString().slice(0, 5),
+          side, asset: sym, entry: price, stop: 0,
+          tp1_price: 0, tp2_price: 0, tp1_percent: 50,
+          deposit: 0, leverage: parseFloat(raw.info?.leverage || 1),
+          riskPercent: 0, riskUSD: cost,
+          positionBase: cost, positionFull: cost, pnl,
+          rr: 0, plannedRR: 0, pnl1: pnl, pnl2: 0,
+          status: isClosed ? 'closed' : 'open',
+          result: isClosed ? (pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'be') : 'open',
+          closeActions: [], strategy: 'MEXC Auto',
+          note: `Авто-импорт MEXC. orderId: ${raw.orderId || raw.id || ''}`,
+          emotion: '', followedRM: null, quality: 0,
+          images: [], archived: false,
+          closeDate: isClosed ? ts.toISOString().slice(0, 10) : '',
+          closeTime: isClosed ? ts.toTimeString().slice(0, 5) : ''
+        });
+        imported++;
+      }
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    console.log(`[/api/sync] uid=${uid} imported=${imported}`);
+    return res.json({ success: true, imported });
+  } catch (e) {
+    console.error('[/api/sync]', e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/:projectId/channel/post', async (req, res) => {
   try {
     const { trade, action, channelId, replyToMessageId } = req.body;
