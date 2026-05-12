@@ -1,36 +1,21 @@
 // bot-server/mexc-service.js
-// Изолированный сервис: слушает Firebase users/{uid}/mexcApiKey|mexcApiSecret,
-// запускает polling закрытых позиций через ccxt (MEXC futures),
-// автоматически создаёт сделки в trades/{uid}/{tradeId} с тегом source:'mexc'
-// и постит в Telegram-канал.
+// Сервис синхронизации MEXC:
+// - Открытые позиции  → trades/{uid}/{id}  status:'open'   → вкладка "Открытые"
+// - Закрытые позиции → trades/{uid}/{id}  status:'closed' → вкладка "MEXC" в итогах
+//
+// Использует fetchPositions() для открытых и fetchMyTrades() для истории.
 
 'use strict';
 
 const ccxt  = require('ccxt');
 const admin = require('firebase-admin');
 
-// ── Константы ───────────────────────────────────────────────────
-const POLL_INTERVAL_MS = 30000; // 30 секунд между запросами (не спамим)
+const POLL_INTERVAL_MS = 30_000; // 30 сек
 
-// Топ фьючерсных пар на MEXC — перебираем их при polling
-const FUTURES_SYMBOLS = [
-  'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT',
-  'BNB/USDT:USDT', 'XRP/USDT:USDT', 'DOGE/USDT:USDT',
-  'ADA/USDT:USDT', 'AVAX/USDT:USDT', 'DOT/USDT:USDT',
-  'LINK/USDT:USDT', 'MATIC/USDT:USDT', 'LTC/USDT:USDT',
-  'TRX/USDT:USDT', 'ATOM/USDT:USDT', 'UNI/USDT:USDT',
-  'APT/USDT:USDT', 'SUI/USDT:USDT', 'OP/USDT:USDT',
-  'ARB/USDT:USDT', 'INJ/USDT:USDT'
-];
-
-// ── Воркеры: Map<uid, { stop: fn }> ────────────────────────────
+// ── Воркеры ──────────────────────────────────────────────────────
 const _workers = new Map();
 
-// ── Инициализация ───────────────────────────────────────────────
-/**
- * @param {admin.database.Database} db
- * @param {import('telegraf').Telegraf} bot
- */
+// ── Инициализация ─────────────────────────────────────────────────
 function init(db, bot) {
   console.log('[MexcService] Initializing...');
   db.ref('users').on('child_changed', snap => _onUserChanged(snap, db, bot));
@@ -38,10 +23,10 @@ function init(db, bot) {
   console.log('[MexcService] Listening for user key changes');
 }
 
-// ── Обработчик изменения пользователя ───────────────────────────
+// ── Обработчик изменения пользователя ────────────────────────────
 async function _onUserChanged(snap, db, bot) {
-  const uid  = snap.key;
-  const data = snap.val();
+  const uid     = snap.key;
+  const data    = snap.val();
   if (!data) return;
 
   const apiKey    = data.mexcApiKey;
@@ -49,23 +34,18 @@ async function _onUserChanged(snap, db, bot) {
 
   if (apiKey && apiSecret) {
     if (_workers.has(uid)) {
-      console.log(`[MexcService] Restarting worker for uid=${uid}`);
       _stopWorker(uid);
     }
     await _startWorker(uid, apiKey, apiSecret, db, bot);
   } else {
-    if (_workers.has(uid)) {
-      console.log(`[MexcService] Stopping worker for uid=${uid} (keys removed)`);
-      _stopWorker(uid);
-    }
+    if (_workers.has(uid)) _stopWorker(uid);
   }
 }
 
-// ── Запуск воркера ───────────────────────────────────────────────
+// ── Запуск воркера ────────────────────────────────────────────────
 async function _startWorker(uid, apiKey, apiSecret, db, bot) {
   console.log(`[MexcService] Starting worker for uid=${uid}`);
-
-  let stopped    = false;
+  let stopped = false;
   let errorCount = 0;
 
   try {
@@ -73,33 +53,29 @@ async function _startWorker(uid, apiKey, apiSecret, db, bot) {
       apiKey,
       secret:          apiSecret,
       enableRateLimit: true,
-      options: {
-        defaultType: 'swap'   // MEXC futures/perpetuals
-      }
+      options:         { defaultType: 'swap' }
     });
 
-    const knownIds = await _loadKnownTradeIds(uid, db);
+    // Загружаем уже известные externalId закрытых сделок
+    const knownClosedIds = await _loadKnownClosedIds(uid, db);
 
-    // Первый запрос — сразу при старте
-    await _pollClosedPositions(exchange, uid, db, bot, knownIds, () => stopped)
-      .catch(e => console.error(`[MexcService] Init poll error uid=${uid}:`, e.message));
+    // Первый полл сразу
+    await _poll(exchange, uid, db, bot, knownClosedIds, () => stopped)
+      .catch(e => console.error(`[MexcService] Init poll uid=${uid}:`, e.message));
 
     const timer = setInterval(async () => {
       if (stopped) return;
-
-      // Экспоненциальный backoff при повторных ошибках
       if (errorCount >= 5) {
-        console.warn(`[MexcService] Too many errors for uid=${uid}, pausing 5 min`);
+        console.warn(`[MexcService] Too many errors uid=${uid}, pause 5min`);
         await new Promise(r => setTimeout(r, 5 * 60 * 1000));
         errorCount = 0;
       }
-
       try {
-        await _pollClosedPositions(exchange, uid, db, bot, knownIds, () => stopped);
+        await _poll(exchange, uid, db, bot, knownClosedIds, () => stopped);
         errorCount = 0;
       } catch (e) {
         errorCount++;
-        console.error(`[MexcService] Poll error uid=${uid} (#${errorCount}):`, e.message);
+        console.error(`[MexcService] Poll error uid=${uid} #${errorCount}:`, e.message);
       }
     }, POLL_INTERVAL_MS);
 
@@ -117,115 +93,262 @@ async function _startWorker(uid, apiKey, apiSecret, db, bot) {
   }
 }
 
-// ── Остановка воркера ────────────────────────────────────────────
 function _stopWorker(uid) {
-  const worker = _workers.get(uid);
-  if (worker) {
-    worker.stop();
-    _workers.delete(uid);
-    console.log(`[MexcService] Worker stopped uid=${uid}`);
+  const w = _workers.get(uid);
+  if (w) { w.stop(); _workers.delete(uid); }
+}
+
+// ── Главный цикл ──────────────────────────────────────────────────
+async function _poll(exchange, uid, db, bot, knownClosedIds, isStopped) {
+  // 1. Синхронизируем открытые позиции
+  await _syncOpenPositions(exchange, uid, db, bot, isStopped);
+
+  if (isStopped()) return;
+
+  // 2. Синхронизируем закрытые сделки из истории
+  await _syncClosedTrades(exchange, uid, db, bot, knownClosedIds, isStopped);
+}
+
+// ── 1. Открытые позиции ───────────────────────────────────────────
+async function _syncOpenPositions(exchange, uid, db, bot, isStopped) {
+  let positions = [];
+  try {
+    positions = await exchange.fetchPositions();
+  } catch (e) {
+    console.warn(`[MexcService] fetchPositions error uid=${uid}:`, e.message);
+    return;
+  }
+
+  // Активные позиции (с ненулевым размером)
+  const active = positions.filter(p =>
+    p.contracts && parseFloat(p.contracts) > 0
+  );
+
+  // Получаем текущие открытые MEXC-сделки в Firebase
+  const snap = await db.ref(`trades/${uid}`)
+    .orderByChild('source').equalTo('mexc').once('value');
+  const existing = snap.val() || {};
+
+  const currentOpenIds = new Set(
+    Object.values(existing)
+      .filter(t => t.status === 'open' && t.fromMexc)
+      .map(t => t.positionKey)
+      .filter(Boolean)
+  );
+
+  const activeKeys = new Set();
+
+  for (const pos of active) {
+    if (isStopped()) return;
+
+    const posKey  = _positionKey(pos);
+    activeKeys.add(posKey);
+
+    // Ищем существующую запись с этим positionKey
+    const existingTrade = Object.values(existing).find(
+      t => t.positionKey === posKey && t.status === 'open'
+    );
+
+    const mapped = _mapPositionToTrade(pos, uid, existingTrade?.id);
+
+    try {
+      await db.ref(`trades/${uid}/${mapped.id}`).set(mapped);
+      console.log(`[MexcService] Open position upserted: ${mapped.asset} ${mapped.side} uid=${uid}`);
+    } catch (e) {
+      console.error(`[MexcService] Save open position error uid=${uid}:`, e.message);
+    }
+  }
+
+  // Позиции которые были открыты но сейчас закрылись на бирже →
+  // помечаем их закрытыми (Railway их потом найдёт в истории и обновит PnL)
+  for (const [tradeId, trade] of Object.entries(existing)) {
+    if (!trade.fromMexc || trade.status !== 'open' || !trade.positionKey) continue;
+    if (!activeKeys.has(trade.positionKey)) {
+      // Позиция закрылась — обновляем статус
+      try {
+        await db.ref(`trades/${uid}/${tradeId}`).update({
+          status:    'closed',
+          result:    'unknown', // обновится из истории
+          closeDate: new Date().toISOString().slice(0, 10),
+          closeTime: new Date().toTimeString().slice(0, 5)
+        });
+        console.log(`[MexcService] Position closed: ${trade.asset} uid=${uid}`);
+      } catch (e) {
+        console.error(`[MexcService] Close position update error:`, e.message);
+      }
+    }
   }
 }
 
-// ── Polling закрытых позиций ─────────────────────────────────────
-async function _pollClosedPositions(exchange, uid, db, bot, knownIds, isStopped) {
-  // Метод 1: fetchMyTrades с конкретными символами
-  // MEXC требует symbol при вызове fetchMyTrades
+// ── 2. Закрытые сделки из истории ─────────────────────────────────
+const FUTURES_SYMBOLS = [
+  'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT',
+  'BNB/USDT:USDT', 'XRP/USDT:USDT', 'DOGE/USDT:USDT',
+  'ADA/USDT:USDT', 'AVAX/USDT:USDT', 'DOT/USDT:USDT',
+  'LINK/USDT:USDT', 'TRX/USDT:USDT', 'ATOM/USDT:USDT',
+  'APT/USDT:USDT', 'SUI/USDT:USDT', 'OP/USDT:USDT',
+  'ARB/USDT:USDT', 'INJ/USDT:USDT'
+];
+
+async function _syncClosedTrades(exchange, uid, db, bot, knownClosedIds, isStopped) {
   for (const symbol of FUTURES_SYMBOLS) {
     if (isStopped()) return;
 
     let trades = [];
     try {
       trades = await exchange.fetchMyTrades(symbol, undefined, 20);
-    } catch (e) {
-      // Тихо пропускаем — символ может не торговаться
-      continue;
-    }
+    } catch (_) { continue; }
 
     for (const raw of trades) {
-      const externalId = String(raw.id || '');
-      if (!externalId || knownIds.has(externalId)) continue;
-      knownIds.add(externalId);
+      // Только закрывающие сделки (с реализованным PnL)
+      const pnl = parseFloat(raw.info?.realizedPnl ?? raw.info?.profit ?? 'NaN');
+      if (isNaN(pnl) || raw.info?.realizedPnl === undefined) continue;
 
-      const trade = _mapRawTradeToIL(raw, uid);
-      if (!trade) continue;
+      const externalId = String(raw.id || '');
+      if (!externalId || knownClosedIds.has(externalId)) continue;
+      knownClosedIds.add(externalId);
+
+      const mapped = _mapClosedTradeToIL(raw, uid);
+      if (!mapped) continue;
 
       try {
-        await db.ref(`trades/${uid}/${trade.id}`).set(trade);
-        console.log(`[MexcService] Saved MEXC trade ${trade.id} (${symbol}) for uid=${uid}`);
-        await _autoPostToChannel(trade, db, bot, uid);
-      } catch (saveErr) {
-        console.error(`[MexcService] Save error uid=${uid}:`, saveErr.message);
+        // Проверяем — есть ли открытая позиция с этим активом которую нужно обновить
+        const openSnap = await db.ref(`trades/${uid}`)
+          .orderByChild('asset').equalTo(mapped.asset).once('value');
+        const openTrades = openSnap.val() || {};
+        const matchOpen  = Object.entries(openTrades).find(
+          ([, t]) => t.fromMexc && t.status === 'closed' && t.result === 'unknown'
+            && t.side === mapped.side
+        );
+
+        if (matchOpen) {
+          // Обновляем существующую запись реальными данными
+          const [matchId] = matchOpen;
+          await db.ref(`trades/${uid}/${matchId}`).update({
+            pnl,
+            result:    pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'be',
+            externalId,
+            closeDate: mapped.closeDate,
+            closeTime: mapped.closeTime,
+            note:      mapped.note
+          });
+          console.log(`[MexcService] Updated closed trade ${matchId} pnl=${pnl} uid=${uid}`);
+        } else {
+          // Новая закрытая сделка из истории
+          await db.ref(`trades/${uid}/${mapped.id}`).set(mapped);
+          console.log(`[MexcService] Saved closed trade ${mapped.asset} pnl=${pnl} uid=${uid}`);
+          await _autoPostToChannel(mapped, db, bot, uid);
+        }
+      } catch (e) {
+        console.error(`[MexcService] Save closed trade error uid=${uid}:`, e.message);
       }
     }
 
-    // Небольшая пауза между символами чтобы не превысить rate limit
     await new Promise(r => setTimeout(r, 200));
   }
 }
 
-// ── Маппинг сырого трейда MEXC → формат IL-Journal ──────────────
-function _mapRawTradeToIL(raw, uid) {
+// ── Маппинг открытой позиции → формат IL-Journal ──────────────────
+function _mapPositionToTrade(pos, uid, existingId) {
+  const symbol   = _normalizeSymbol(pos.symbol);
+  const side     = pos.side === 'long' ? 'LONG' : 'SHORT';
+  const entry    = parseFloat(pos.entryPrice || pos.info?.openAvgPrice || 0);
+  const leverage = parseFloat(pos.leverage || pos.info?.leverage || 1);
+  const notional = parseFloat(pos.notional || pos.info?.positionValue || 0);
+  const margin   = parseFloat(pos.initialMargin || pos.info?.im || notional / leverage || 0);
+  const ts       = pos.timestamp ? new Date(pos.timestamp) : new Date();
+
+  const id = existingId || `mexc_pos_${symbol}_${side}_${Date.now()}`;
+
+  return {
+    id,
+    source:       'mexc',
+    fromMexc:     true,
+    positionKey:  _positionKey(pos),
+    date:         ts.toISOString().slice(0, 10),
+    time:         ts.toTimeString().slice(0, 5),
+    side,
+    asset:        symbol,
+    entry,
+    stop:         0,
+    tp1_price:    0,
+    tp2_price:    0,
+    tp1_percent:  50,
+    deposit:      margin,
+    leverage,
+    riskPercent:  0,
+    riskUSD:      margin,
+    positionBase: margin,
+    positionFull: notional,
+    pnl:          0,
+    rr:           0,
+    plannedRR:    0,
+    pnl1:         0,
+    pnl2:         0,
+    status:       'open',
+    result:       'open',
+    closeActions: [],
+    strategy:     'MEXC Auto',
+    note:         `Открытая позиция MEXC. x${leverage}`,
+    emotion:      '',
+    followedRM:   null,
+    quality:      0,
+    images:       [],
+    archived:     false,
+    closeDate:    '',
+    closeTime:    ''
+  };
+}
+
+// ── Маппинг закрытой сделки из истории → формат IL-Journal ────────
+function _mapClosedTradeToIL(raw, uid) {
   try {
-    // Нормализуем символ: BTC/USDT:USDT → BTCUSDT
-    const symbol   = (raw.symbol || '')
-      .replace('/USDT:USDT', 'USDT')
-      .replace('/', '');
+    const symbol   = _normalizeSymbol(raw.symbol);
     const side     = raw.side === 'buy' ? 'LONG' : 'SHORT';
-    const price    = parseFloat(raw.price || 0);
-    const amount   = parseFloat(raw.amount || 0);
-    const cost     = parseFloat(raw.cost || price * amount);
-    const pnl      = parseFloat(
-      raw.info?.realizedPnl || raw.info?.profit || raw.info?.pnl || 0
-    );
+    const entry    = parseFloat(raw.price || 0);
+    const cost     = parseFloat(raw.cost || 0);
+    const pnl      = parseFloat(raw.info?.realizedPnl || 0);
+    const leverage = parseFloat(raw.info?.leverage || 1);
     const ts       = raw.timestamp ? new Date(raw.timestamp) : new Date();
-
-    if (!price || !symbol) return null;
-
-    const isClosed = !!(
-      raw.info?.realizedPnl !== undefined ||
-      raw.info?.isMaker !== undefined
-    );
-
-    const tradeId = `mexc_${raw.id || Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    if (!entry || !symbol) return null;
 
     return {
-      id:           tradeId,
+      id:           `mexc_${raw.id}_${Math.random().toString(36).slice(2, 5)}`,
       source:       'mexc',
       fromMexc:     true,
       externalId:   String(raw.id || ''),
       date:         ts.toISOString().slice(0, 10),
       time:         ts.toTimeString().slice(0, 5),
+      closeDate:    ts.toISOString().slice(0, 10),
+      closeTime:    ts.toTimeString().slice(0, 5),
       side,
       asset:        symbol,
-      entry:        price,
+      entry,
       stop:         0,
       tp1_price:    0,
       tp2_price:    0,
       tp1_percent:  50,
-      deposit:      0,
-      leverage:     parseFloat(raw.info?.leverage || 1),
+      deposit:      cost / leverage,
+      leverage,
       riskPercent:  0,
-      riskUSD:      cost,
-      positionBase: cost,
+      riskUSD:      cost / leverage,
+      positionBase: cost / leverage,
       positionFull: cost,
       pnl,
       rr:           0,
       plannedRR:    0,
       pnl1:         pnl,
       pnl2:         0,
-      status:       isClosed ? 'closed' : 'open',
-      result:       isClosed ? (pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'be') : 'open',
+      status:       'closed',
+      result:       pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'be',
       closeActions: [],
       strategy:     'MEXC Auto',
-      note:         `Авто-импорт MEXC. orderId: ${raw.orderId || raw.order || raw.id || ''}`,
+      note:         `Авто-импорт MEXC. orderId: ${raw.orderId || raw.id || ''}`,
       emotion:      '',
       followedRM:   null,
       quality:      0,
       images:       [],
-      archived:     false,
-      closeDate:    isClosed ? ts.toISOString().slice(0, 10) : '',
-      closeTime:    isClosed ? ts.toTimeString().slice(0, 5)  : '',
+      archived:     false
     };
   } catch (e) {
     console.error('[MexcService] Map error:', e.message);
@@ -233,113 +356,75 @@ function _mapRawTradeToIL(raw, uid) {
   }
 }
 
-// ── Загрузка уже известных externalId (против дублей) ────────────
-async function _loadKnownTradeIds(uid, db) {
+// ── Helpers ───────────────────────────────────────────────────────
+
+// Нормализует символ в формат BTCUSDT
+function _normalizeSymbol(raw) {
+  return (raw || '')
+    .replace('/USDT:USDT', 'USDT')
+    .replace('/USDT', 'USDT')
+    .replace('_USDT', 'USDT')
+    .replace('/', '')
+    .toUpperCase()
+    .trim();
+}
+
+// Уникальный ключ позиции (символ + сторона)
+function _positionKey(pos) {
+  const sym  = _normalizeSymbol(pos.symbol);
+  const side = pos.side === 'long' ? 'LONG' : 'SHORT';
+  return `${sym}_${side}`;
+}
+
+// Загружаем уже известные externalId закрытых сделок
+async function _loadKnownClosedIds(uid, db) {
   const set = new Set();
   try {
     const snap = await db.ref(`trades/${uid}`)
-      .orderByChild('source').equalTo('mexc')
-      .once('value');
+      .orderByChild('source').equalTo('mexc').once('value');
     const val = snap.val();
     if (val) {
       Object.values(val).forEach(t => {
         if (t.externalId) set.add(t.externalId);
       });
     }
-    console.log(`[MexcService] Loaded ${set.size} known MEXC trade IDs for uid=${uid}`);
+    console.log(`[MexcService] Loaded ${set.size} known MEXC IDs for uid=${uid}`);
   } catch (e) {
-    console.warn('[MexcService] loadKnownTradeIds warn:', e.message);
+    console.warn('[MexcService] loadKnownClosedIds warn:', e.message);
   }
   return set;
 }
 
-// ── Автопостинг в Telegram-канал ─────────────────────────────────
+// Автопостинг в Telegram-канал (только при закрытии)
 async function _autoPostToChannel(trade, db, bot, uid) {
   try {
     const chanSnap = await db.ref(`channel/${uid}`).once('value');
-    const chanData = chanSnap.val();
-    if (!chanData?.channelId || !chanData?.enabled || !chanData?.autoPostOpen) return;
+    const chan     = chanSnap.val();
+    if (!chan?.channelId || !chan?.enabled) return;
 
     const action = trade.status === 'open' ? 'open' : 'close';
-    const text   = _buildChannelPost(trade, action);
+    if (action === 'open'  && !chan.autoPostOpen)  return;
+    if (action === 'close' && !chan.autoPostClose) return;
 
-    const sent = await bot.telegram.sendMessage(chanData.channelId, text, {
-      parse_mode:               'HTML',
-      disable_web_page_preview: true
+    const fmt      = (v, d = 2) => (isNaN(v) ? '0' : (+v).toFixed(d));
+    const sideIcon = trade.side === 'LONG' ? '🟢' : '🔴';
+    const pnlSign  = (trade.pnl || 0) >= 0 ? '+' : '';
+
+    const text = action === 'open'
+      ? `📈 <b>Открыта позиция [MEXC]</b>\n\n<b>${trade.asset}</b> ${sideIcon} ${trade.side} x${trade.leverage}\n📍 Вход: <b>${trade.entry}</b>\n💰 Маржа: <b>$${fmt(trade.riskUSD)}</b>\n\n🔗 <a href="https://t.me/ILTradesbot">Смотреть в журнале</a>`
+      : `🏁 <b>Позиция закрыта [MEXC]</b> ${(trade.pnl || 0) >= 0 ? '✅' : '❌'}\n\n<b>${trade.asset}</b> ${sideIcon} ${trade.side}\n💰 PnL: <b>${pnlSign}$${fmt(trade.pnl)}</b>\n\n🔗 <a href="https://t.me/ILTradesbot">Смотреть в журнале</a>`;
+
+    const sent = await bot.telegram.sendMessage(chan.channelId, text, {
+      parse_mode: 'HTML', disable_web_page_preview: true
     });
 
     await db.ref(`channelPosts/${uid}/${trade.id}`).set({
-      openPostId:       sent.message_id,
-      lastUpdatePostId: sent.message_id,
-      closed:           trade.status === 'closed',
-      createdAt:        new Date().toISOString()
-    });
-
-    await db.ref(`trades/${uid}/${trade.id}/tg_message_id`).set(sent.message_id);
-    console.log(`[MexcService] Posted to channel for uid=${uid}, msgId=${sent.message_id}`);
-  } catch (e) {
-    console.error('[MexcService] autoPostToChannel error:', e.message);
-  }
-}
-
-// ── Текст поста ──────────────────────────────────────────────────
-function _buildChannelPost(trade, action) {
-  const fmt      = (v, d = 2) => (isNaN(v) ? '0' : (+v).toFixed(d));
-  const sideIcon = trade.side === 'LONG' ? '🟢' : '🔴';
-
-  if (action === 'open') {
-    return (
-      `📈 <b>Открыта сделка [MEXC]</b>\n\n` +
-      `<b>${trade.asset}</b> ${sideIcon} ${trade.side} x${trade.leverage || 1}\n\n` +
-      `📅 ${trade.date} ${trade.time}\n` +
-      `📍 Вход: <b>${trade.entry}</b>\n` +
-      `💰 Объём: <b>$${fmt(trade.riskUSD || 0)}</b>\n\n` +
-      `🔗 <a href="https://t.me/ILTradesbot">Смотреть в журнале</a>`
-    );
-  }
-  const pnlSign = (trade.pnl || 0) >= 0 ? '+' : '';
-  return (
-    `🏁 <b>Сделка закрыта [MEXC]</b> ${(trade.pnl || 0) >= 0 ? '✅' : '❌'}\n\n` +
-    `<b>${trade.asset}</b> ${sideIcon} ${trade.side}\n\n` +
-    `📅 ${trade.closeDate || trade.date} ${trade.closeTime || trade.time}\n` +
-    `📍 Вход: <b>${trade.entry}</b>\n` +
-    `💰 Итог PnL: <b>${pnlSign}$${fmt(trade.pnl || 0)}</b>\n\n` +
-    `🔗 <a href="https://t.me/ILTradesbot">Смотреть в журнале</a>`
-  );
-}
-
-// ── Ручное обновление поста (из index.js при partial/close) ──────
-async function postTradeUpdate(uid, trade, action, db, bot) {
-  try {
-    const [chanSnap, postSnap] = await Promise.all([
-      db.ref(`channel/${uid}`).once('value'),
-      db.ref(`channelPosts/${uid}/${trade.id}`).once('value')
-    ]);
-    const chanData = chanSnap.val();
-    const postData = postSnap.val();
-    if (!chanData?.channelId || !chanData?.enabled) return;
-
-    const postEnabled =
-      (action === 'partial' && chanData.autoPostPartial) ||
-      (action === 'close'   && chanData.autoPostClose);
-    if (!postEnabled) return;
-
-    const replyTo = postData?.lastUpdatePostId || postData?.openPostId || null;
-    const text    = _buildChannelPost(trade, action);
-    const opts    = {
-      parse_mode:               'HTML',
-      disable_web_page_preview: true,
-      ...(replyTo ? { reply_to_message_id: replyTo } : {})
-    };
-
-    const sent = await bot.telegram.sendMessage(chanData.channelId, text, opts);
-    await db.ref(`channelPosts/${uid}/${trade.id}`).update({
-      lastUpdatePostId: sent.message_id,
-      closed:           action === 'close'
+      openPostId: sent.message_id, lastUpdatePostId: sent.message_id,
+      closed: trade.status === 'closed', createdAt: new Date().toISOString()
     });
   } catch (e) {
-    console.error('[MexcService] postTradeUpdate error:', e.message);
+    console.error('[MexcService] autoPost error:', e.message);
   }
 }
 
-module.exports = { init, postTradeUpdate };
+module.exports = { init };
