@@ -820,7 +820,13 @@ function clearImgPreview() {
 // ─────────────────────────────────────────────────────────────────
 // MEXC
 // ─────────────────────────────────────────────────────────────────
-const SYNC_FUNCTION_URL = 'https://europe-west1-il-trade.cloudfunctions.net/syncMexc';
+// URL Railway-сервера — задаётся в .env как VITE_BOT_SERVER_URL
+// Пример: VITE_BOT_SERVER_URL=https://your-app.up.railway.app
+const SYNC_FUNCTION_URL = (
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_BOT_SERVER_URL)
+  || window.__BOT_SERVER_URL__
+  || ''
+) + '/api/sync';
 
 function _bindMexc() {
   document.getElementById('save-mexc-keys-btn')?.addEventListener('click', saveMexcKeys);
