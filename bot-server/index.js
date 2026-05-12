@@ -14,7 +14,6 @@ const BOT_TOKEN    = process.env.BOT_TOKEN;
 const MINI_APP_URL = process.env.MINI_APP_URL || 'https://il-trade.web.app';
 const PORT         = process.env.PORT         || 3000;
 
-// Firebase Service Account — берём из env переменной (JSON строка)
 const FIREBASE_SERVICE_ACCOUNT = process.env.FIREBASE_SERVICE_ACCOUNT
   ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
   : null;
@@ -36,7 +35,6 @@ function initFirebase() {
         databaseURL: FIREBASE_DB_URL
       });
     } else {
-      // Для локальной разработки — Application Default Credentials
       admin.initializeApp({ databaseURL: FIREBASE_DB_URL });
     }
     db = admin.database();
@@ -49,7 +47,6 @@ function initFirebase() {
 // ── Bot instance ────────────────────────────────────────────────
 const bot = new Telegraf(BOT_TOKEN);
 
-// ── Middleware: error handler ───────────────────────────────────
 bot.catch((err, ctx) => {
   console.error(`[Bot] Error for ${ctx.updateType}:`, err.message ?? err);
 });
@@ -113,21 +110,11 @@ bot.on('inline_query', async ctx => {
 });
 
 // ── Express API server ──────────────────────────────────────────
-// Нужен для обработки запросов от Mini App (postToChannel)
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 
-// Health check
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-/**
- * POST /api/:projectId/channel/post
- * Body: { trade, action, channelId, replyToMessageId? }
- * Header: x-telegram-init-data (для верификации пользователя)
- *
- * Публикует пост в Telegram-канал от имени бота.
- * При replyToMessageId — отправляет как reply.
- */
 app.post('/api/:projectId/channel/post', async (req, res) => {
   try {
     const { trade, action, channelId, replyToMessageId } = req.body;
@@ -136,12 +123,10 @@ app.post('/api/:projectId/channel/post', async (req, res) => {
       return res.status(400).json({ error: 'Missing trade or channelId' });
     }
 
-    // Верификация Telegram initData (упрощённая — проверяем наличие)
     const initData = req.headers['x-telegram-init-data'] || '';
     const uid      = _extractUidFromInitData(initData) || trade.userId;
-
-    const text = _buildChannelPostText(trade, action || 'open');
-    const opts = {
+    const text     = _buildChannelPostText(trade, action || 'open');
+    const opts     = {
       parse_mode:               'HTML',
       disable_web_page_preview: true,
       ...(replyToMessageId ? { reply_to_message_id: replyToMessageId } : {})
@@ -149,20 +134,17 @@ app.post('/api/:projectId/channel/post', async (req, res) => {
 
     const sent = await bot.telegram.sendMessage(channelId, text, opts);
 
-    // Сохраняем messageId в Firebase если есть uid и db
     if (uid && db && sent?.message_id) {
       const postsRef = db.ref(`channelPosts/${uid}/${trade.id}`);
       const snap     = await postsRef.once('value');
       const existing = snap.val() || {};
-
-      const update = {
+      const update   = {
         lastUpdatePostId: sent.message_id,
         closed:           action === 'close'
       };
       if (!existing.openPostId || action === 'open') {
         update.openPostId = sent.message_id;
         update.createdAt  = new Date().toISOString();
-        // Пишем tg_message_id в сделку
         await db.ref(`trades/${uid}/${trade.id}/tg_message_id`).set(sent.message_id);
       }
       await postsRef.update(update);
@@ -175,41 +157,23 @@ app.post('/api/:projectId/channel/post', async (req, res) => {
   }
 });
 
-// ── Вспомогательные функции ─────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────
 
-/**
- * Извлечь uid из Telegram initData (упрощённо — парсим user.id).
- * В продакшене заменить на полную верификацию через HMAC-SHA256.
- */
 function _extractUidFromInitData(initData) {
-  const crypto = require('crypto');
-
-function verifyTelegramInitData(initData, botToken) {
-  const params = new URLSearchParams(initData);
-  const hash   = params.get('hash');
-  params.delete('hash');
-
-  const dataCheckStr = [...params.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k}=${v}`)
-    .join('\n');
-
-  const secretKey = crypto.createHmac('sha256', 'WebAppData').update(botToken).digest();
-  const calcHash  = crypto.createHmac('sha256', secretKey).update(dataCheckStr).digest('hex');
-
-  return calcHash === hash;
+  try {
+    const params = new URLSearchParams(initData);
+    const user   = JSON.parse(decodeURIComponent(params.get('user') || '{}'));
+    return user.id ? String(user.id) : null;
+  } catch (_) {
+    return null;
+  }
 }
 
-/**
- * Генерация текста поста для канала.
- * Используется только на бэкенде (plain text, без HTML-иконок React).
- */
 function _buildChannelPostText(trade, action) {
   const fmt      = (v, d = 2) => (isNaN(v) ? '0' : (+v).toFixed(d));
   const sideIcon = trade.side === 'LONG' ? '🟢' : '🔴';
   const leverage = trade.leverage || 1;
-  const riskUSD  = trade.riskUSD  || (trade.deposit * (trade.riskPercent || 0) / 100);
-  const posSize  = riskUSD * leverage;
+  const riskUSD  = trade.riskUSD || (trade.deposit * (trade.riskPercent || 0) / 100);
 
   const stopDist    = trade.entry && trade.stop
     ? Math.abs(trade.entry - trade.stop) / trade.entry * 100 : 0;
@@ -229,7 +193,6 @@ function _buildChannelPostText(trade, action) {
   const plannedRR   = totalPlan > 0 && Math.abs(stopPnlLoss) > 0
     ? totalPlan / Math.abs(stopPnlLoss) : (trade.rr || 0);
 
-  // Источник сделки
   const sourceBadge = trade.source === 'mexc' ? ' [MEXC]' : '';
 
   if (action === 'open') {
@@ -254,8 +217,7 @@ function _buildChannelPostText(trade, action) {
     const remPct    = 100 - closedPct;
     const actualRR  = Math.abs(realizedPnl) > 0 && Math.abs(stopPnlLoss) > 0
       ? Math.abs(realizedPnl) / Math.abs(stopPnlLoss) : 0;
-
-    const history = closeActions.map((a, i) =>
+    const history   = closeActions.map((a, i) =>
       `${i + 1}. ${a.label} → ${(a.pnl || 0) >= 0 ? '+' : ''}$${fmt(a.pnl || 0)}`
     ).join('\n');
 
@@ -277,8 +239,7 @@ function _buildChannelPostText(trade, action) {
   const finalPnl = trade.pnl || 0;
   const actualRR = Math.abs(finalPnl) > 0 && Math.abs(stopPnlLoss) > 0
     ? Math.abs(finalPnl) / Math.abs(stopPnlLoss) : 0;
-
-  const history = closeActions.map((a, i) =>
+  const history  = closeActions.map((a, i) =>
     `${i + 1}. ${a.label} → ${(a.pnl || 0) >= 0 ? '+' : ''}$${fmt(a.pnl || 0)}`
   ).join('\n');
 
@@ -300,10 +261,8 @@ function _buildChannelPostText(trade, action) {
 // ── Launch + Graceful Shutdown ──────────────────────────────────
 async function main() {
   try {
-    // 1. Firebase Admin
     initFirebase();
 
-    // 2. Запуск MEXC-сервиса (слушает ключи в Firebase)
     if (db) {
       mexcService.init(db, bot);
       console.log('[Bot] MexcService started');
@@ -311,12 +270,10 @@ async function main() {
       console.warn('[Bot] Firebase not initialized — MexcService disabled');
     }
 
-    // 3. Express HTTP сервер (для API от Mini App)
     app.listen(PORT, () => {
       console.log(`[Bot] HTTP server listening on port ${PORT}`);
     });
 
-    // 4. Telegram бот
     await bot.launch();
     console.log('[Bot] ✅ IL-Trading Journal bot started');
     console.log(`[Bot] Mini App URL: ${MINI_APP_URL}`);
