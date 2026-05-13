@@ -229,8 +229,51 @@ app.post('/api/sync', async (req, res) => {
       await new Promise(r => setTimeout(r, 150));
     }
 
-    console.log(`[/api/sync] uid=${uid} imported=${imported}`);
-    return res.json({ success: true, imported });
+    // ── Лимитные (ожидающие) ордера ──────────────────────────────
+    let pendingImported = 0;
+    try {
+      const openOrders = await exchange.fetchOpenOrders();
+      for (const ord of openOrders) {
+        const externalId = 'pending_' + String(ord.id || '');
+        if (knownIds.has(externalId)) continue;
+        knownIds.add(externalId);
+
+        const sym      = (ord.symbol || '').replace('/USDT:USDT','USDT').replace('/','').toUpperCase();
+        const side     = ord.side === 'buy' ? 'LONG' : 'SHORT';
+        const price    = parseFloat(ord.price || 0);
+        const amount   = parseFloat(ord.amount || 0);
+        const leverage = parseFloat(ord.info?.leverage || 1);
+        const ts       = ord.timestamp ? new Date(ord.timestamp) : new Date();
+        if (!price || !sym) continue;
+
+        const tradeId = `mexc_pending_${ord.id}`;
+        await db.ref(`trades/${uid}/${tradeId}`).set({
+          id: tradeId, source: 'mexc', fromMexc: true, externalId,
+          date: ts.toISOString().slice(0,10),
+          time: ts.toTimeString().slice(0,5),
+          closeDate: '', closeTime: '',
+          side, asset: sym, entry: price, stop: 0,
+          tp1_price: 0, tp2_price: 0, tp1_percent: 50,
+          deposit: 0, leverage,
+          riskPercent: 0, riskUSD: price * amount / leverage,
+          positionBase: price * amount / leverage,
+          positionFull: price * amount,
+          pnl: 0, rr: 0, plannedRR: 0, pnl1: 0, pnl2: 0,
+          status: 'pending',
+          result: 'pending',
+          closeActions: [], strategy: 'MEXC Auto',
+          note: `Лимитный ордер MEXC. orderId: ${ord.id}. Тип: ${ord.type || 'limit'}`,
+          emotion: '', followedRM: null, quality: 0,
+          images: [], archived: false
+        });
+        pendingImported++;
+      }
+    } catch (e) {
+      console.warn('[/api/sync] fetchOpenOrders:', e.message);
+    }
+
+    console.log(`[/api/sync] uid=${uid} imported=${imported} pending=${pendingImported}`);
+    return res.json({ success: true, imported, pending: pendingImported });
   } catch (e) {
     console.error('[/api/sync]', e.message);
     return res.status(500).json({ error: e.message });
