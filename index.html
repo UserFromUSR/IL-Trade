@@ -16,6 +16,10 @@
   </script>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Firebase SDK — загружается в <head> чтобы быть готовым до выполнения main.js -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 </head>
 <body>
 
@@ -307,7 +311,6 @@
       <button class="stats-period-btn" data-period="month">Месяц</button>
       <button class="stats-period-btn" data-period="year">Год</button>
     </div>
-    <div id="sp-source-stats"></div>
 
     <div class="summary-grid">
       <div class="summary-card">
@@ -532,6 +535,13 @@
         </div>
       </div>
     </div>
+
+    <!-- Список сделок MEXC -->
+    <div class="mexc-card" id="mexc-trades-card" style="display:none;">
+      <div class="section-divider mexc-header">📋 История сделок MEXC</div>
+      <div id="mexc-trades-list"></div>
+    </div>
+
   </div><!-- /tab-mexc -->
 
   <!-- ──────────── TAB: КАНАЛ ──────────── -->
@@ -824,9 +834,7 @@
 </div><!-- /app-container -->
 
 <!-- Firebase SDK (compat, for legacy API compatibility) -->
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
 
 <script type="module" src="./src/main.js"></script>
 
