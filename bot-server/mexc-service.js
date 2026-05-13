@@ -100,13 +100,90 @@ function _stopWorker(uid) {
 
 // ── Главный цикл ──────────────────────────────────────────────────
 async function _poll(exchange, uid, db, bot, knownClosedIds, isStopped) {
-  // 1. Синхронизируем открытые позиции
+  // 1. Синхронизируем открытые позиции (+ переводим pending→open)
   await _syncOpenPositions(exchange, uid, db, bot, isStopped);
 
   if (isStopped()) return;
 
-  // 2. Синхронизируем закрытые сделки из истории
+  // 2. Переводим open→closed для позиций которые закрылись на бирже
   await _syncClosedTrades(exchange, uid, db, bot, knownClosedIds, isStopped);
+
+  if (isStopped()) return;
+
+  // 3. Обновляем статус лимитных ордеров (pending→open или pending→cancelled)
+  await _syncPendingOrders(exchange, uid, db, bot, isStopped);
+}
+
+
+// ── 0. Лимитные ордера: pending → open / cancelled ────────────────
+async function _syncPendingOrders(exchange, uid, db, bot, isStopped) {
+  // Получаем все pending-записи из Firebase
+  const snap = await db.ref(`trades/${uid}`)
+    .orderByChild('status').equalTo('pending').once('value');
+  const pendingTrades = snap.val() || {};
+  if (!Object.keys(pendingTrades).length) return;
+
+  // Получаем актуальные открытые ордера с биржи
+  let openOrders = [];
+  try {
+    openOrders = await exchange.fetchOpenOrders();
+  } catch (e) {
+    console.warn(`[MexcService] fetchOpenOrders error uid=${uid}:`, e.message);
+    return;
+  }
+
+  const openOrderIds = new Set(openOrders.map(o => 'pending_' + String(o.id)));
+
+  for (const [tradeId, trade] of Object.entries(pendingTrades)) {
+    if (isStopped()) return;
+
+    const stillOpen = openOrderIds.has(trade.externalId);
+
+    if (stillOpen) continue; // ордер всё ещё ожидает — ничего не делаем
+
+    // Ордер исчез из открытых — проверяем был ли он исполнен
+    // Ищем среди открытых позиций совпадение по активу и стороне
+    let positions = [];
+    try {
+      positions = await exchange.fetchPositions();
+    } catch (e) { continue; }
+
+    const activePos = positions.find(p => {
+      const sym  = _normalizeSymbol(p.symbol);
+      const side = p.side === 'long' ? 'LONG' : 'SHORT';
+      return sym === trade.asset && side === trade.side &&
+             parseFloat(p.contracts || 0) > 0;
+    });
+
+    if (activePos) {
+      // Ордер исполнился → переводим в open (вкладка "Открытые")
+      const entry    = parseFloat(activePos.entryPrice || activePos.info?.openAvgPrice || trade.entry);
+      const leverage = parseFloat(activePos.leverage || activePos.info?.leverage || trade.leverage || 1);
+      const notional = parseFloat(activePos.notional || activePos.info?.positionValue || 0);
+      const margin   = parseFloat(activePos.initialMargin || notional / leverage || trade.riskUSD || 0);
+
+      await db.ref(`trades/${uid}/${tradeId}`).update({
+        status:      'open',
+        result:      'open',
+        entry,
+        leverage,
+        riskUSD:      margin,
+        positionBase: margin,
+        positionFull: notional,
+        positionKey:  _positionKey(activePos),
+        note:         `Активирован с биржи MEXC. Вход: ${entry}`
+      });
+      console.log(`[MexcService] Pending→Open: ${trade.asset} ${trade.side} uid=${uid}`);
+      await _autoPostToChannel({ ...trade, status: 'open', entry }, db, bot, uid);
+    } else {
+      // Ордер отменён → помечаем cancelled (убираем из обеих вкладок)
+      await db.ref(`trades/${uid}/${tradeId}`).update({
+        status: 'cancelled',
+        result: 'cancelled'
+      });
+      console.log(`[MexcService] Pending→Cancelled: ${trade.asset} ${trade.side} uid=${uid}`);
+    }
+  }
 }
 
 // ── 1. Открытые позиции ───────────────────────────────────────────
