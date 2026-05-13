@@ -225,7 +225,7 @@ export function renderOpenTrades(tradesObj, mexcWs) {
   if (!list) return;
 
   const arr = Object.values(tradesObj)
-    .filter(t => !t.status || t.status === 'open')
+    .filter(t => (!t.status || t.status === 'open') && t.status !== 'pending')
     .sort((a, b) => b.id - a.id);
 
   const tabBtn = document.getElementById('open-tab-btn');
@@ -551,7 +551,10 @@ export function renderDayHistory(tradesObj, from) {
 
 // ── MEXC Summary ─────────────────────────────────────────────────
 export function renderMexcSummary(tradesObj) {
-  const arr = Object.values(tradesObj).filter(t => t.fromMexc === true);
+  // MEXC вкладка показывает: закрытые + ожидающие. Открытые — в "Открытых".
+  const arr = Object.values(tradesObj).filter(t =>
+    t.fromMexc === true && (t.status === 'closed' || t.status === 'pending')
+  );
   if (!arr.length) {
     S('mx-pnl', '$0', 'var(--t2)'); S('mx-sub', '0 MEXC сделок');
     S('mx-wr', '0%'); S('mx-wr-sub', 'W 0 / L 0');
@@ -581,14 +584,16 @@ export function renderMexcSummary(tradesObj) {
   const cardEl = document.getElementById('mexc-trades-card');
   if (!listEl) return;
 
-  // Закрытые + ожидающие, сортировка: новые сначала
-  const sorted = [...arr].sort((a, b) => {
+  // В списке MEXC: закрытые, ожидающие (pending) и отменённые
+  // Открытые (status='open') показываются только во вкладке "Открытые"
+  const listArr = arr.filter(t => t.status !== 'open');
+  const sorted = [...listArr].sort((a, b) => {
     const da = (a.closeDate || a.date || '') + (a.closeTime || a.time || '');
     const db_ = (b.closeDate || b.date || '') + (b.closeTime || b.time || '');
     return db_.localeCompare(da);
   });
 
-  if (cardEl) cardEl.style.display = sorted.length ? 'block' : 'none';
+  if (cardEl) cardEl.style.display = listArr.length ? 'block' : 'none';
   if (!sorted.length) { listEl.innerHTML = ''; return; }
 
   listEl.innerHTML = sorted.map(t => {
@@ -597,8 +602,11 @@ export function renderMexcSummary(tradesObj) {
     const pnl       = t.pnl || 0;
     const pnlSign   = pnl >= 0 ? '+' : '';
     const pnlColor  = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--t2)';
+    const isCancelled = t.status === 'cancelled';
     const resultBadge = isPending
       ? `<span class="trade-status pending-badge">⏳ Ожидает</span>`
+      : isCancelled
+        ? `<span class="trade-status" style="background:var(--t3);color:#fff;">❌ Отменён</span>`
       : isClosed
         ? `<span class="trade-status ${t.result === 'win' ? 'win' : t.result === 'loss' ? 'loss' : ''}">${t.result === 'win' ? 'WIN' : t.result === 'loss' ? 'LOSS' : 'BE'}</span>`
         : '';
