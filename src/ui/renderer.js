@@ -304,10 +304,15 @@ export function renderOpenTrades(tradesObj, mexcWs) {
     if (currentPrice) {
       const priceColor = liveChangePct > 0 ? 'var(--green)' : liveChangePct < 0 ? 'var(--red)' : 'var(--t1)';
       const priceSign  = liveChangePct > 0 ? '+' : '';
+      // ✅ ИСПРАВЛЕНО: toLocaleString без аргументов может давать запятые вместо точек
+      // используем фиксированное форматирование в зависимости от величины цены
+      const priceFormatted = currentPrice >= 1
+        ? currentPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : currentPrice.toFixed(6);
       livePriceHtml = `
         <div class="live-price-badge">
           <span class="live-price-label">📍 Сейчас:</span>
-          <span class="live-price-value" style="color:${priceColor};">${currentPrice.toLocaleString()}</span>
+          <span class="live-price-value" style="color:${priceColor};">${priceFormatted}</span>
           <span class="live-price-change" style="color:${priceColor};">${priceSign}${liveChangePct.toFixed(2)}%</span>
         </div>
         <div class="live-pnl-badge">
@@ -552,8 +557,11 @@ export function renderDayHistory(tradesObj, from) {
 // ── MEXC Summary ─────────────────────────────────────────────────
 export function renderMexcSummary(tradesObj) {
   // MEXC вкладка показывает: закрытые + ожидающие. Открытые — в "Открытых".
+  // ✅ ИСПРАВЛЕНО: добавлен фолбэк — если fromMexc не проставлен,
+  // но есть поле mexcOrderId или source === 'mexc', сделка тоже попадёт в список
   const arr = Object.values(tradesObj).filter(t =>
-    t.fromMexc === true && (t.status === 'closed' || t.status === 'pending')
+    (t.fromMexc === true || t.mexcOrderId || t.source === 'mexc') &&
+    (t.status === 'closed' || t.status === 'pending')
   );
   if (!arr.length) {
     S('mx-pnl', '$0', 'var(--t2)'); S('mx-sub', '0 MEXC сделок');
