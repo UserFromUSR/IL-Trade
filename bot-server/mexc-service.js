@@ -258,13 +258,19 @@ async function _syncOpenPositions(exchange, uid, db, bot, isStopped) {
 }
 
 // ── 2. Закрытые сделки из истории ─────────────────────────────────
+// ✅ ДОБАВЛЕНО: XAU, XAG и другие популярные символы
 const FUTURES_SYMBOLS = [
   'BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT',
   'BNB/USDT:USDT', 'XRP/USDT:USDT', 'DOGE/USDT:USDT',
   'ADA/USDT:USDT', 'AVAX/USDT:USDT', 'DOT/USDT:USDT',
   'LINK/USDT:USDT', 'TRX/USDT:USDT', 'ATOM/USDT:USDT',
   'APT/USDT:USDT', 'SUI/USDT:USDT', 'OP/USDT:USDT',
-  'ARB/USDT:USDT', 'INJ/USDT:USDT'
+  'ARB/USDT:USDT', 'INJ/USDT:USDT',
+  'XAU/USDT:USDT', 'XAG/USDT:USDT',
+  'LTC/USDT:USDT', 'BCH/USDT:USDT', 'ETC/USDT:USDT',
+  'FIL/USDT:USDT', 'NEAR/USDT:USDT', 'TON/USDT:USDT',
+  'WIF/USDT:USDT', 'PEPE/USDT:USDT', 'BONK/USDT:USDT',
+  'SEI/USDT:USDT', 'TIA/USDT:USDT',  'JUP/USDT:USDT'
 ];
 
 async function _syncClosedTrades(exchange, uid, db, bot, knownClosedIds, isStopped) {
@@ -277,16 +283,49 @@ async function _syncClosedTrades(exchange, uid, db, bot, knownClosedIds, isStopp
     } catch (_) { continue; }
 
     for (const raw of trades) {
-      // Только закрывающие сделки (с реализованным PnL)
-      const pnl = parseFloat(raw.info?.realizedPnl ?? raw.info?.profit ?? 'NaN');
-      if (isNaN(pnl) || raw.info?.realizedPnl === undefined) continue;
+      // ✅ ИСПРАВЛЕНО: принимаем сделки с любым realizedPnl включая 0
+      // Раньше строгая проверка === undefined отбрасывала сделки где биржа вернула "0"
+      const pnlRaw = raw.info?.realizedPnl ?? raw.info?.profit;
+      const pnl    = parseFloat(pnlRaw ?? 'NaN');
 
+      // Пропускаем только если поле совсем отсутствует И в raw нет признаков закрытия
+      const isClosing = raw.reduceOnly === true ||
+        raw.info?.reduceOnly === true ||
+        raw.info?.closePosition === true ||
+        (!isNaN(pnl) && pnlRaw !== undefined);
+      if (!isClosing) continue;
+
+      const realPnl    = isNaN(pnl) ? 0 : pnl;
       const externalId = String(raw.id || '');
-      if (!externalId || knownClosedIds.has(externalId)) continue;
+      if (!externalId) continue;
+
+      // ✅ ИСПРАВЛЕНО: не пропускаем если pnl=0 (старая запись могла быть записана с нулём)
+      // Перезаписываем если уже есть с pnl=0 и result='be'/'unknown'
+      if (knownClosedIds.has(externalId)) {
+        // Проверяем — вдруг это старая запись с pnl=0, которую надо обновить
+        const existSnap = await db.ref(`trades/${uid}`)
+          .orderByChild('externalId').equalTo(externalId).once('value');
+        const existVal = existSnap.val();
+        if (existVal) {
+          const existTrade = Object.values(existVal)[0];
+          // Если реальный PnL отличается от записанного — обновляем
+          if (existTrade && existTrade.pnl !== realPnl && realPnl !== 0) {
+            const [existId] = Object.keys(existVal);
+            await db.ref(`trades/${uid}/${existId}`).update({
+              pnl:    realPnl,
+              result: realPnl > 0 ? 'win' : realPnl < 0 ? 'loss' : 'be'
+            });
+            console.log(`[MexcService] Re-synced pnl for ${existId}: ${realPnl} uid=${uid}`);
+          }
+        }
+        continue;
+      }
       knownClosedIds.add(externalId);
 
       const mapped = _mapClosedTradeToIL(raw, uid);
       if (!mapped) continue;
+      // Применяем правильный pnl из raw (mapped уже считает его сам, но подстрахуемся)
+      if (realPnl !== 0) mapped.pnl = realPnl;
 
       try {
         // Проверяем — есть ли открытая позиция с этим активом которую нужно обновить

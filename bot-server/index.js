@@ -153,11 +153,17 @@ app.post('/api/sync', async (req, res) => {
       options: { defaultType: 'swap' }
     });
 
+    // ✅ ДОБАВЛЕНО: XAU, XAG и другие популярные символы
     const SYMBOLS = [
       'BTC/USDT:USDT','ETH/USDT:USDT','SOL/USDT:USDT','BNB/USDT:USDT',
       'XRP/USDT:USDT','DOGE/USDT:USDT','ADA/USDT:USDT','AVAX/USDT:USDT',
       'DOT/USDT:USDT','LINK/USDT:USDT','TRX/USDT:USDT','ATOM/USDT:USDT',
-      'APT/USDT:USDT','SUI/USDT:USDT','OP/USDT:USDT','ARB/USDT:USDT','INJ/USDT:USDT'
+      'APT/USDT:USDT','SUI/USDT:USDT','OP/USDT:USDT','ARB/USDT:USDT','INJ/USDT:USDT',
+      'XAU/USDT:USDT','XAG/USDT:USDT',
+      'LTC/USDT:USDT','BCH/USDT:USDT','ETC/USDT:USDT',
+      'FIL/USDT:USDT','NEAR/USDT:USDT','TON/USDT:USDT',
+      'WIF/USDT:USDT','PEPE/USDT:USDT','BONK/USDT:USDT',
+      'SEI/USDT:USDT','TIA/USDT:USDT','JUP/USDT:USDT'
     ];
 
     // Загружаем уже известные externalId
