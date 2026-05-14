@@ -120,13 +120,28 @@ function attachFirebaseListeners(db) {
   // Trades — показываем приложение после первого снапшота
   state.tradesRef.on('value', snap => {
     state.trades = snap.val() || {};
-    renderJournal(state.trades);
-    renderStats(state.trades);
+
+    // ✅ ИСПРАВЛЕНО: фильтруем MEXC-сделки из журнала и статистики
+    const manualTrades = Object.fromEntries(
+      Object.entries(state.trades).filter(([, t]) => !t.fromMexc && t.source !== 'mexc')
+    );
+
+    renderJournal(manualTrades);
+    renderStats(manualTrades);
     renderOpenTrades(state.trades, state.mexcWs);
 
+    // ✅ ИСПРАВЛЕНО: подписываемся на активы открытых сделок сразу при загрузке
+    // (раньше подписка была только при клике на вкладку "Открытые")
+    const openAssets = Object.values(state.trades)
+      .filter(t => !t.fromMexc && (!t.status || t.status === 'open') && t.asset)
+      .map(t => t.asset);
+    if (openAssets.length > 0 && state.mexcWs) {
+      state.mexcWs.subscribe(openAssets);
+    }
+
     if (document.getElementById('tab-itogi')?.classList.contains('active')) {
-      renderSummary(state.trades, getPeriodStart(state.currentPeriod));
-      renderDayHistory(state.trades, getPeriodStart(state.currentPeriod));
+      renderSummary(manualTrades, getPeriodStart(state.currentPeriod));
+      renderDayHistory(manualTrades, getPeriodStart(state.currentPeriod));
     }
     if (document.getElementById('tab-mexc')?.classList.contains('active')) {
       renderMexcSummary(state.trades);
