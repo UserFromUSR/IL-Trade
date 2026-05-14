@@ -47,10 +47,12 @@ export class MexcWebSocket {
 
       this._ws.onmessage = (event) => {
         try {
+          // ✅ ИСПРАВЛЕНО: MEXC может слать бинарный pong — игнорируем
+          if (typeof event.data !== 'string') return;
           const data = JSON.parse(event.data);
           this._handleMessage(data);
         } catch (_) {
-          // Ignore non-JSON (e.g. pong responses)
+          // Ignore non-JSON
         }
       };
 
@@ -99,9 +101,9 @@ export class MexcWebSocket {
     assets.forEach(asset => {
       const symbol = this._toSymbol(asset);
       const msg = {
-        method: 'UNSUBSCRIBE',
-        params: [`spot@public.ticker.v3@${symbol}`],
-        id: Date.now() + Math.random()
+        method: 'UNSUBSCRIPTION',
+        // ✅ ИСПРАВЛЕНО: правильный формат топика
+        params: [`spot@public.miniTickers.v3.api@${symbol}`]
       };
       this._ws.send(JSON.stringify(msg));
     });
@@ -151,10 +153,10 @@ export class MexcWebSocket {
     return (asset || '')
       .replace('/USDT:USDT', '')  // BTC/USDT:USDT → BTC
       .replace('/USDT.P', '')     // BTCUSDT/USDT.P → BTCUSDT (затем следующая строка)
-      .replace('USDT', '')        // BTCUSDT → BTC
+      .replace(/USDT$/, '')       // ✅ ИСПРАВЛЕНО: только суффикс, не середину строки
       .replace('/USDT', '')       // BTC/USDT → BTC
       .replace('_USDT', '')       // BTC_USDT → BTC
-      .replace('/', '')           // BTC/ → BTC (остаток)
+      .replace(/\/$/, '')         // BTC/ → BTC (остаток)
       .toUpperCase()
       .trim();
   }
@@ -166,37 +168,43 @@ export class MexcWebSocket {
   _sendSubscriptions(assets) {
     assets.forEach(asset => {
       const symbol = this._toSymbol(asset);
+      // ✅ ИСПРАВЛЕНО: правильный топик MEXC WebSocket API v3
       const msg = {
-        method: 'SUBSCRIBE',
-        params: [`spot@public.ticker.v3@${symbol}`],
-        id: Date.now() + Math.random()
+        method: 'SUBSCRIPTION',
+        params: [`spot@public.miniTickers.v3.api@${symbol}`]
       };
       this._ws.send(JSON.stringify(msg));
     });
   }
 
   _handleMessage(data) {
-    if (data.channel && data.channel.startsWith('sub')) {
-      console.log('[MEXC WS] Subscribed to:', data.symbol);
-      return;
-    }
+    // ✅ ИСПРАВЛЕНО: правильная проверка pong-ответа от MEXC
+    if (data.msg === 'PONG' || data.id) return;
 
-    if (data.data && data.data.length > 0) {
-      const ticker    = data.data[0];
-      const symbol    = ticker.symbol || data.symbol || '';
+    // ✅ ИСПРАВЛЕНО: правильная структура данных MEXC WS v3
+    // Ответ приходит в формате: { c: "spot@public.miniTickers.v3.api@BTC_USDT", d: { ... }, t: ... }
+    if (data.d && data.c) {
+      const ticker    = data.d;
+      const symbol    = ticker.s || data.c.split('@').pop() || '';
       const baseAsset = this._normalizeBase(symbol);
 
-      if (baseAsset && ticker.last) {
-        const price = parseFloat(ticker.last);
+      // ✅ ИСПРАВЛЕНО: правильные поля MEXC miniTicker v3
+      // c = закрытие (текущая цена), h = high, l = low, v = volume, r = изменение %
+      const priceRaw = ticker.c || ticker.p || ticker.lastPrice;
+
+      if (baseAsset && priceRaw) {
+        const price = parseFloat(priceRaw);
         if (!isNaN(price) && price > 0) {
+          const prevPrice = this._prices[baseAsset]?.price || price;
           this._prices[baseAsset] = {
             price,
             timestamp:    Date.now(),
-            high24h:      parseFloat(ticker.high)      || price,
-            low24h:       parseFloat(ticker.low)       || price,
-            volume24h:    parseFloat(ticker.volume)    || 0,
-            change24h:    parseFloat(ticker.change)    || 0,
-            changePct24h: parseFloat(ticker.changePct) || 0
+            high24h:      parseFloat(ticker.h)  || price,
+            low24h:       parseFloat(ticker.l)  || price,
+            volume24h:    parseFloat(ticker.v)  || 0,
+            // ✅ ИСПРАВЛЕНО: r — процент изменения за 24ч в MEXC v3
+            change24h:    price - prevPrice,
+            changePct24h: parseFloat(ticker.r)  || 0
           };
 
           this._onPriceUpdate(baseAsset, this._prices[baseAsset]);
@@ -209,7 +217,8 @@ export class MexcWebSocket {
     this._stopPing();
     this._pingTimer = setInterval(() => {
       if (this._ws && this._ws.readyState === WebSocket.OPEN) {
-        this._ws.send('ping');
+        // ✅ ИСПРАВЛЕНО: MEXC ожидает JSON ping, не строку
+        this._ws.send(JSON.stringify({ method: 'PING' }));
       }
     }, MEXC_WS_PING_INTERVAL);
   }
