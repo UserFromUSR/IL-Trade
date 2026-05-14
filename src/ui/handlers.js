@@ -54,9 +54,14 @@ export function switchTab(id, btn) {
   document.getElementById('tab-' + id)?.classList.add('active');
   if (btn) btn.classList.add('active');
 
+  // ✅ ИСПРАВЛЕНО: для журнала и итогов — только ручные сделки (без MEXC)
+  const manualTrades = Object.fromEntries(
+    Object.entries(_state.trades).filter(([, t]) => !t.fromMexc && t.source !== 'mexc')
+  );
+
   if (id === 'itogi') {
-    renderSummary(_state.trades, getPeriodStart(_state.currentPeriod));
-    renderDayHistory(_state.trades, getPeriodStart(_state.currentPeriod));
+    renderSummary(manualTrades, getPeriodStart(_state.currentPeriod));
+    renderDayHistory(manualTrades, getPeriodStart(_state.currentPeriod));
   }
   if (id === 'mexc')    renderMexcSummary(_state.trades);
   if (id === 'open') {
@@ -68,7 +73,10 @@ export function switchTab(id, btn) {
 }
 
 function subscribeOpenTradeAssets() {
-  const openTrades = Object.values(_state.trades).filter(t => !t.status || t.status === 'open');
+  // ✅ ИСПРАВЛЕНО: только ручные открытые (не MEXC, не pending)
+  const openTrades = Object.values(_state.trades).filter(t =>
+    !t.fromMexc && t.source !== 'mexc' && (!t.status || t.status === 'open')
+  );
   if (openTrades.length > 0) {
     const assets = openTrades.map(t => t.asset).filter(Boolean);
     if (assets.length > 0) _state.mexcWs?.subscribe(assets);

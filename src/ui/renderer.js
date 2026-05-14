@@ -224,13 +224,21 @@ export function renderOpenTrades(tradesObj, mexcWs) {
   const list = document.getElementById('open-list');
   if (!list) return;
 
+  // ✅ ИСПРАВЛЕНО: показываем только ручные активные сделки
+  // MEXC-сделки (fromMexc/source=mexc) и pending в открытых не показываем
   const arr = Object.values(tradesObj)
-    .filter(t => (!t.status || t.status === 'open') && t.status !== 'pending')
+    .filter(t =>
+      !t.fromMexc &&
+      t.source !== 'mexc' &&
+      (!t.status || t.status === 'open') &&
+      t.status !== 'pending'
+    )
     .sort((a, b) => b.id - a.id);
 
   const tabBtn = document.getElementById('open-tab-btn');
   if (tabBtn) {
     const label = tabBtn.querySelector('.tab-label');
+    // ✅ arr уже отфильтрован — счётчик показывает только ручные активные
     if (label) label.textContent = arr.length > 0 ? `Открытые (${arr.length})` : 'Открытые';
   }
 
