@@ -1,0 +1,1187 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0
+// © UserUZR (Integrated with LuxAlgo Candlestick Logic, Trade Code Main & Complex Patterns, Market Regime, CVD & OTE)
+//@version=6
+indicator("UserUZR Sniper - All-In-One (EMA, RSI, STC, MACD, Cndl, MDivs, SM, Logic)", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+get_size(str) =>
+    str == "tiny" ? size.tiny : str == "small" ? size.small : str == "normal" ? size.normal : str == "large" ? size.large : str == "huge" ? size.huge : size.auto
+
+// ====================================================================================================================
+// 1. БАЗОВЫЙ ТРЕНД И СКОЛЬЗЯЩИЕ (MA)
+// ====================================================================================================================
+grp_trend = "1. Скользящие Средние (MA) и Тренд"
+en_mod_ma    = input.bool(true,  "🟢 Включить модуль MA (Сигналы)", group=grp_trend)
+sync_len     = input.int(5,      "Swing Период (для авто-тренда)", minval=2, group=grp_trend)
+
+ma_sig_logic = input.string("Fast > Slow", "Логика Тренда MA", options=["Fast > Slow", "Price > Global MA", "Both"], group=grp_trend)
+
+ma_fast_type = input.string("EMA", "Тип Быстрой MA", options=["EMA", "WMA", "HMA", "ALMA", "SMA"], group=grp_trend)
+ma_fast_len  = input.int(20,     "Длина Быстрой MA",  minval=1, group=grp_trend)
+ma_slow_type = input.string("EMA", "Тип Медленной MA", options=["EMA", "WMA", "HMA", "ALMA", "SMA"], group=grp_trend)
+ma_slow_len  = input.int(50,     "Длина Медленной MA", minval=1, group=grp_trend)
+ma_filt_type = input.string("EMA", "Тип Глобальной MA", options=["EMA", "WMA", "HMA", "ALMA", "SMA"], group=grp_trend)
+ma_filt_len  = input.int(200,    "Длина Глобальной MA", minval=1, group=grp_trend)
+
+alma_offset  = input.float(0.85, "ALMA Offset", group=grp_trend)
+alma_sigma   = input.float(6.0,  "ALMA Sigma", group=grp_trend)
+
+en_ma        = input.bool(true,  "Показывать Fast/Slow MA", group=grp_trend)
+en_ma_filt   = input.bool(true,  "Показывать Global MA", group=grp_trend)
+en_ma_cross  = input.bool(true,  "Отмечать пересечение Fast/Slow", group=grp_trend)
+
+ma_fast_col  = input.color(color.new(#2196F3, 0), "Цвет Fast MA", group=grp_trend)
+ma_slow_col  = input.color(color.new(#9C27B0, 0), "Цвет Slow MA", group=grp_trend)
+ma_filt_col  = input.color(color.new(#FF9800, 0), "Цвет Global MA", group=grp_trend)
+
+// ====================================================================================================================
+// 1.1 ФИЛЬТРЫ РЕЖИМА И ВОЛАТИЛЬНОСТИ (MARKET REGIME - ИНТЕГРИРОВАНО)
+// ====================================================================================================================
+grp_regime = "1.1 Market Regime (Мастер-фильтр)"
+en_regime = input.bool(true, "🟢 Включить Фильтр Фазы Рынка", group=grp_regime, tooltip="Адаптирует сигналы: в тренде отключает осцилляторы, во флэте снижает вес BOS.")
+chop_len = input.int(14, "Период Choppiness", group=grp_regime)
+adx_len = input.int(14, "Период ADX", group=grp_regime)
+vol_th = input.float(0.65, "Порог волатильности (ATR Ratio)", step=0.05, group=grp_regime, tooltip="Защита от флэтов (ATR14 / ATR100). Блокирует мусорные входы.")
+
+// ====================================================================================================================
+// 2. ПАРАМЕТРЫ ОСЦИЛЛЯТОРОВ И ОБЪЕМА
+// ====================================================================================================================
+grp_osc_kde = "2.1. Осциллятор: KDE RSI"
+en_mod_kde  = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_kde)
+kde_rsi_len = input.int(14, "RSI Длина", minval=1, group=grp_osc_kde)
+kde_piv_len = input.int(21, "Длина Пивотов (KDE)", minval=1, group=grp_osc_kde)
+kde_kernel  = input.string("Gaussian", "Ядро (Kernel)", options=['Uniform', 'Gaussian', 'Sigmoid'], group=grp_osc_kde)
+kde_bandw   = input.float(2.71828, "Сглаживание (Bandwidth)", group=grp_osc_kde)
+kde_steps   = input.int(75, "Точность (Bins)", minval=10, group=grp_osc_kde)
+kde_thresh  = input.string("Medium", "Порог активации", options=["High", "Medium", "Low"], group=grp_osc_kde)
+
+grp_osc_stc = "2.2. Осциллятор: Stoch Z-Score"
+en_mod_stoch = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_stc)
+stoch_z_src  = input.source(hlc3, "Source (Stoch Z)", group=grp_osc_stc)
+stoch_z_len  = input.int(21, "Length (Stoch Z)", minval=1, group=grp_osc_stc)
+stoch_z_ob   = input.float(2.0, "Overbought Level", step=0.5, group=grp_osc_stc)
+stoch_z_os   = input.float(-2.0, "Oversold Level", step=0.5, group=grp_osc_stc)
+stoch_strict = input.bool(true, "Строгий фильтр (учет ALMA LTM)", group=grp_osc_stc)
+
+grp_osc_dlx = "2.3. Осциллятор: Adaptive MACD Deluxe"
+en_mod_dlx     = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_dlx)
+macd_dlx_r2    = input.int(20, "R-Squared Lookback", minval=2, group=grp_osc_dlx)
+macd_dlx_fast  = input.int(10, "Fast EMA Length", minval=2, group=grp_osc_dlx)
+macd_dlx_slow  = input.int(20, "Slow EMA Length", minval=2, group=grp_osc_dlx)
+macd_dlx_ob    = input.float(100.0, "Уровень Перекупленности (OB)", group=grp_osc_dlx)
+macd_dlx_os    = input.float(-100.0, "Уровень Перепроданности (OS)", group=grp_osc_dlx)
+
+grp_osc_cci = "2.4. Осциллятор: Advanced CCI (ST + L3)"
+en_mod_cci = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_cci)
+cci_st_len = input.int(28, "CCI Period (Supertrend)", minval=1, group=grp_osc_cci)
+cci_st_factor = input.float(3.0, "Factor (Supertrend)", minval=0.1, group=grp_osc_cci)
+cci_st_pd = input.int(3, "ATR Period (Supertrend)", minval=1, group=grp_osc_cci)
+cci_l3_len = input.int(11, "CCI Length (L3 Super)", minval=1, group=grp_osc_cci)
+cci_l3_ci = input.int(5, "CI EMA Length (L3 Super)", minval=1, group=grp_osc_cci)
+
+grp_osc_sm_act = "2.5. Объемы: Smart Money Activity"
+en_mod_smact = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_sm_act)
+sm_act_ltf  = input.timeframe("5", "Младший ТФ (LTF)", group=grp_osc_sm_act)
+sm_act_zlen = input.int(50,  "Период накопления Z-Score", minval=5, group=grp_osc_sm_act)
+sm_act_th   = input.float(2.5, "Порог экстремального Z-Score (|Z|)", step=0.1, group=grp_osc_sm_act)
+
+grp_osc_sm_idx = "2.6. Объемы: Smart Money Index"
+en_mod_smidx  = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_sm_idx)
+sm_idx_x      = input.int(25,  "Период Индекса", minval=1, group=grp_osc_sm_idx)
+sm_idx_rr     = input.int(14,  "Период RSI (Volume Flow)", minval=1, group=grp_osc_sm_idx)
+sm_idx_peak   = input.int(500, "Период Нормализации", minval=1, group=grp_osc_sm_idx)
+sm_idx_thr    = input.float(0.7, "Порог активности", minval=0.01, step=0.05, group=grp_osc_sm_idx)
+sm_idx_strict = input.bool(true, "Строгий триггер", group=grp_osc_sm_idx)
+
+grp_osc_sm_int = "2.7. Объемы: Smart Money Interest"
+en_mod_smint   = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_sm_int)
+sm_int_x       = input.int(25, "Период Индекса", minval=1, group=grp_osc_sm_int)
+sm_int_rr      = input.int(14, "Период RSI", minval=1, group=grp_osc_sm_int)
+sm_int_peak    = input.int(500, "Период Нормализации", minval=1, group=grp_osc_sm_int)
+sm_int_thr     = input.float(0.9, "Порог активности", minval=0.01, step=0.05, group=grp_osc_sm_int)
+
+grp_osc_mdiv = "2.8. Дивергенции: Multi-Div (Lonesome)"
+en_mod_mdiv = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_mdiv)
+mdiv_prd = input.int(5, "Перио Период Пивотов", minval=1, group=grp_osc_mdiv)
+mdiv_type = input.string("Regular/Hidden", "Тип дивера", options=["Regular", "Hidden", "Regular/Hidden"], group=grp_osc_mdiv)
+mdiv_limit = input.int(1, "Мин. кол-во диверов", minval=1, maxval=11, group=grp_osc_mdiv)
+mdiv_maxb = input.int(100, "Макс. длина поиска (баров)", minval=30, group=grp_osc_mdiv)
+
+grp_osc_peter = "2.9. Дивергенции: Multi-Div (PeterO)"
+en_mod_peter = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_peter)
+peter_lbL = input.int(3, "Pivot Lookback Left", minval=1, group=grp_osc_peter)
+peter_lbR = input.int(1, "Pivot Lookback Right", minval=1, group=grp_osc_peter)
+peter_rngL = input.int(1, "Min Lookback Range", minval=1, group=grp_osc_peter)
+peter_rngU = input.int(60, "Max Lookback Range", minval=10, group=grp_osc_peter)
+peter_limit = input.int(2, "Min Div Count", minval=1, maxval=10, group=grp_osc_peter)
+
+grp_osc_tfdiv = "3.0. Дивергенции: TradingFinder Fractal"
+en_mod_tfdiv = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_tfdiv)
+tfdiv_n = input.int(4, "Fractal Periods (n)", minval=2, group=grp_osc_tfdiv)
+tfdiv_type = input.string("MACD", "Осциллятор (Type)", options=["MACD", "RSI", "AO"], group=grp_osc_tfdiv)
+
+grp_osc_smt = "3.1. Дивергенции: SMT (Межрыночные)"
+en_mod_smt = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_smt)
+smt_len  = input.int(3, "SMT Pivot Lookback", minval=2, group=grp_osc_smt)
+smt_use1 = input.bool(true, "Включить Символ 1", inline="symA", group=grp_osc_smt)
+smt_sym1 = input.symbol("CME_MINI_DL:ES1!", "", inline="symA", group=grp_osc_smt)
+smt_use2 = input.bool(true, "Включить Символ 2", inline="symB", group=grp_osc_smt)
+smt_sym2 = input.symbol("CBOT_MINI_DL:YM1!", "", inline="symB", group=grp_osc_smt)
+
+// ====================================================================================================================
+// 3.2. СВЕЧНОЙ МОДУЛЬ (LUXALGO + УЛУЧШЕНИЯ)
+// ====================================================================================================================
+grp_cndl = "3.2. Свечной анализ (LuxAlgo)"
+en_mod_cndl = input.bool(true, "🟢 Включить модуль Свечей", group=grp_cndl)
+
+cndl_bull_col = input.color(color.new(#089981, 0), "Цвет Бычьих", group=grp_cndl)
+cndl_bear_col = input.color(color.new(#f23645, 0), "Цвет Медвежьих", group=grp_cndl)
+cndl_neut_col = input.color(color.new(color.black, 0), "Цвет Нейтральных", group=grp_cndl)
+cndl_lbl_size = input.string("tiny", "Размер текста названия", options=["auto", "tiny", "small", "normal", "large"], group=grp_cndl)
+cndl_bar_col  = input.bool(true, "Красить бары", group=grp_cndl)
+cndl_show_lbl = input.bool(true, "Показывать ярлыки и текст", group=grp_cndl)
+
+en_hammer = input.bool(true, "Бычьи: Молот", group=grp_cndl, inline="b1")
+en_ihammer = input.bool(true, "Пер. Молот", group=grp_cndl, inline="b1")
+en_bull_eng = input.bool(true, "Поглощение", group=grp_cndl, inline="b2")
+en_r3 = input.bool(true, "3 Поднимающихся", group=grp_cndl, inline="b2")
+en_3ws = input.bool(true, "3 Белых Солдата", group=grp_cndl, inline="b3")
+en_mstar = input.bool(true, "Утренняя звезда", group=grp_cndl, inline="b3")
+en_bull_har = input.bool(true, "Харами", group=grp_cndl, inline="b4")
+en_tw_bot = input.bool(true, "Пинцет Дно", group=grp_cndl, inline="b4")
+
+en_hman = input.bool(true, "Медв: Повешенный", group=grp_cndl, inline="s1")
+en_sstar = input.bool(true, "Падающая звезда", group=grp_cndl, inline="s1")
+en_bear_eng = input.bool(true, "Поглощение", group=grp_cndl, inline="s2")
+en_f3 = input.bool(true, "3 Падающих", group=grp_cndl, inline="s2")
+en_3bc = input.bool(true, "3 Черн. Вороны", group=grp_cndl, inline="s3")
+en_estar = input.bool(true, "Вечерняя звезда", group=grp_cndl, inline="s3")
+en_bear_har = input.bool(true, "Харами", group=grp_cndl, inline="s4")
+en_tw_top = input.bool(true, "Пинцет Вершина", group=grp_cndl, inline="s4")
+
+en_doji = input.bool(false, "Нейтральная: Doji", group=grp_cndl)
+
+grp_cndl_trend = "3.2.1. Свечной Тренд (Фильтр)"
+en_cndl_trend = input.bool(false, "🟢 Включить фильтр по структуре", group=grp_cndl_trend)
+cndl_minor_len = input.int(10, "Minor Trend Length (DC)", group=grp_cndl_trend)
+cndl_maj_type = input.string("SuperTrend", "Major Trend Method", options=["EMA","ChoCh","SuperTrend","Donchian Channel"], group=grp_cndl_trend)
+cndl_maj_swing = input.int(20, "ChoCh Swing Length", group=grp_cndl_trend)
+cndl_maj_ema1 = input.int(50, "Short EMA", group=grp_cndl_trend)
+cndl_maj_ema2 = input.int(200, "Long EMA", group=grp_cndl_trend)
+cndl_maj_st_f = input.float(4.0, "Super Trend Factor", group=grp_cndl_trend)
+cndl_maj_st_l = input.int(20, "Super Trend Length", group=grp_cndl_trend)
+cndl_maj_dc = input.int(40, "Donchian Channel Length", group=grp_cndl_trend)
+
+// ====================================================================================================================
+// 4. НАСТРОЙКИ СИГНАЛОВ И ВИЗУАЛА
+// ====================================================================================================================
+grp_sig = "4. Настройки Сигнала и Визуал"
+en_sig_labels  = input.bool(true,  "Показывать ярлыки BUY/SELL", group=grp_sig)
+en_info_block  = input.bool(true,  "Показывать Инфоблок (чек-лист)", group=grp_sig)
+sig_lookback   = input.int(3,      "Блокировка повтора", minval=0, maxval=20, group=grp_sig)
+bos_bars_ok    = input.int(3,      "BOS окно подтверждения (баров)", minval=1, maxval=20, group=grp_sig)
+sig_text_size  = input.string("normal", "Размер текста BUY/SELL", options=["auto", "tiny", "small", "normal", "large", "huge"], group=grp_sig)
+sig_text_col   = input.color(color.white, "Цвет текста BUY/SELL", group=grp_sig)
+sig_bg_buy_col = input.color(color.new(#089981, 15), "Фон BUY сигнала", group=grp_sig)
+sig_bg_sell_col= input.color(color.new(#f23645, 15), "Фон SELL сигнала", group=grp_sig)
+info_gap       = input.float(0.4,  "Дистанция Инфоблока (ATR)", minval=0.1, step=0.1, group=grp_sig)
+info_text_size = input.string("tiny", "Размер текста Инфоблока", options=["auto", "tiny", "small", "normal", "large", "huge"], group=grp_sig)
+info_align     = input.string("Left", "Расположение текста Инфоблока", options=["Left", "Center", "Right"], group=grp_sig)
+info_text_col  = input.color(color.white, "Цвет текста Инфоблока", group=grp_sig)
+info_bg_col    = input.color(color.new(color.gray, 80), "Фон Инфоблока", group=grp_sig)
+en_bg_trend    = input.bool(false, "Фон графика по тренду", group=grp_sig)
+bg_bull_col    = input.color(color.new(#089981, 95), "Фон Бычий", group=grp_sig)
+bg_bear_col    = input.color(color.new(#f23645, 95), "Фон Медвежий", group=grp_sig)
+
+// ====================================================================================================================
+// 5. ДАШБОРД
+// ====================================================================================================================
+grp_dash = "5. Дашборд"
+en_dash            = input.bool(true, "Показывать Дашборд", group=grp_dash)
+dash_pos_str       = input.string("Снизу справа", "Позиция дашборда", options=["Сверху справа", "Снизу справа", "Снизу слева"], group=grp_dash)
+dash_text_col      = input.color(color.white, "Цвет текста дашборда", group=grp_dash)
+dash_text_size_str = input.string("small", "Размер текста дашборда", options=["auto", "tiny", "small", "normal", "large", "huge"], group=grp_dash)
+
+// ====================================================================================================================
+// 6. ВНЕШНИЕ ИНДИКАТОРЫ (ОБНОВЛЕНО ДЛЯ V6 ИНТЕГРАЦИИ)
+// ====================================================================================================================
+grp_p1 = "6. Внешние Индикаторы (Подключение)"
+float p1_alive_src = input.source(close, "[P1] ALIVE_SIGNAL (9999.0)", group=grp_p1, tooltip="Связь со Sniper Main. Должно быть 9999.0")
+float p1_tf_src    = input.source(close, "[P1] Chart TF (Mins)", group=grp_p1)
+float p1_smc_src   = input.source(close, "[P1] Base: SMC Trend", group=grp_p1)
+float p1_bos_src   = input.source(close, "[P1] Confirmed BOS Level", group=grp_p1)
+float p1_bos_trig_src = input.source(close, "[P1] Base: BOS Trigger", group=grp_p1)
+float p1_ob_src    = input.source(close, "[P1] Base: OB State", group=grp_p1)
+float p1_ob_touch_src = input.source(close, "[P1] Base: OB Touch", group=grp_p1)
+float p1_sd_src    = input.source(close, "[P1] Base: S&D Zone", group=grp_p1)
+float p1_fvg_src   = input.source(close, "[P1] Base: FVG POC", group=grp_p1)
+float p1_fvg_top_src = input.source(close, "[P1] Base: FVG Top", group=grp_p1)
+float p1_fvg_bot_src = input.source(close, "[P1] Base: FVG Bottom", group=grp_p1)
+float p1_bb_src    = input.source(close, "[P1] Base: Breaker Signal", group=grp_p1)
+float p1_hm_src    = input.source(close, "[P1] Base: HM Sweep", group=grp_p1)
+float p1_hm_vol_src = input.source(close, "[P1] Base: HM Sweep Vol", group=grp_p1)
+float p1_sdinv_src = input.source(close, "[P1] Base: S&D Break", group=grp_p1)
+float p1_sweep_src = input.source(close, "[P1] Base: SMC Sweep", group=grp_p1)
+float p1_choch_src = input.source(close, "[P1] Base: CHoCH", group=grp_p1)
+float p1_choch_lvl_src = input.source(close, "[P1] Confirmed CHoCH Level", group=grp_p1)
+float p1_pd_src    = input.source(close, "[P1] Base: Premium/Discount", group=grp_p1)
+float p1_avwap_src = input.source(close, "[P1] Institutional AVWAP", group=grp_p1)
+float p1_disp_src  = input.source(close, "[P1] Displacement Candle", group=grp_p1)
+float p1_bull_prox_src = input.source(close, "[P1] Bull OB Proximal", group=grp_p1, tooltip="Проксимальная зона ближайшего бычьего OB (структурный стоп-уровень)")
+float p1_bear_prox_src = input.source(close, "[P1] Bear OB Proximal", group=grp_p1, tooltip="Проксимальная зона ближайшего медвежьего OB (структурный стоп-уровень)")
+
+// ====================================================================================================================
+// 8. СТРАТЕГИЯ: SL / MULTI-TP (%) И УПРАВЛЕНИЕ ПОЗИЦИЕЙ
+// ====================================================================================================================
+grp_sltp = "8. Стратегия: SL/TP (%)"
+en_sltp      = input.bool(true, "Включить визуализацию SL/TP", group=grp_sltp)
+tp1_perc     = input.float(1.0, "Take Profit 1 (%)", step=0.1, minval=0.1, group=grp_sltp)
+tp2_perc     = input.float(2.0, "Take Profit 2 (%)", step=0.1, minval=0.1, group=grp_sltp)
+tp3_perc     = input.float(3.0, "Take Profit 3 (%)", step=0.1, minval=0.1, group=grp_sltp)
+sl_perc      = input.float(1.0, "Stop Loss (%)", step=0.1, minval=0.1, group=grp_sltp)
+be_after_tp1 = input.bool(true, "Перевод в БУ после TP1", group=grp_sltp)
+
+// ====================================================================================================================
+// 9. КОМПЛЕКСНЫЕ ХАРДКОДНЫЕ ПАТТЕРНЫ (ИЗОЛИРОВАННОЕ УПРАВЛЕНИЕ)
+// ====================================================================================================================
+grp_hc_rev = "9.1. Hardcoded: Sniper Reversals"
+en_hc_a1 = input.bool(true, "A1: Каскадное подтверждение", group=grp_hc_rev, tooltip="Логика: Слом структуры (CHoCH) + FVG не заполнен + HeatMap концентрация пулов на границе S&D зоны. Максимальная вероятность отработки.")
+en_hc_a3 = input.bool(true, "A3: Премиум-дисконт арбитраж (PD Matrix)", group=grp_hc_rev, tooltip="Логика: Глубокий Discount/Premium + активный FVG POC + S&D зона + SMT дивергенция коррелятов.")
+en_hc_c1 = input.bool(true, "C1: Тройная дивергенция (Triple Div Matrix)", group=grp_hc_rev, tooltip="Логика: Синхронная дивергенция: Momentum (KDE/MACD) + Volume (SM) + Structural (SMT/Fractal).")
+en_hc_c3 = input.bool(true, "C3: Фрактальная конвергенция", group=grp_hc_rev, tooltip="Логика: T-Finder (Fractal Div) + PeterO + Multi-Div + свечной паттерн в одной точке.")
+en_hc_g3 = input.bool(true, "G3: Контртрендовый снайпер", group=grp_hc_rev, tooltip="Логика: Торговля против тренда. Экстремальный Premium/Discount + огромный HeatMap пул + 4+ дивергенций + SM Index экстремум + SMT.")
+en_hc_zh1= input.bool(true, "Ж1: Исторический кластер", group=grp_hc_rev, tooltip="Логика: KDE RSI в исторической зоне разворота + SM Interest подтверждает накопление.")
+en_hc_zh4 = input.bool(true, "Ж4: OTE Precision Entry", group=grp_hc_rev, tooltip="Логика: Цена строго в зоне Fibonacci 0.618–0.786 (OTE score=2) + AVWAP alignment + активный FVG в этой зоне + SMT дивергенция коррелятов.")
+
+grp_hc_trd = "9.2. Hardcoded: Trend Continuation"
+en_hc_b2 = input.bool(true, "B2: Объёмный дисбаланс (Volume Flush)", group=grp_hc_trd, tooltip="Логика: FVG сформирован на высоком объеме (SM Act) + при откате SM Index растет. FVG 'живой'.")
+en_hc_c2 = input.bool(true, "C2: Скрытая дивергенция в тренде", group=grp_hc_trd, tooltip="Логика: Устойчивый тренд SMC + PeterO Hidden Div на откате + цена в OB/FVG + SM Interest в сторону тренда.")
+en_hc_d1 = input.bool(true, "D1: Старший контекст - младший вход", group=grp_hc_trd, tooltip="Логика: SMC тренд + Sweep/CHoCH в том же направлении + 3 осциллятора синхронно дают сигнал.")
+en_hc_d2 = input.bool(true, "D2: Объёмный след на откате", group=grp_hc_trd, tooltip="Логика: Откат против тренда + SM Activity аномально низкая + касание OB/SD + SM Index держит тренд.")
+en_hc_g2 = input.bool(true, "G2: Пробой зоны консолидации", group=grp_hc_trd, tooltip="Логика: Пробой S&D зоны (sdinv) + резкий всплеск SM Activity или выход KDE из нейтрали после флэта.")
+en_hc_zh2= input.bool(true, "Ж2: Аномалия объема структуры", group=grp_hc_trd, tooltip="Логика: Формирование BOS по тренду + аномально высокий объем SM Activity (climax/ускорение).")
+en_hc_zh6 = input.bool(true, "Ж6: Compression Boom (Взрыв)", group=grp_hc_trd, tooltip="Логика: Рынок в фазе компрессии (низкая волатильность, высокий Choppiness) → пробой S&D зоны + SM Activity + Displacement. Самые взрывные движения.")
+en_hc_zh7 = input.bool(true, "Ж7: AVWAP Reclaim (Возврат)", group=grp_hc_trd, tooltip="Логика: Цена пересекла AVWAP в сторону SMC-тренда + Fresh OB в точке пересечения + SM Interest держит тренд.")
+
+grp_hc_trp = "9.3. Hardcoded: Traps & Sweeps"
+en_hc_a2 = input.bool(true, "A2: Структурная ловушка (False BOS)", group=grp_hc_trp, tooltip="Логика: BOS пробит, но объем мал + HeatMap sweep за уровнем + Stoch Z экстремум + возврат за уровень (CCI).")
+en_hc_b3 = input.bool(true, "B3: Дельта-ловушка (Delta Reversal)", group=grp_hc_trp, tooltip="Логика: SM Index и SM Interest в противофазе + HeatMap Sweep + CHoCH + все 3 модуля дивергенций.")
+en_hc_e1 = input.bool(true, "E1: Ловушка в Demand/Supply (Bear/Bull Trap)", group=grp_hc_trp, tooltip="Логика: Ложный пробой S&D зоны (закрытие внутри) + аномальный объем (поглощение) + 3 дивергенции.")
+en_hc_g1 = input.bool(true, "G1: После снятия ликвидности (Post-Sweep)", group=grp_hc_trp, tooltip="Логика: Sweep был 1-3 бара назад + возврат и закрытие + HeatMap снят + CHoCH + SM Activity.")
+en_hc_zh3= input.bool(true, "Ж3: Корреляционный сбой", group=grp_hc_trp, tooltip="Логика: SMT дивергенция (актив искусственно удержан) + HeatMap показывает пул в стороне удержания.")
+en_hc_zh5 = input.bool(true, "Ж5: CVD Absorption (Ловушка)", group=grp_hc_trp, tooltip="Логика: Двустороннее поглощение объёма (Absorption) + CVD-дивергенция с ценой + S&D зона + свечной паттерн.")
+
+grp_hc_exh = "9.4. Hardcoded: Warnings & Exits"
+en_hc_f1 = input.bool(true, "F1: Regime Shift Warning 🔄", group=grp_hc_exh, tooltip="Логика: Рынок переходит из ranging в trending (ADX рост + Choppiness падение) + BOS формируется + SM Activity всплеск. Предупреждение о смене фазы.")
+en_hc_b1 = input.bool(true, "B1: Тихий институционал (Accumulation)", group=grp_hc_exh, tooltip="Логика: Горизонтальное движение. SM Interest копит, SM Index спит, SM Act шипует. S&D держит. KDE разворотный.")
+en_hc_e2 = input.bool(true, "E2: Истощение тренда (Trend Exhaustion) ⚠️", group=grp_hc_exh, tooltip="Логика: Долгий тренд SMC + SM Interest перевернулся + HeatMap пулы против тренда + OB превращаются в Breaker.")
+en_hc_e3 = input.bool(true, "E3: Ложный CHoCH (Блокиратор) 🛑", group=grp_hc_exh, tooltip="Логика: CHoCH без SM Activity + нет HeatMap + нет дивергенций + S&D против. Отменяет сигнал.")
+
+// ====================================================================================================================
+// ИНИЦИАЛИЗАЦИЯ ИСТОЧНИКОВ И ГЛОБАЛЬНЫХ ПЕРЕМЕННЫХ
+// ====================================================================================================================
+is_conn(src) => not na(p1_alive_src) and p1_alive_src == 9999.0 and not na(src)
+
+bool tf_conn    = is_conn(p1_tf_src)
+bool smc_conn   = is_conn(p1_smc_src)
+bool bos_conn   = is_conn(p1_bos_src)
+bool bostrg_conn= is_conn(p1_bos_trig_src)
+bool ob_conn    = is_conn(p1_ob_src)
+bool sd_conn    = is_conn(p1_sd_src)
+bool fvg_conn   = is_conn(p1_fvg_src)
+bool bb_conn    = is_conn(p1_bb_src)
+bool hm_conn    = is_conn(p1_hm_src)
+bool sdinv_conn = is_conn(p1_sdinv_src)
+bool sweep_conn = is_conn(p1_sweep_src)
+bool choch_conn = is_conn(p1_choch_src)
+bool pd_conn    = is_conn(p1_pd_src)
+bool ob_touch_conn  = is_conn(p1_ob_touch_src)
+bool fvg_top_conn   = is_conn(p1_fvg_top_src)
+bool fvg_bot_conn   = is_conn(p1_fvg_bot_src)
+bool hm_vol_conn    = is_conn(p1_hm_vol_src)
+bool choch_lvl_conn = is_conn(p1_choch_lvl_src)
+bool avwap_conn     = is_conn(p1_avwap_src)
+bool disp_conn      = is_conn(p1_disp_src)
+bool bull_prox_conn = is_conn(p1_bull_prox_src)
+bool bear_prox_conn = is_conn(p1_bear_prox_src)
+
+float p1_tf_mins   = tf_conn  ? p1_tf_src : na
+int   p1_smc_trend = smc_conn ? int(p1_smc_src) : na
+float p1_bos_level = bos_conn ? p1_bos_src : na
+int   p1_bos_trig  = bostrg_conn ? int(p1_bos_trig_src) : 0
+int   p1_ob_signal = ob_conn  ? int(p1_ob_src) : na
+int   p1_sd_zone   = sd_conn  ? int(p1_sd_src) : na
+int   p1_fvg_dir   = fvg_conn ? int(p1_fvg_src) : na
+
+int p1_bb_signal    = bb_conn ? int(p1_bb_src) : 0
+int p1_hm_signal    = hm_conn ? int(p1_hm_src) : 0
+int p1_sdinv_signal = sdinv_conn ? int(p1_sdinv_src) : 0
+int p1_sweep_signal = sweep_conn ? int(p1_sweep_src) : 0
+int p1_choch_signal = choch_conn ? int(p1_choch_src) : 0
+int p1_pd_signal    = pd_conn ? int(p1_pd_src) : 0
+int   p1_ob_touch   = ob_touch_conn  ? int(p1_ob_touch_src) : 0
+float p1_fvg_top    = fvg_top_conn   ? p1_fvg_top_src : na
+float p1_fvg_bot    = fvg_bot_conn   ? p1_fvg_bot_src : na
+float p1_hm_vol     = hm_vol_conn    ? p1_hm_vol_src : 0.0
+float p1_choch_lvl  = choch_lvl_conn ? p1_choch_lvl_src : na
+float p1_avwap      = avwap_conn     ? p1_avwap_src : na
+int   p1_disp       = disp_conn      ? int(p1_disp_src) : 0
+float p1_bull_prox  = bull_prox_conn ? p1_bull_prox_src : na
+float p1_bear_prox  = bear_prox_conn ? p1_bear_prox_src : na
+
+// ====================================================================================================================
+// ИНСТИТУЦИОНАЛЬНЫЙ ФИЛЬТР РЕЖИМА И ВОЛАТИЛЬНОСТИ (MARKET REGIME & VOLATILITY)
+// ====================================================================================================================
+float atr14 = ta.atr(14)
+float atr100 = ta.atr(100)
+bool vol_ok = (atr14 / math.max(atr100, 1e-10)) > vol_th
+
+float chop_tr_sum = math.sum(ta.tr, chop_len)
+float chop_hi = ta.highest(high, chop_len)
+float chop_lo = ta.lowest(low, chop_len)
+float choppiness = 100 * math.log10(chop_tr_sum / math.max(chop_hi - chop_lo, 1e-10)) / math.log10(chop_len)
+
+[di_plus, di_minus, adx_val] = ta.dmi(adx_len, adx_len)
+
+bool regime_trending = adx_val > 25 and choppiness < 50
+bool regime_ranging = choppiness > 61.8 or adx_val < 20
+bool regime_compression = vol_ok == false and choppiness > 61.8
+
+// ====================================================================================================================
+// ПАМЯТЬ СИГНАЛОВ (PERSISTENCE TIMERS) ДЛЯ ХАРДКОДНЫХ ПАТТЕРНОВ
+// ====================================================================================================================
+var int bars_since_choch_bull = 999, var int bars_since_choch_bear = 999
+var int bars_since_hm_bull    = 999, var int bars_since_hm_bear    = 999
+var int bars_since_sweep_bull = 999, var int bars_since_sweep_bear = 999
+
+bars_since_choch_bull := (choch_conn and p1_choch_src == 1) ? 0 : math.min(bars_since_choch_bull + 1, 999)
+bars_since_choch_bear := (choch_conn and p1_choch_src == -1) ? 0 : math.min(bars_since_choch_bear + 1, 999)
+bars_since_hm_bull    := (hm_conn and p1_hm_src == 1) ? 0 : math.min(bars_since_hm_bull + 1, 999)
+bars_since_hm_bear    := (hm_conn and p1_hm_src == -1) ? 0 : math.min(bars_since_hm_bear + 1, 999)
+bars_since_sweep_bull := (sweep_conn and p1_sweep_src == 1) ? 0 : math.min(bars_since_sweep_bull + 1, 999)
+bars_since_sweep_bear := (sweep_conn and p1_sweep_src == -1) ? 0 : math.min(bars_since_sweep_bear + 1, 999)
+
+// ====================================================================================================================
+// ГЛОБАЛЬНЫЕ РАСЧЕТЫ (Встроенные индикаторы и история)
+// ====================================================================================================================
+[g_mac_line, g_mac_signal, g_mac_hist] = ta.macd(close, 12, 26, 9)
+float g_macdL = g_mac_line
+float g_macdH = g_mac_hist
+
+float s_h1 = request.security(smt_sym1, timeframe.period, high)
+float s_l1 = request.security(smt_sym1, timeframe.period, low)
+float s_h2 = request.security(smt_sym2, timeframe.period, high)
+float s_l2 = request.security(smt_sym2, timeframe.period, low)
+
+float[] global_lt_v = request.security_lower_tf(syminfo.tickerid, sm_act_ltf, volume)
+float[] global_lt_c = request.security_lower_tf(syminfo.tickerid, sm_act_ltf, close)
+float[] global_lt_o = request.security_lower_tf(syminfo.tickerid, sm_act_ltf, open)
+
+float g_rsi = ta.rsi(close, 14)
+float g_stc = ta.sma(ta.stoch(close, high, low, 14), 3)
+float g_cci = ta.cci(close, 10)
+float g_mom = ta.mom(close, 10)
+float g_obv = ta.obv
+float g_vwm = ta.vwma(close, 12) - ta.vwma(close, 26)
+float g_cmf = ta.sma((((close-low)-(high-close))/(high-low))*volume, 21) / ta.sma(volume, 21)
+float g_mfi = ta.mfi(close, 14)
+
+float chg_close = ta.change(close)
+float chg_high  = ta.change(high)
+float chg_low   = ta.change(low)
+float g_p_obv = ta.cum(chg_close > 0 ? volume : chg_close < 0 ? -volume : 0)
+float g_p_diosc = fixnan(100 * ta.rma(chg_high - (-chg_low), 14) / ta.rma(ta.tr, 14))
+float g_cndl_atr = ta.atr(14)
+
+// ====================================================================================================================
+// БАЗОВЫЕ РАСЧЕТЫ (Trend, MA, BOS)
+// ====================================================================================================================
+f_get_ma(src, len, type) =>
+    switch type
+        "EMA"  => ta.ema(src, len)
+        "WMA"  => ta.wma(src, len)
+        "HMA"  => ta.hma(src, len)
+        "ALMA" => ta.alma(src, len, alma_offset, alma_sigma)
+        => ta.sma(src, len)
+
+float ma_f = f_get_ma(close, ma_fast_len, ma_fast_type)
+float ma_s = f_get_ma(close, ma_slow_len, ma_slow_type)
+float ma_g = f_get_ma(close, ma_filt_len, ma_filt_type)
+
+bool cond_cross_bull = ma_f > ma_s
+bool cond_cross_bear = ma_f < ma_s
+bool cond_pglob_bull = close > ma_g
+bool cond_pglob_bear = close < ma_g
+
+bool ma_trend_bull = ma_sig_logic == "Fast > Slow" ? cond_cross_bull : ma_sig_logic == "Price > Global MA" ? cond_pglob_bull : (cond_cross_bull and cond_pglob_bull)
+bool ma_trend_bear = ma_sig_logic == "Fast > Slow" ? cond_cross_bear : ma_sig_logic == "Price > Global MA" ? cond_pglob_bear : (cond_cross_bear and cond_pglob_bear)
+
+int ma_trend_status = ma_trend_bull ? 1 : ma_trend_bear ? -1 : 0
+
+bool x_ma_bull = ta.crossover(ma_f, ma_s)
+bool x_ma_bear = ta.crossunder(ma_f, ma_s)
+
+plot(en_ma ? ma_f : na, "MA Fast", ma_fast_col, 1)
+plot(en_ma ? ma_s : na, "MA Slow", ma_slow_col, 2)
+plot(en_ma_filt ? ma_g : na, "MA Global", ma_filt_col, 2)
+plotshape(en_ma and en_ma_cross and x_ma_bull, "MA Cross Bull", shape.labelup, location.belowbar, color.new(#2196F3, 30), 0, "✕", color.white, size=size.tiny)
+plotshape(en_ma and en_ma_cross and x_ma_bear, "MA Cross Bear", shape.labeldown, location.abovebar, color.new(#9C27B0, 30), 0, "✕", color.white, size=size.tiny)
+
+var float swing_h = na, var float swing_l = na, var int auto_trend = 1
+float ph = ta.pivothigh(high, sync_len, sync_len), float pl = ta.pivotlow(low, sync_len, sync_len)
+if not na(ph)
+    swing_h := ph
+if not na(pl)
+    swing_l := pl
+
+bool cross_up = ta.crossover(close, swing_h)
+bool cross_dn = ta.crossunder(close, swing_l)
+
+if not na(swing_h) and cross_up
+    auto_trend := 1
+if not na(swing_l) and cross_dn
+    auto_trend := -1
+
+int final_trend = smc_conn ? p1_smc_trend : auto_trend
+bgcolor(en_bg_trend ? (final_trend == 1 ? bg_bull_col : bg_bear_col) : na, title="Фон тренда")
+
+var int bars_since_bos = 999
+float bos_rounded = bos_conn ? math.round(p1_bos_level / syminfo.mintick) * syminfo.mintick : na
+float bos_prev    = nz(bos_rounded[1], na)
+bool bos_changed  = bos_conn and not na(bos_rounded) and not na(bos_prev) and bos_rounded != bos_prev
+bars_since_bos := bos_changed ? 0 : math.min(bars_since_bos + 1, 999)
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.1: KDE RSI
+// ====================================================================================================================
+f_gaussian(float dist, float bw) => 1.0 / math.sqrt(2.0 * math.pi) * math.pow(math.e, -0.5 * math.pow(dist / bw, 2.0))
+f_uniform(float dist, float bw)  => (math.abs(dist) > bw) ? 0.0 : 0.5
+f_sigmoid(float dist, float bw)  => 2.0 / math.pi * (1.0 / (math.pow(math.e, (dist / bw)) + math.pow(math.e, -(dist / bw))))
+
+f_kde(array<float> arr, string kernel, float bw, int steps) =>
+    arrSize = arr.size(), arrRange = arr.range(), arrMin = arr.min()
+    stepCount = arrRange / math.max(steps, 1)
+    densityRange = array.new<float>(steps * 2)
+    for i = 0 to (steps * 2) - 1
+        densityRange.set(i, arrMin + i * stepCount)
+    xArr = array.new<float>(), yArr = array.new<float>()
+    for i = 0 to densityRange.size() - 1
+        float temp = 0
+        for j = 0 to arr.size() - 1
+            switch kernel
+                "Gaussian" => temp += f_gaussian(densityRange.get(i) - arr.get(j), 1.0 / bw)
+                "Uniform"  => temp += f_uniform(densityRange.get(i) - arr.get(j), 1.0 / bw)
+                "Sigmoid"  => temp += f_sigmoid(densityRange.get(i) - arr.get(j), 1.0 / bw)
+        xArr.push(densityRange.get(i)), yArr.push(1.0 / math.max(arrSize, 1) * temp)
+    [xArr, yArr]
+
+f_prefixSum(array<float> arr, int l, int r) => arr.get(r) - (l == 0 ? 0 : arr.get(l - 1))
+
+float kde_rsi = na
+bool osc_kde_bull = false, bool osc_kde_bear = false
+
+var array<float> highPivotRSIs = array.new<float>(), var array<float> lowPivotRSIs  = array.new<float>()
+var array<float> KDEHighX = array.new<float>(), var array<float> KDEHighY = array.new<float>(), var array<float> KDEHighYSum = array.new<float>()
+var array<float> KDELowX = array.new<float>(), var array<float> KDELowY = array.new<float>(), var array<float> KDELowYSum = array.new<float>()
+var bool in_kde_bull = false, var bool in_kde_bear = false
+
+if en_mod_kde
+    kde_rsi := ta.rsi(close, kde_rsi_len)
+    float kde_hp = ta.pivothigh(high, kde_piv_len, kde_piv_len)
+    float kde_lp = ta.pivotlow(low, kde_piv_len, kde_piv_len)
+    float lowProb  = 0.0, float highProb = 0.0
+
+    if not na(kde_hp)
+        if highPivotRSIs.size() > 300
+            highPivotRSIs.remove(0)
+        highPivotRSIs.push(kde_rsi[kde_piv_len])
+        [kx, ky] = f_kde(highPivotRSIs, kde_kernel, kde_bandw, kde_steps)
+        KDEHighX := kx, KDEHighY := ky
+        KDEHighYSum.clear()
+        float tH = 0.0
+        for i = 0 to KDEHighY.size() - 1
+            tH += KDEHighY.get(i), KDEHighYSum.push(tH)
+
+    if not na(kde_lp)
+        if lowPivotRSIs.size() > 300
+            lowPivotRSIs.remove(0)
+        lowPivotRSIs.push(kde_rsi[kde_piv_len])
+        [lx, ly] = f_kde(lowPivotRSIs, kde_kernel, kde_bandw, kde_steps)
+        KDELowX := lx, KDELowY := ly
+        KDELowYSum.clear()
+        float tL = 0.0
+        for i = 0 to KDELowY.size() - 1
+            tL += KDELowY.get(i), KDELowYSum.push(tL)
+
+    if highPivotRSIs.size() > 0 and KDEHighX.size() > 0
+        int search_L = array.binary_search_leftmost(KDEHighX, kde_rsi)
+        int search_R = array.binary_search_rightmost(KDEHighX, kde_rsi)
+        int highXIndexL = math.max(0, math.min(search_L, KDEHighX.size() - 1))
+        int highXIndexR = math.max(0, math.min(search_R, KDEHighX.size() - 1))
+        nearestIdxH = (math.abs(kde_rsi - KDEHighX.get(highXIndexL)) < math.abs(kde_rsi - KDEHighX.get(highXIndexR))) ? highXIndexL : highXIndexR
+        highProb := f_prefixSum(KDEHighYSum, 0, nearestIdxH)
+
+    if lowPivotRSIs.size() > 0 and KDELowX.size() > 0
+        int search_L = array.binary_search_leftmost(KDELowX, kde_rsi)
+        int search_R = array.binary_search_rightmost(KDELowX, kde_rsi)
+        int lowXIndexL = math.max(0, math.min(search_L, KDELowX.size() - 1))
+        int lowXIndexR = math.max(0, math.min(search_R, KDELowX.size() - 1))
+        nearestIdxL = (math.abs(kde_rsi - KDELowX.get(lowXIndexL)) < math.abs(kde_rsi - KDELowX.get(lowXIndexR))) ? lowXIndexL : lowXIndexR
+        lowProb := f_prefixSum(KDELowYSum, nearestIdxL, KDELowYSum.size() - 1)
+
+    float act_thresh = kde_thresh == "High" ? 0.4 : kde_thresh == "Medium" ? 0.25 : 0.15
+    bool curr_in_kde_bull = KDELowY.size() > 0 and lowProb > array.get(KDELowYSum, KDELowYSum.size() - 1) * (1.0 - act_thresh)
+    bool curr_in_kde_bear = KDEHighY.size() > 0 and highProb > array.get(KDEHighYSum, KDEHighYSum.size() - 1) * (1.0 - act_thresh)
+    osc_kde_bull := not curr_in_kde_bull and in_kde_bull
+    osc_kde_bear := not curr_in_kde_bear and in_kde_bear
+    in_kde_bull := curr_in_kde_bull, in_kde_bear := curr_in_kde_bear
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.2: STOCHASTIC Z-SCORE
+// ====================================================================================================================
+bool osc_stoch_bull = false, bool osc_stoch_bear = false
+float smoothed_scaled = na
+
+if en_mod_stoch
+    float stoch_basis = ta.sma(stoch_z_src, stoch_z_len)
+    float stoch_stdev = ta.stdev(stoch_z_src, stoch_z_len)
+    float zscore = stoch_stdev == 0 ? 0.0 : (stoch_z_src - stoch_basis) / stoch_stdev
+    float highest_z = ta.highest(zscore, stoch_z_len)
+    float lowest_z  = ta.lowest(zscore, stoch_z_len)
+    float range_z   = highest_z - lowest_z
+    float stochZ    = range_z == 0 ? 50.0 : 100.0 * (zscore - lowest_z) / range_z
+    float scaledSZ = (stochZ / 25.0) - 2.0
+    smoothed_scaled := ta.hma(scaledSZ, stoch_z_len)
+    float smoothed_scaled_prev = nz(smoothed_scaled[1], 0.0)
+    float ltm = nz(ta.alma(zscore, stoch_z_len, 0.0, 0.1), 0.0)
+
+    bool stoch_cross_up = ta.crossover(smoothed_scaled, nz(smoothed_scaled[1], 0.0))
+    bool stoch_cross_dn = ta.crossunder(smoothed_scaled, nz(smoothed_scaled[1], 0.0))
+    osc_stoch_bull := stoch_cross_up and (smoothed_scaled_prev < stoch_z_os) and (stoch_strict ? ltm > 0 : true)
+    osc_stoch_bear := stoch_cross_dn and (smoothed_scaled_prev > stoch_z_ob) and (stoch_strict ? ltm < 0 : true)
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.3: ADAPTIVE MACD DELUXE
+// ====================================================================================================================
+bool osc_macd_dlx_bull = false, bool osc_macd_dlx_bear = false
+float dlx_macSeries = na, var float mac_dlx = 0.0
+
+if en_mod_dlx
+    float dlx_r = ta.correlation(close, bar_index, macd_dlx_r2)
+    float dlx_detWgt = 0.5 + 0.5 * nz(math.pow(dlx_r, 2), 0.0)
+    float dlx_fastK = 2.0 / (macd_dlx_fast + 1)
+    float dlx_slowK = 2.0 / (macd_dlx_slow + 1)
+    float dlx_blend = dlx_detWgt * (1 - dlx_fastK) * (1 - dlx_slowK) + (1 - dlx_detWgt) * (1 - dlx_fastK) / (1 - dlx_slowK)
+    float dlx_priceDelta = close - nz(close[1], close)
+    float dlx_momentTerm = dlx_priceDelta * (dlx_fastK - dlx_slowK)
+    float dlx_feedbackTerm = (2 - dlx_fastK - dlx_slowK) * nz(mac_dlx[1], 0.0)
+    float dlx_dampTerm = dlx_blend * nz(mac_dlx[2], 0.0)
+    mac_dlx := dlx_momentTerm + dlx_feedbackTerm - dlx_dampTerm
+
+    float dlx_hl_ema = ta.ema(high - low, macd_dlx_slow)
+    dlx_macSeries := dlx_hl_ema == 0 ? 0.0 : (mac_dlx / dlx_hl_ema * 100.0)
+    osc_macd_dlx_bull := ta.crossover(dlx_macSeries, macd_dlx_os)
+    osc_macd_dlx_bear := ta.crossunder(dlx_macSeries, macd_dlx_ob)
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.4: ADVANCED CCI (SuperTrend + L3)
+// ====================================================================================================================
+bool osc_cci_bull = false, bool osc_cci_bear = false
+
+if en_mod_cci
+    float st_cci_val = ta.cci(close, cci_st_len)
+    float st_Up = hl2 - (cci_st_factor * ta.atr(cci_st_pd))
+    float st_Dn = hl2 + (cci_st_factor * ta.atr(cci_st_pd))
+
+    float st_TrendUp = na, float st_TrendDown = na, int st_Trend = na
+    st_TrendUp := nz(st_cci_val[1]) > 0 ? math.max(st_Up, nz(st_TrendUp[1], st_Up)) : st_Up
+    st_TrendDown := nz(st_cci_val[1]) < 0 ? math.min(st_Dn, nz(st_TrendDown[1], st_Dn)) : st_Dn
+    st_Trend := st_cci_val > 0 ? 1 : st_cci_val < 0 ? -1 : nz(st_Trend[1], 1)
+
+    float st_tsl = st_Trend == 1 ? st_TrendUp : st_TrendDown
+    bool st_cci_bull = ta.crossover(close, st_tsl)
+    bool st_cci_bear = ta.crossunder(close, st_tsl)
+
+    float l3_typ_price = (high + low + close) / 3.0
+    float l3_avgDev = ta.dev(l3_typ_price, cci_l3_len)
+    float l3_cci_val = (l3_typ_price - ta.sma(l3_typ_price, cci_l3_len)) / (0.015 * math.max(l3_avgDev, 1e-10))
+    float l3_ci_val = ta.ema(l3_cci_val, cci_l3_ci)
+
+    bool l3_str_buy = ta.crossover(l3_cci_val, l3_ci_val) and l3_cci_val < -100
+    bool l3_nrm_buy = ta.crossover(l3_cci_val, l3_ci_val) and l3_cci_val >= -100 and l3_cci_val < 0
+    bool l3_str_sell = ta.crossunder(l3_cci_val, l3_ci_val) and l3_cci_val > 100
+    bool l3_nrm_sell = ta.crossunder(l3_cci_val, l3_ci_val) and l3_cci_val <= 100 and l3_cci_val > 0
+
+    bool l3_cci_bull = l3_str_buy or l3_nrm_buy
+    bool l3_cci_bear = l3_str_sell or l3_nrm_sell
+
+    osc_cci_bull := st_cci_bull or l3_cci_bull
+    osc_cci_bear := st_cci_bear or l3_cci_bear
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.5: SMART MONEY VOLUME ACTIVITY (+ CVD & ABSORPTION)
+// ====================================================================================================================
+bool sm_act_bull = false, bool sm_act_bear = false
+var array<float> sm_vols = array.new<float>()
+
+var float cvd = 0.0
+var array<float> cvd_hist_arr = array.new<float>()
+bool cvd_bull_div = false, bool cvd_bear_div = false
+bool sm_absorption = false
+
+if en_mod_smact
+    float[] lt_v = global_lt_v
+    float[] lt_c = global_lt_c
+    float[] lt_o = global_lt_o
+    int res_size = array.size(lt_v)
+    int sm_maximum = sm_act_zlen * math.max(1, res_size)
+
+    if res_size > 0
+        float bar_cvd = 0.0
+        float max_bull_vol = 0.0, float max_bear_vol = 0.0
+        for i = 0 to res_size - 1
+            float v = array.get(lt_v, i), c = array.get(lt_c, i), o = array.get(lt_o, i)
+            if c > o
+                bar_cvd += v
+                max_bull_vol := math.max(max_bull_vol, v)
+            else if c < o
+                bar_cvd -= v
+                max_bear_vol := math.max(max_bear_vol, v)
+
+        array.unshift(cvd_hist_arr, bar_cvd)
+        if array.size(cvd_hist_arr) > 50
+            array.pop(cvd_hist_arr)
+        cvd := array.sum(cvd_hist_arr)
+
+        if max_bull_vol > (ta.sma(volume, 50) * 0.5) and max_bear_vol > (ta.sma(volume, 50) * 0.5)
+            sm_absorption := true
+        cvd_bull_div := close < ta.sma(close, 10) and cvd > ta.sma(cvd, 10)
+        cvd_bear_div := close > ta.sma(close, 10) and cvd < ta.sma(cvd, 10)
+
+        for i = res_size - 1 to 0
+            array.unshift(sm_vols, array.get(lt_v, i))
+        while array.size(sm_vols) > sm_maximum
+            array.pop(sm_vols)
+
+        float volsAvg = array.avg(sm_vols)
+        float volsStdev = array.stdev(sm_vols)
+
+        if volsStdev > 0
+            float max_z = 0.0
+            int max_idx = -1
+            for i = 0 to res_size - 1
+                float evtVol = array.get(lt_v, i)
+                float act_zscore = (evtVol - volsAvg) / volsStdev
+                if act_zscore > max_z
+                    max_z := act_zscore
+                    max_idx := i
+
+            if max_z > sm_act_th and max_idx != -1
+                float intra_close = array.get(lt_c, max_idx)
+                float intra_open  = array.get(lt_o, max_idx)
+                bool isBull = intra_close > intra_open
+                float bodyMin = math.min(open, close)
+                float bodyMax = math.max(open, close)
+
+                bool isAtClose      = math.abs(intra_close - close) < syminfo.mintick
+                bool isStrictInBody = intra_close > bodyMin and intra_close < bodyMax
+                bool isNearBody     = intra_close >= bodyMin * 0.995 and intra_close <= bodyMax * 1.005
+
+                bool cls2 = isAtClose or isStrictInBody
+                bool cls1 = isNearBody and not cls2
+
+                if cls2
+                    if isBull
+                        sm_act_bull := true
+                    else
+                        sm_act_bear := true
+                else if cls1 and max_z > sm_act_th * 1.3
+                    if isBull
+                        sm_act_bull := true
+                    else
+                        sm_act_bear := true
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.6: SMART MONEY VOLUME INDEX
+// ====================================================================================================================
+bool sm_idx_bull = false, bool sm_idx_bear = false
+float sm_net_index = na
+
+if en_mod_smidx
+    float safe_pvi = nz(ta.pvi, 1.0), float safe_nvi = nz(ta.nvi, 1.0)
+    float sm_dumb = safe_pvi - ta.ema(safe_pvi, 255)
+    float sm_smart = safe_nvi - ta.ema(safe_nvi, 255)
+    float sm_drsi = ta.rsi(sm_dumb, sm_idx_rr), float sm_srsi = ta.rsi(sm_smart, sm_idx_rr)
+    float drsi_safe = sm_drsi == 0 ? 1e-10 : sm_drsi
+    float drsi_inv_safe = (100.0 - sm_drsi) == 0 ? 1e-10 : (100.0 - sm_drsi)
+    float sm_r_buy = sm_srsi / drsi_safe
+    float sm_r_sell = (100.0 - sm_srsi) / drsi_inv_safe
+    float sm_sums_buy = math.sum(sm_r_buy, sm_idx_x)
+    float sm_sums_sell = math.sum(sm_r_sell, sm_idx_x)
+    float sm_peak = ta.highest(math.max(sm_sums_buy, sm_sums_sell), sm_idx_peak)
+    float sm_peak_safe = sm_peak == 0 ? 1e-10 : sm_peak
+
+    sm_net_index := (sm_sums_buy / sm_peak_safe) - (sm_sums_sell / sm_peak_safe)
+
+    if sm_idx_strict
+        sm_idx_bull := ta.crossover(sm_net_index, sm_idx_thr)
+        sm_idx_bear := ta.crossunder(sm_net_index, -sm_idx_thr)
+    else
+        sm_idx_bull := sm_net_index > sm_idx_thr and sm_net_index > nz(sm_net_index[1])
+        sm_idx_bear := sm_net_index < -sm_idx_thr and sm_net_index < nz(sm_net_index[1])
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.7: SMART MONEY INTEREST INDEX
+// ====================================================================================================================
+bool sm_int_bull = false, bool sm_int_bear = false
+
+if en_mod_smint
+    float sm_int_dumb = ta.pvi - ta.ema(ta.pvi, 255)
+    float sm_int_smart = ta.nvi - ta.ema(ta.nvi, 255)
+    float sm_int_drsi = ta.rsi(sm_int_dumb, sm_int_rr)
+    float sm_int_srsi = ta.rsi(sm_int_smart, sm_int_rr)
+    float drsi_safe = sm_int_drsi == 0 ? 1e-10 : sm_int_drsi
+    float srsi_safe = sm_int_srsi == 0 ? 1e-10 : sm_int_srsi
+    float sm_int_r_buy  = sm_int_srsi / drsi_safe
+    float sm_int_r_sell = sm_int_drsi / srsi_safe
+    float sm_int_sums_buy  = math.sum(sm_int_r_buy, sm_int_x)
+    float sm_int_sums_sell = math.sum(sm_int_r_sell, sm_int_x)
+    float sm_int_peak_buy  = ta.highest(sm_int_sums_buy, sm_int_peak)
+    float sm_int_peak_sell = ta.highest(sm_int_sums_sell, sm_int_peak)
+    float sm_int_index_buy  = sm_int_sums_buy / (sm_int_peak_buy == 0 ? 1e-10 : sm_int_peak_buy)
+    float sm_int_index_sell = sm_int_sums_sell / (sm_int_peak_sell == 0 ? 1e-10 : sm_int_peak_sell)
+
+    sm_int_bull := sm_int_index_buy > sm_int_thr
+    sm_int_bear := sm_int_index_sell > sm_int_thr
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.8: MULTI-INDICATOR DIVERGENCE (LonesomeTheBlue)
+// ====================================================================================================================
+bool osc_mdiv_bull = false, bool osc_mdiv_bear = false
+int total_mdiv_bull = 0, int total_mdiv_bear = 0
+var int[] mdiv_ph_pos = array.new<int>(10, 0), var int[] mdiv_pl_pos = array.new<int>(10, 0)
+var float[] mdiv_ph_val = array.new<float>(10, 0.0), var float[] mdiv_pl_val = array.new<float>(10, 0.0)
+
+bool chk_reg = mdiv_type == "Regular" or mdiv_type == "Regular/Hidden"
+bool chk_hid = mdiv_type == "Hidden"  or mdiv_type == "Regular/Hidden"
+
+f_check_pos_div(series float src, int cond_type) =>
+    int div_found = 0
+    if src > src[1] or close > close[1]
+        for x = 0 to 9
+            int len = bar_index - array.get(mdiv_pl_pos, x) + mdiv_prd
+            if array.get(mdiv_pl_pos, x) == 0 or len > mdiv_maxb
+                break
+            if len > 5
+                bool cond1 = (cond_type == 1 and src[1] > src[len] and close[1] < array.get(mdiv_pl_val, x))
+                bool cond2 = (cond_type == 2 and src[1] < src[len] and close[1] > array.get(mdiv_pl_val, x))
+                if cond1 or cond2
+                    float slope1 = (src[1] - src[len]) / (len - 1), float vline1 = src[1] - slope1
+                    float slope2 = (close[1] - close[len]) / (len - 1), float vline2 = close[1] - slope2
+                    bool arrived = true
+                    for y = 2 to len - 1
+                        if src[y] < vline1 or close[y] < vline2
+                            arrived := false
+                            break
+                        vline1 -= slope1, vline2 -= slope2
+                    if arrived
+                        div_found := 1
+                        break
+    div_found
+
+f_check_neg_div(series float src, int cond_type) =>
+    int div_found = 0
+    if src < src[1] or close < close[1]
+        for x = 0 to 9
+            int len = bar_index - array.get(mdiv_ph_pos, x) + mdiv_prd
+            if array.get(mdiv_ph_pos, x) == 0 or len > mdiv_maxb
+                break
+            if len > 5
+                bool cond1 = (cond_type == 1 and src[1] < src[len] and close[1] > array.get(mdiv_ph_val, x))
+                bool cond2 = (cond_type == 2 and src[1] > src[len] and close[1] < array.get(mdiv_ph_val, x))
+                if cond1 or cond2
+                    float slope1 = (src[1] - src[len]) / (len - 1), float vline1 = src[1] - slope1
+                    float slope2 = (close[1] - close[len]) / (len - 1), float vline2 = close[1] - slope2
+                    bool arrived = true
+                    for y = 2 to len - 1
+                        if src[y] > vline1 or close[y] > vline2
+                            arrived := false
+                            break
+                        vline1 -= slope1, vline2 -= slope2
+                    if arrived
+                        div_found := 1
+                        break
+    div_found
+
+f_add_div(series float src, bool en) =>
+    int reg_pos = f_check_pos_div(src, 1)
+    int reg_neg = f_check_neg_div(src, 1)
+    int hid_pos = f_check_pos_div(src, 2)
+    int hid_neg = f_check_neg_div(src, 2)
+    int b = 0, int br = 0
+    if en
+        if chk_reg
+            b  += reg_pos
+            br += reg_neg
+        if chk_hid
+            b  += hid_pos
+            br += hid_neg
+    [b, br]
+
+if en_mod_mdiv
+    float mdiv_ph = ta.pivothigh(close, mdiv_prd, mdiv_prd)
+    float mdiv_pl = ta.pivotlow(close, mdiv_prd, mdiv_prd)
+    if not na(mdiv_ph)
+        array.unshift(mdiv_ph_pos, bar_index), array.unshift(mdiv_ph_val, mdiv_ph), array.pop(mdiv_ph_pos), array.pop(mdiv_ph_val)
+    if not na(mdiv_pl)
+        array.unshift(mdiv_pl_pos, bar_index), array.unshift(mdiv_pl_val, mdiv_pl), array.pop(mdiv_pl_pos), array.pop(mdiv_pl_val)
+
+    [b1, br1] = f_add_div(g_rsi, true), [b2, br2] = f_add_div(g_macdL, true), [b3, br3] = f_add_div(g_macdH, true)
+    [b4, br4] = f_add_div(g_stc, true), [b5, br5] = f_add_div(g_cci, true), [b6, br6] = f_add_div(g_mom, true)
+    [b7, br7] = f_add_div(g_obv, true), [b8, br8] = f_add_div(g_vwm, true), [b9, br9] = f_add_div(g_cmf, true)
+    [b10, br10] = f_add_div(g_mfi, true)
+
+    total_mdiv_bull := b1+b2+b3+b4+b5+b6+b7+b8+b9+b10
+    total_mdiv_bear := br1+br2+br3+br4+br5+br6+br7+br8+br9+br10
+    osc_mdiv_bull := total_mdiv_bull >= mdiv_limit
+    osc_mdiv_bear := total_mdiv_bear >= mdiv_limit
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.9: MULTI-DIV (PeterO NON-REPAINT)
+// ====================================================================================================================
+bool osc_peter_bull = false, bool osc_peter_bear = false
+
+f_petero_div(series float _osc, int _lbL, int _lbR, int _rL, int _rU) =>
+    bool pl_found = not na(ta.pivotlow(_osc, _lbL, _lbR))
+    bool ph_found = not na(ta.pivothigh(_osc, _lbL, _lbR))
+
+    float osc_prev_l = ta.valuewhen(pl_found, _osc[_lbR], 1), float prc_prev_l = ta.valuewhen(pl_found, low[_lbR], 1)
+    float osc_prev_h = ta.valuewhen(ph_found, _osc[_lbR], 1), float prc_prev_h = ta.valuewhen(ph_found, high[_lbR], 1)
+
+    int l_bars_since = ta.barssince(pl_found[1]), int h_bars_since = ta.barssince(ph_found[1])
+    bool l_in_rng = l_bars_since >= _rL and l_bars_since <= _rU
+    bool h_in_rng = h_bars_since >= _rL and h_bars_since <= _rU
+
+    int b_reg = (low[_lbR] < prc_prev_l and _osc[_lbR] > osc_prev_l and l_in_rng and pl_found) ? 1 : 0
+    int b_hid = (low[_lbR] > prc_prev_l and _osc[_lbR] < osc_prev_l and l_in_rng and pl_found) ? 1 : 0
+    int s_reg = (high[_lbR] > prc_prev_h and _osc[_lbR] < osc_prev_h and h_in_rng and ph_found) ? 1 : 0
+    int s_hid = (high[_lbR] < prc_prev_h and _osc[_lbR] > osc_prev_h and h_in_rng and ph_found) ? 1 : 0
+
+    [b_reg + b_hid, s_reg + s_hid]
+
+if en_mod_peter
+    int pt_b = 0, int pt_s = 0
+    [b1, s1] = f_petero_div(g_rsi, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b1, pt_s += s1
+    [b2, s2] = f_petero_div(g_macdL, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b2, pt_s += s2
+    [b3, s3] = f_petero_div(g_macdH, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b3, pt_s += s3
+    [b4, s4] = f_petero_div(g_mom, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b4, pt_s += s4
+    [b5, s5] = f_petero_div(g_cci, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b5, pt_s += s5
+    [b6, s6] = f_petero_div(g_p_obv, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b6, pt_s += s6
+    [b7, s7] = f_petero_div(g_stc, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b7, pt_s += s7
+    [b8, s8] = f_petero_div(g_p_diosc, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b8, pt_s += s8
+    [b9, s9] = f_petero_div(g_vwm, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b9, pt_s += s9
+    [b10, s10] = f_petero_div(g_cmf, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b10, pt_s += s10
+
+    osc_peter_bull := pt_b >= peter_limit
+    osc_peter_bear := pt_s >= peter_limit
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 3.0: TRADINGFINDER FRACTAL DIV
+// ====================================================================================================================
+bool osc_tfdiv_bull = false, bool osc_tfdiv_bear = false
+
+float tf_aoH = ta.sma(hl2, 5) - ta.sma(hl2, 34)
+float tf_rsiH = ta.rsi(close, 14) - 50
+float tf_hist = tfdiv_type == "MACD" ? g_macdH : tfdiv_type == "AO" ? tf_aoH : tf_rsiH
+
+float tf_ema = ta.ema(close, 50)
+bool tf_up_trend = close[tfdiv_n] > tf_ema, bool tf_dn_trend = close[tfdiv_n] < tf_ema
+bool tf_up_frac = not na(ta.pivothigh(tfdiv_n, tfdiv_n)) and tf_up_trend
+bool tf_dn_frac = not na(ta.pivotlow(tfdiv_n, tfdiv_n)) and tf_dn_trend
+
+float t_h_last_prc = ta.valuewhen(tf_up_frac, high[tfdiv_n], 0)
+float t_h_prev_prc = ta.valuewhen(tf_up_frac, high[tfdiv_n], 1)
+float t_h_last_hst = ta.valuewhen(tf_up_frac, tf_hist[tfdiv_n], 0)
+float t_h_prev_hst = ta.valuewhen(tf_up_frac, tf_hist[tfdiv_n], 1)
+int t_h_last_bar = ta.valuewhen(tf_up_frac, bar_index[tfdiv_n], 0)
+int t_h_prev_bar = ta.valuewhen(tf_up_frac, bar_index[tfdiv_n], 1)
+
+float t_l_last_prc = ta.valuewhen(tf_dn_frac, low[tfdiv_n], 0)
+float t_l_prev_prc = ta.valuewhen(tf_dn_frac, low[tfdiv_n], 1)
+float t_l_last_hst = ta.valuewhen(tf_dn_frac, tf_hist[tfdiv_n], 0)
+float t_l_prev_hst = ta.valuewhen(tf_dn_frac, tf_hist[tfdiv_n], 1)
+int t_l_last_bar = ta.valuewhen(tf_dn_frac, bar_index[tfdiv_n], 0)
+int t_l_prev_bar = ta.valuewhen(tf_dn_frac, bar_index[tfdiv_n], 1)
+
+float change_t_h = ta.change(t_h_last_prc)
+float change_t_l = ta.change(t_l_last_prc)
+
+if en_mod_tfdiv
+    bool tf_bear_cond = (t_h_last_hst > 0 and t_h_prev_hst > 0 and (t_h_last_bar + 30 > bar_index) and (t_h_last_bar - t_h_prev_bar < 30))
+    bool is_tf_bear_div = tf_bear_cond and (t_h_last_prc > t_h_prev_prc) and (t_h_last_hst < t_h_prev_hst)
+    osc_tfdiv_bear := change_t_h != 0 and is_tf_bear_div
+
+    bool tf_bull_cond = (t_l_last_hst < 0 and t_l_prev_hst < 0 and (t_l_last_bar + 30 > bar_index) and (t_l_last_bar - t_l_prev_bar < 30))
+    bool is_tf_bull_div = tf_bull_cond and (t_l_last_prc < t_l_prev_prc) and (t_l_last_hst > t_l_prev_hst)
+    osc_tfdiv_bull := change_t_l != 0 and is_tf_bull_div
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 3.1: SMT DIVERGENCES
+// ====================================================================================================================
+bool osc_smt_bull = false, bool osc_smt_bear = false
+
+f_get_smt_div(bool is_ph, float y2, float sym_y2) =>
+    var float y1 = na, var float sym_y1 = na
+    var int smt_count = 0
+    var int last_div_bar = 0
+    int RESET_BARS = 50
+
+    if bar_index - last_div_bar > RESET_BARS
+        smt_count := 0
+
+    if y2 != y2[1] and sym_y2 != sym_y2[1]
+        if not na(y1) and not na(sym_y1)
+            if (y2 - y1) * (sym_y2 - sym_y1) < 0
+                smt_count += 1
+                last_div_bar := bar_index
+        sym_y1 := sym_y2
+        y1 := y2
+    else if (is_ph and y2 > y2[1]) or (not is_ph and y2 < y2[1])
+        sym_y1 := na
+        y1 := y2
+    smt_count
+
+if en_mod_smt
+    float smt_ph = fixnan(ta.pivothigh(smt_len, smt_len))
+    float smt_pl = fixnan(ta.pivotlow(smt_len, smt_len))
+    float h1 = s_h1, float l1 = s_l1
+    float h2 = s_h2, float l2 = s_l2
+
+    float sym_ph1 = fixnan(ta.pivothigh(h1, smt_len, smt_len)), float sym_pl1 = fixnan(ta.pivotlow(l1, smt_len, smt_len))
+    float sym_ph2 = fixnan(ta.pivothigh(h2, smt_len, smt_len)), float sym_pl2 = fixnan(ta.pivotlow(l2, smt_len, smt_len))
+    int ph_smt1 = f_get_smt_div(true, smt_ph, sym_ph1), int pl_smt1 = f_get_smt_div(false, smt_pl, sym_pl1)
+    int ph_smt2 = f_get_smt_div(true, smt_ph, sym_ph2), int pl_smt2 = f_get_smt_div(false, smt_pl, sym_pl2)
+
+    if smt_ph != nz(smt_ph[1])
+        if (smt_use1 and ph_smt1 > nz(ph_smt1[1])) or (smt_use2 and ph_smt2 > nz(ph_smt2[1]))
+            osc_smt_bear := true
+
+    if smt_pl != nz(smt_pl[1])
+        if (smt_use1 and pl_smt1 > nz(pl_smt1[1])) or (smt_use2 and pl_smt2 > nz(pl_smt2[1]))
+            osc_smt_bull := true
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 3.2: LUXALGO CANDLESTICK PATTERNS & TREND FILTER
+// ====================================================================================================================
+
+float c_upper = ta.highest(math.max(cndl_minor_len, 1))
+float c_lower = ta.lowest(math.max(cndl_minor_len, 1))
+var int minor_dir = 0
+if high == c_upper and minor_dir != 1
+    minor_dir := 1
+if low == c_lower and minor_dir != -1
+    minor_dir := -1
+
+var int major_dir = 0
+float maj_ema1 = ta.ema(close, math.max(cndl_maj_ema1, 1))
+float maj_ema2 = ta.ema(close, math.max(cndl_maj_ema2, 1))
+[st_val, st_dir] = ta.supertrend(math.max(cndl_maj_st_f, 0.1), math.max(cndl_maj_st_l, 1))
+
+float maj_dc_upper = ta.highest(math.max(cndl_maj_dc, 1))
+float maj_dc_lower = ta.lowest(math.max(cndl_maj_dc, 1))
+var int maj_dc_dir = 0
+if high == maj_dc_upper and maj_dc_dir != 1
+    maj_dc_dir := 1
+if low == maj_dc_lower and maj_dc_dir != -1
+    maj_dc_dir := -1
+
+var int os = 0
+float choch_upper = ta.highest(math.max(cndl_maj_swing, 2))
+float choch_lower = ta.lowest(math.max(cndl_maj_swing, 2))
+os := high[math.max(cndl_maj_swing, 2)] > choch_upper ? 0 : low[math.max(cndl_maj_swing, 2)] < choch_lower ? 1 : nz(os[1])
+float c_top_choch = os == 0 and nz(os[1]) != 0 ? high[math.max(cndl_maj_swing, 2)] : na
+float c_btm_choch = os == 1 and nz(os[1]) != 1 ? low[math.max(cndl_maj_swing, 2)] : na
+
+var float t_val = na, var float b_val = na
+var int t_count = 1, var int b_count = 1
+if not na(c_top_choch)
+    t_val := c_top_choch, t_count := 1
+if not na(c_btm_choch)
+    b_val := c_btm_choch, b_count := 1
+
+bool bull_choch = ta.crossover(close, t_val) and t_count == 1
+bool bear_choch = ta.crossunder(close, b_val) and b_count == 1
+var int choch_dir = 0
+if bull_choch and choch_dir != 1
+    t_count := 0, choch_dir := 1
+if bear_choch and choch_dir != -1
+    b_count := 0, choch_dir := -1
+
+if cndl_maj_type == "EMA"
+    major_dir := maj_ema1 > maj_ema2 ? 1 : -1
+else if cndl_maj_type == "SuperTrend"
+    major_dir := int(math.sign(st_dir))
+else if cndl_maj_type == "Donchian Channel"
+    major_dir := maj_dc_dir
+else
+    major_dir := choch_dir
+
+bool rc = close < open
+bool gc = close > open
+float cand_top = math.max(open, close)
+float cand_bot = math.min(open, close)
+float hl_width = high - low
+float bod_width = cand_top - cand_bot
+float hw_per = hl_width == 0 ? 0 : ((high - cand_top) / hl_width) * 100
+float lw_per = hl_width == 0 ? 0 : ((cand_bot - low) / hl_width) * 100
+float b_per = hl_width == 0 ? 0 : (bod_width / hl_width) * 100
+bool is_doji = math.round_to_mintick(close) == math.round_to_mintick(open)
+
+bool is_minor_bear = minor_dir < 0
+bool is_minor_bull = minor_dir > 0
+
+bool p_hammer = lw_per > (b_per*2) and b_per < 50 and hw_per < 2 and not is_doji and is_minor_bear
+bool p_ihammer = hw_per > (b_per*2) and b_per < 50 and lw_per < 2 and not is_doji and is_minor_bear
+bool p_rising_3 = gc[4] and b_per[4] > 50 and rc[3] and cand_top[3] <= high[4] and cand_bot[3] >= low[4] and rc[2] and cand_top[2] <= high[4] and cand_bot[2] >= low[4] and rc[1] and cand_top[1] <= high[4] and cand_bot[1] >= low[4] and gc and close > high[4] and b_per > 50 and is_minor_bull[4]
+bool p_bull_eng = rc[1] and gc and bod_width > (bod_width[1]/2) and open < close[1] and cand_top > cand_top[1] and not p_rising_3 and not is_doji[1] and is_minor_bear
+bool p_3ws = gc[2] and b_per[2]>70 and gc[1] and b_per[1]>70 and cand_bot[1] >= cand_bot[2] and cand_bot[1] <= cand_top[2] and close[1] > high[2] and gc and b_per>70 and cand_bot >= cand_bot[1] and cand_bot <= cand_top[1] and close > high[1] and is_minor_bear[2]
+bool p_mstar = rc[2] and b_per[2] > 80 and rc[1] and bod_width[1] < (bod_width[2]/2) and open[1] < close[2] and gc and close > hl2[2] and is_minor_bear[2]
+bool p_bull_har = gc and high <= cand_top[1] and low >= cand_bot[1] and rc[1] and is_minor_bear[1]
+bool p_tw_bot = math.round_to_mintick(low) == math.round_to_mintick(low[1]) and gc and rc[1] and is_minor_bear[1]
+
+bool p_sstar = hw_per > (b_per*2) and b_per < 50 and lw_per < 2 and not is_doji and is_minor_bull
+bool p_hman = lw_per > (b_per*2) and b_per < 50 and hw_per < 2 and not is_doji and is_minor_bull
+bool p_falling_3 = rc[4] and b_per[4] > 50 and gc[3] and cand_top[3] <= high[4] and cand_bot[3] >= low[4] and gc[2] and cand_top[2] <= high[4] and cand_bot[2] >= low[4] and gc[1] and cand_top[1] <= high[4] and cand_bot[1] >= low[4] and rc and close < low[4] and b_per > 50 and is_minor_bear[4]
+bool p_bear_eng = gc[1] and rc and bod_width > (bod_width[1]/2) and open > close[1] and cand_bot < cand_bot[1] and not p_falling_3 and not is_doji[1] and is_minor_bull
+bool p_3bc = rc[2] and b_per[2]>70 and rc[1] and b_per[1]>70 and cand_top[1] <= cand_top[2] and cand_top[1] >= cand_bot[2] and close[1] < low[2] and rc and b_per>70 and cand_top <= cand_top[1] and cand_top >= cand_bot[1] and close < low[1] and is_minor_bull[2]
+bool p_estar = gc[2] and b_per[2] > 80 and gc[1] and bod_width[1] < (bod_width[2]/2) and open[1] > close[2] and rc and close < hl2[2] and is_minor_bull[2]
+bool p_bear_har = rc and high <= cand_top[1] and low >= cand_bot[1] and gc[1] and is_minor_bull[1]
+bool p_tw_top = math.round_to_mintick(high) == math.round_to_mintick(high[1]) and rc and gc[1] and is_minor_bull[1]
+
+bool is_major_bull = not en_cndl_trend or major_dir > 0
+bool is_major_bear = not en_cndl_trend or major_dir < 0
+
+bool cndl_bull = false, bool cndl_bear = false, bool is_neutral = false
+string cndl_name = ""
+
+if en_mod_cndl
+    if en_hammer and p_hammer and is_major_bull
+        cndl_bull := true, cndl_name := "Молот"
+    else if en_ihammer and p_ihammer and is_major_bull
+        cndl_bull := true, cndl_name := "Пер. Молот"
+    else if en_bull_eng and p_bull_eng and is_major_bull
+        cndl_bull := true, cndl_name := "Быч. Поглощение"
+    else if en_r3 and p_rising_3 and is_major_bull
+        cndl_bull := true, cndl_name := "Метод 3 Подн."
+    else if en_3ws and p_3ws and is_major_bull
+        cndl_bull := true, cndl_name := "3 Белых Солдата"
+    else if en_mstar and p_mstar and is_major_bull
+        cndl_bull := true, cndl_name := "Утренняя Звезда"
+    else if en_bull_har and p_bull_har and is_major_bull
+        cndl_bull := true, cndl_name := "Бычье Харами"
+    else if en_tw_bot and p_tw_bot and is_major_bull
+        cndl_bull := true, cndl_name := "Пинцет Дно"
+
+    if en_sstar and p_sstar and is_major_bear
+        cndl_bear := true, cndl_name := "Падающая Звезда"
+    else if en_hman and p_hman and is_major_bear
+        cndl_bear := true, cndl_name := "Повешенный"
+    else if en_bear_eng and p_bear_eng and is_major_bear
+        cndl_bear := true, cndl_name := "Медв. Поглощение"
+    else if en_f3 and p_falling_3 and is_major_bear
+        cndl_bear := true, cndl_name := "Метод 3 Пад."
+    else if en_3bc and p_3bc and is_major_bear
+        cndl_bear := true, cndl_name := "3 Черные Вороны"
+    else if en_estar and p_estar and is_major_bear
+        cndl_bear := true, cndl_name := "Вечерняя Звезда"
+    else if en_bear_har and p_bear_har and is_major_bear
+        cndl_bear := true, cndl_name := "Медв. Харами"
+    else if en_tw_top and p_tw_top and is_major_bear
+        cndl_bear := true, cndl_name := "Пинцет Вершина"
+
+    if en_doji and is_doji and not cndl_bull and not cndl_bear
+        is_neutral := true, cndl_name := "Doji (Нейтраль)"
+
+plotshape(en_mod_cndl and cndl_show_lbl and cndl_bull, title="Бычий паттерн", style=shape.triangleup, location=location.belowbar, color=cndl_bull_col, text="", size=size.tiny)
+if en_mod_cndl and cndl_show_lbl and cndl_bull
+    label.new(bar_index, low - g_cndl_atr*0.2, text=cndl_name, style=label.style_label_up, color=color.new(color.white, 100), textcolor=cndl_bull_col, size=get_size(cndl_lbl_size))
+
+plotshape(en_mod_cndl and cndl_show_lbl and cndl_bear, title="Медвежий паттерн", style=shape.triangledown, location=location.abovebar, color=cndl_bear_col, text="", size=size.tiny)
+if en_mod_cndl and cndl_show_lbl and cndl_bear
+    label.new(bar_index, high + g_cndl_atr*0.2, text=cndl_name, style=label.style_label_down, color=color.new(color.white, 100), textcolor=cndl_bear_col, size=get_size(cndl_lbl_size))
+
+plotshape(en_mod_cndl and cndl_show_lbl and is_neutral, title="Нейтральный паттерн", style=shape.xcross, location=location.abovebar, color=cndl_neut_col, text="", size=size.tiny)
+if en_mod_cndl and cndl_show_lbl and is_neutral
+    label.new(bar_index, high + g_cndl_atr*0.2, text=cndl_name, style=label.style_label_down, color=color.new(color.white, 100), textcolor=cndl_neut_col, size=get_size(cndl_lbl_size))
+
+barcolor(en_mod_cndl and cndl_bar_col ? (cndl_bull ? cndl_bull_col : cndl_bear ? cndl_bear_col : is_neutral ? cndl_neut_col : na) : na)
+
+// ====================================================================================================================
+// СТРУКТУРА P1 И БАЗОВАЯ ЛОГИКА (+ ИНТЕГРАЦИЯ TRUE OTE И СИНХРОНИЗАЦИИ MAIN)
+// ====================================================================================================================
+bool b_smc_bull = smc_conn ? p1_smc_trend == 1 : false, bool b_smc_bear = smc_conn ? p1_smc_trend == -1 : false
+bool b_ob_bull  = ob_conn  ? p1_ob_signal == 1 : false, bool b_ob_bear  = ob_conn  ? p1_ob_signal == -1 : false
+bool b_sd_bull  = sd_conn  ? p1_sd_zone == 1 : false,   bool b_sd_bear  = sd_conn  ? p1_sd_zone == -1 : false
+bool b_fvg_bull = fvg_conn ? p1_fvg_dir == 1 : false,   bool b_fvg_bear = fvg_conn ? p1_fvg_dir == -1 : false
+bool b_bos_bull = bos_conn ? (bars_since_bos <= bos_bars_ok and p1_smc_trend == 1) : false
+bool b_bos_bear = bos_conn ? (bars_since_bos <= bos_bars_ok and p1_smc_trend == -1) : false
+
+bool b_bb_bull    = p1_bb_signal == 1,   bool b_bb_bear    = p1_bb_signal == -1
+bool b_hm_bull    = p1_hm_signal == 1,   bool b_hm_bear    = p1_hm_signal == -1
+bool b_sdinv_bull = p1_sdinv_signal == 1,bool b_sdinv_bear = p1_sdinv_signal == -1
+bool b_sweep_bull = p1_sweep_signal == 1,bool b_sweep_bear = p1_sweep_signal == -1
+bool b_choch_bull = p1_choch_signal == 1,bool b_choch_bear = p1_choch_signal == -1
+bool b_bostrg_bull = p1_bos_trig == 1,   bool b_bostrg_bear = p1_bos_trig == -1
+
+bool b_ob_fresh_bull = p1_ob_touch == 1
+bool b_ob_fresh_bear = p1_ob_touch == -1
+
+bool b_fvg_precise_bull = fvg_top_conn and fvg_bot_conn and close <= p1_fvg_top and close >= p1_fvg_bot and p1_fvg_dir == 1
+bool b_fvg_precise_bear = fvg_top_conn and fvg_bot_conn and close <= p1_fvg_top and close >= p1_fvg_bot and p1_fvg_dir == -1
+
+bool b_hm_vol_bull = hm_vol_conn and p1_hm_vol > ta.sma(volume, 50) * 1.5
+bool b_hm_vol_bear = hm_vol_conn and p1_hm_vol > ta.sma(volume, 50) * 1.5
+
+bool b_avwap_bull = avwap_conn and close > p1_avwap
+bool b_avwap_bear = avwap_conn and close < p1_avwap
+
+bool b_disp_bull = disp_conn and p1_disp == 1
+bool b_disp_bear = disp_conn and p1_disp == -1
+
+bool avwap_cross_bull = avwap_conn and ta.crossover(close, p1_avwap)
+bool avwap_cross_bear = avwap_conn and ta.crossunder(close, p1_avwap)
+
+// --- ИНТЕГРАЦИЯ TRUE OTE (FIBONACCI) ---
+var float recent_swing_h = na, var float recent_swing_l = na
+if is_conn(p1_choch_src) and (p1_choch_src != 0 or p1_bos_src != 0)
+    recent_swing_h := high
+    recent_swing_l := low
+else
+    recent_swing_h := math.max(nz(recent_swing_h, high), high)
+    recent_swing_l := math.min(nz(recent_swing_l, low), low)
+
+float impulse_range = recent_swing_h - recent_swing_l
+float ote_long_top = recent_swing_h - (impulse_range * 0.618)
+float ote_long_bot = recent_swing_h - (impulse_range * 0.786)
+float disc_long_top = recent_swing_h - (impulse_range * 0.5)
+
+float ote_short_bot = recent_swing_l + (impulse_range * 0.618)
+float ote_short_top = recent_swing_l + (impulse_range * 0.786)
+float prem_short_bot = recent_swing_l + (impulse_range * 0.5)
+
+int ote_score_bull = close <= ote_long_top and close >= ote_long_bot ? 2 : close < disc_long_top ? 1 : 0
+int ote_score_bear = close >= ote_short_bot and close <= ote_short_top ? 2 : close > prem_short_bot ? 1 : 0
+
+bool b_pd_bull    = pd_conn ? (ote_score_bull >= 1) : false
+bool b_pd_bear    = pd_conn ? (ote_score_bear >= 1) : false
+
+// ====================================================================================================================
+// СЕКЦИЯ 8: SL/TP ВИЗУАЛИЗАЦИЯ (% РЕЖИМ — БЕЗ СТРУКТУРНОГО SL)
+// ====================================================================================================================
+var float trade_entry = na
+var float current_sl = na
+var float tp1_level = na, var float tp2_level = na, var float tp3_level = na
+var int trade_dir = 0
+var bool tp1_hit = false, var bool tp2_hit = false, var bool tp3_hit = false
+
+// (Сигналы is_buy / is_sell определяются в Секции 11 — ниже)
+// Блок SL/TP отрисовывается после генерации сигналов, см. Секцию 12
