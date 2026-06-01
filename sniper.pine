@@ -1,0 +1,2665 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0
+// © UserUZR (Integrated with LuxAlgo Candlestick Logic, Trade Code Main & Complex Patterns, Market Regime, CVD & OTE)
+//@version=6
+indicator("UserUZR Sniper - All-In-One (EMA, RSI, STC, MACD, Cndl, MDivs, SM, Logic)", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+get_size(str) =>
+    str == "tiny" ? size.tiny : str == "small" ? size.small : str == "normal" ? size.normal : str == "large" ? size.large : str == "huge" ? size.huge : size.auto
+
+grp_debug = "0. DEBUG MODE (Override)"
+en_debug_mode   = input.bool(false, "🟢 Режим отладки (Игнорировать Main)", group=grp_debug)
+debug_force_bull = input.bool(false, "Force Bull Signal", group=grp_debug)
+debug_force_bear = input.bool(false, "Force Bear Signal", group=grp_debug)
+
+// ====================================================================================================================
+// 1. БАЗОВЫЙ ТРЕНД И СКОЛЬЗЯЩИЕ (MA)
+// ====================================================================================================================
+grp_trend = "1. Скользящие Средние (MA) и Тренд"
+en_mod_ma    = input.bool(true,  "🟢 Включить модуль MA (Сигналы)", group=grp_trend)
+sync_len     = input.int(5,      "Swing Период (для авто-тренда)", minval=2, group=grp_trend)
+
+ma_sig_logic = input.string("Fast > Slow", "Логика Тренда MA", options=["Fast > Slow", "Price > Global MA", "Both"], group=grp_trend)
+
+ma_fast_type = input.string("EMA", "Тип Быстрой MA", options=["EMA", "WMA", "HMA", "ALMA", "SMA"], group=grp_trend)
+ma_fast_len  = input.int(20,     "Длина Быстрой MA",  minval=1, group=grp_trend)
+ma_slow_type = input.string("EMA", "Тип Медленной MA", options=["EMA", "WMA", "HMA", "ALMA", "SMA"], group=grp_trend)
+ma_slow_len  = input.int(50,     "Длина Медленной MA", minval=1, group=grp_trend)
+ma_filt_type = input.string("EMA", "Тип Глобальной MA", options=["EMA", "WMA", "HMA", "ALMA", "SMA"], group=grp_trend)
+ma_filt_len  = input.int(200,    "Длина Глобальной MA", minval=1, group=grp_trend)
+
+alma_offset  = input.float(0.85, "ALMA Offset", group=grp_trend)
+alma_sigma   = input.float(6.0,  "ALMA Sigma", group=grp_trend)
+
+en_ma        = input.bool(true,  "Показывать Fast/Slow MA", group=grp_trend)
+en_ma_filt   = input.bool(true,  "Показывать Global MA", group=grp_trend)
+en_ma_cross  = input.bool(true,  "Отмечать пересечение Fast/Slow", group=grp_trend)
+
+ma_fast_col  = input.color(color.new(#2196F3, 0), "Цвет Fast MA", group=grp_trend)
+ma_slow_col  = input.color(color.new(#9C27B0, 0), "Цвет Slow MA", group=grp_trend)
+ma_filt_col  = input.color(color.new(#FF9800, 0), "Цвет Global MA", group=grp_trend)
+
+// ====================================================================================================================
+// 1.1 ФИЛЬТРЫ РЕЖИМА И ВОЛАТИЛЬНОСТИ (MARKET REGIME - ИНТЕГРИРОВАНО)
+// ====================================================================================================================
+grp_regime = "1.1 Market Regime (Мастер-фильтр)"
+en_regime = input.bool(true, "🟢 Включить Фильтр Фазы Рынка", group=grp_regime, tooltip="Адаптирует сигналы: в тренде отключает осцилляторы, во флэте снижает вес BOS.")
+chop_len = input.int(14, "Период Choppiness", group=grp_regime)
+adx_len = input.int(14, "Период ADX", group=grp_regime)
+vol_th = input.float(0.65, "Порог волатильности (ATR Ratio)", step=0.05, group=grp_regime, tooltip="Защита от флэтов (ATR14 / ATR100). Блокирует мусорные входы.")
+
+// ====================================================================================================================
+// 2. ПАРАМЕТРЫ ОСЦИЛЛЯТОРОВ И ОБЪЕМА
+// ====================================================================================================================
+grp_osc_kde = "2.1. Осциллятор: KDE RSI"
+en_mod_kde  = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_kde)
+kde_rsi_len = input.int(14, "RSI Длина", minval=1, group=grp_osc_kde)
+kde_piv_len = input.int(21, "Длина Пивотов (KDE)", minval=1, group=grp_osc_kde)
+kde_kernel  = input.string("Gaussian", "Ядро (Kernel)", options=['Uniform', 'Gaussian', 'Sigmoid'], group=grp_osc_kde)
+kde_bandw   = input.float(2.71828, "Сглаживание (Bandwidth)", group=grp_osc_kde)
+kde_steps   = input.int(75, "Точность (Bins)", minval=10, group=grp_osc_kde)
+kde_thresh  = input.string("Medium", "Порог активации", options=["High", "Medium", "Low"], group=grp_osc_kde)
+
+grp_osc_stc = "2.2. Осциллятор: Stoch Z-Score"
+en_mod_stoch = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_stc)
+stoch_z_src  = input.source(hlc3, "Source (Stoch Z)", group=grp_osc_stc)
+stoch_z_len  = input.int(21, "Length (Stoch Z)", minval=1, group=grp_osc_stc)
+stoch_z_ob   = input.float(2.0, "Overbought Level", step=0.5, group=grp_osc_stc)
+stoch_z_os   = input.float(-2.0, "Oversold Level", step=0.5, group=grp_osc_stc)
+stoch_strict = input.bool(true, "Строгий фильтр (учет ALMA LTM)", group=grp_osc_stc)
+
+grp_osc_dlx = "2.3. Осциллятор: Adaptive MACD Deluxe"
+en_mod_dlx     = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_dlx)
+macd_dlx_r2    = input.int(20, "R-Squared Lookback", minval=2, group=grp_osc_dlx)
+macd_dlx_fast  = input.int(10, "Fast EMA Length", minval=2, group=grp_osc_dlx)
+macd_dlx_slow  = input.int(20, "Slow EMA Length", minval=2, group=grp_osc_dlx)
+macd_dlx_ob    = input.float(100.0, "Уровень Перекупленности (OB)", group=grp_osc_dlx)
+macd_dlx_os    = input.float(-100.0, "Уровень Перепроданности (OS)", group=grp_osc_dlx)
+
+grp_osc_cci = "2.4. Осциллятор: Advanced CCI (ST + L3)"
+en_mod_cci = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_cci)
+cci_st_len = input.int(28, "CCI Period (Supertrend)", minval=1, group=grp_osc_cci)
+cci_st_factor = input.float(3.0, "Factor (Supertrend)", minval=0.1, group=grp_osc_cci)
+cci_st_pd = input.int(3, "ATR Period (Supertrend)", minval=1, group=grp_osc_cci)
+cci_l3_len = input.int(11, "CCI Length (L3 Super)", minval=1, group=grp_osc_cci)
+cci_l3_ci = input.int(5, "CI EMA Length (L3 Super)", minval=1, group=grp_osc_cci)
+
+grp_osc_sm_act = "2.5. Объемы: Smart Money Activity"
+en_mod_smact = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_sm_act)
+sm_act_ltf  = input.timeframe("5", "Младший ТФ (LTF)", group=grp_osc_sm_act)
+sm_act_zlen = input.int(50,  "Период накопления Z-Score", minval=5, group=grp_osc_sm_act)
+sm_act_th   = input.float(2.5, "Порог экстремального Z-Score (|Z|)", step=0.1, group=grp_osc_sm_act)
+
+grp_osc_sm_idx = "2.6. Объемы: Smart Money Index"
+en_mod_smidx  = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_sm_idx)
+sm_idx_x      = input.int(25,  "Период Индекса", minval=1, group=grp_osc_sm_idx)
+sm_idx_rr     = input.int(14,  "Период RSI (Volume Flow)", minval=1, group=grp_osc_sm_idx)
+sm_idx_peak   = input.int(500, "Период Нормализации", minval=1, group=grp_osc_sm_idx)
+sm_idx_thr    = input.float(0.7, "Порог активности", minval=0.01, step=0.05, group=grp_osc_sm_idx)
+sm_idx_strict = input.bool(true, "Строгий триггер", group=grp_osc_sm_idx)
+
+grp_osc_sm_int = "2.7. Объемы: Smart Money Interest"
+en_mod_smint   = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_sm_int)
+sm_int_x       = input.int(25, "Период Индекса", minval=1, group=grp_osc_sm_int)
+sm_int_rr      = input.int(14, "Период RSI", minval=1, group=grp_osc_sm_int)
+sm_int_peak    = input.int(500, "Период Нормализации", minval=1, group=grp_osc_sm_int)
+sm_int_thr     = input.float(0.9, "Порог активности", minval=0.01, step=0.05, group=grp_osc_sm_int)
+
+grp_osc_mdiv = "2.8. Дивергенции: Multi-Div (Lonesome)"
+en_mod_mdiv = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_mdiv)
+mdiv_prd = input.int(5, "Перио Период Пивотов", minval=1, group=grp_osc_mdiv)
+mdiv_type = input.string("Regular/Hidden", "Тип дивера", options=["Regular", "Hidden", "Regular/Hidden"], group=grp_osc_mdiv)
+mdiv_limit = input.int(1, "Мин. кол-во диверов", minval=1, maxval=11, group=grp_osc_mdiv)
+mdiv_maxb = input.int(100, "Макс. длина поиска (баров)", minval=30, group=grp_osc_mdiv)
+
+grp_osc_peter = "2.9. Дивергенции: Multi-Div (PeterO)"
+en_mod_peter = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_peter)
+peter_lbL = input.int(3, "Pivot Lookback Left", minval=1, group=grp_osc_peter)
+peter_lbR = input.int(1, "Pivot Lookback Right", minval=1, group=grp_osc_peter)
+peter_rngL = input.int(1, "Min Lookback Range", minval=1, group=grp_osc_peter)
+peter_rngU = input.int(60, "Max Lookback Range", minval=10, group=grp_osc_peter)
+peter_limit = input.int(2, "Min Div Count", minval=1, maxval=10, group=grp_osc_peter)
+
+grp_osc_tfdiv = "3.0. Дивергенции: TradingFinder Fractal"
+en_mod_tfdiv = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_tfdiv)
+tfdiv_n = input.int(4, "Fractal Periods (n)", minval=2, group=grp_osc_tfdiv)
+tfdiv_type = input.string("MACD", "Осциллятор (Type)", options=["MACD", "RSI", "AO"], group=grp_osc_tfdiv)
+
+grp_osc_smt = "3.1. Дивергенции: SMT (Межрыночные)"
+en_mod_smt = input.bool(true, "🟢 Включить модуль (Главный)", group=grp_osc_smt)
+smt_len  = input.int(3, "SMT Pivot Lookback", minval=2, group=grp_osc_smt)
+smt_use1 = input.bool(true, "Включить Символ 1", inline="symA", group=grp_osc_smt)
+smt_sym1 = input.symbol("CME_MINI_DL:ES1!", "", inline="symA", group=grp_osc_smt)
+smt_use2 = input.bool(true, "Включить Символ 2", inline="symB", group=grp_osc_smt)
+smt_sym2 = input.symbol("CBOT_MINI_DL:YM1!", "", inline="symB", group=grp_osc_smt)
+
+// ====================================================================================================================
+// 3.2. СВЕЧНОЙ МОДУЛЬ (LUXALGO + УЛУЧШЕНИЯ)
+// ====================================================================================================================
+grp_cndl = "3.2. Свечной анализ (LuxAlgo)"
+en_mod_cndl = input.bool(true, "🟢 Включить модуль Свечей", group=grp_cndl)
+
+cndl_bull_col = input.color(color.new(#089981, 0), "Цвет Бычьих", group=grp_cndl)
+cndl_bear_col = input.color(color.new(#f23645, 0), "Цвет Медвежьих", group=grp_cndl)
+cndl_neut_col = input.color(color.new(color.black, 0), "Цвет Нейтральных", group=grp_cndl)
+cndl_lbl_size = input.string("tiny", "Размер текста названия", options=["auto", "tiny", "small", "normal", "large"], group=grp_cndl)
+cndl_bar_col  = input.bool(true, "Красить бары", group=grp_cndl)
+cndl_show_lbl = input.bool(true, "Показывать ярлыки и текст", group=grp_cndl)
+
+en_hammer = input.bool(true, "Бычьи: Молот", group=grp_cndl, inline="b1")
+en_ihammer = input.bool(true, "Пер. Молот", group=grp_cndl, inline="b1")
+en_bull_eng = input.bool(true, "Поглощение", group=grp_cndl, inline="b2")
+en_r3 = input.bool(true, "3 Поднимающихся", group=grp_cndl, inline="b2")
+en_3ws = input.bool(true, "3 Белых Солдата", group=grp_cndl, inline="b3")
+en_mstar = input.bool(true, "Утренняя звезда", group=grp_cndl, inline="b3")
+en_bull_har = input.bool(true, "Харами", group=grp_cndl, inline="b4")
+en_tw_bot = input.bool(true, "Пинцет Дно", group=grp_cndl, inline="b4")
+
+en_hman = input.bool(true, "Медв: Повешенный", group=grp_cndl, inline="s1")
+en_sstar = input.bool(true, "Падающая звезда", group=grp_cndl, inline="s1")
+en_bear_eng = input.bool(true, "Поглощение", group=grp_cndl, inline="s2")
+en_f3 = input.bool(true, "3 Падающих", group=grp_cndl, inline="s2")
+en_3bc = input.bool(true, "3 Черн. Вороны", group=grp_cndl, inline="s3")
+en_estar = input.bool(true, "Вечерняя звезда", group=grp_cndl, inline="s3")
+en_bear_har = input.bool(true, "Харами", group=grp_cndl, inline="s4")
+en_tw_top = input.bool(true, "Пинцет Вершина", group=grp_cndl, inline="s4")
+
+en_doji = input.bool(false, "Нейтральная: Doji", group=grp_cndl)
+
+grp_cndl_trend = "3.2.1. Свечной Тренд (Фильтр)"
+en_cndl_trend = input.bool(false, "🟢 Включить фильтр по структуре", group=grp_cndl_trend)
+cndl_minor_len = input.int(10, "Minor Trend Length (DC)", group=grp_cndl_trend)
+cndl_maj_type = input.string("SuperTrend", "Major Trend Method", options=["EMA","ChoCh","SuperTrend","Donchian Channel"], group=grp_cndl_trend)
+cndl_maj_swing = input.int(20, "ChoCh Swing Length", group=grp_cndl_trend)
+cndl_maj_ema1 = input.int(50, "Short EMA", group=grp_cndl_trend)
+cndl_maj_ema2 = input.int(200, "Long EMA", group=grp_cndl_trend)
+cndl_maj_st_f = input.float(4.0, "Super Trend Factor", group=grp_cndl_trend)
+cndl_maj_st_l = input.int(20, "Super Trend Length", group=grp_cndl_trend)
+cndl_maj_dc = input.int(40, "Donchian Channel Length", group=grp_cndl_trend)
+
+// ====================================================================================================================
+// 4. НАСТРОЙКИ СИГНАЛОВ И ВИЗУАЛА
+// ====================================================================================================================
+grp_sig = "4. Настройки Сигнала и Визуал"
+en_sig_labels  = input.bool(true,  "Показывать ярлыки BUY/SELL", group=grp_sig)
+en_info_block  = input.bool(true,  "Показывать Инфоблок (чек-лист)", group=grp_sig)
+sig_lookback   = input.int(3,      "Блокировка повтора", minval=0, maxval=20, group=grp_sig)
+bos_bars_ok    = input.int(3,      "BOS окно подтверждения (баров)", minval=1, maxval=20, group=grp_sig)
+sig_text_size  = input.string("normal", "Размер текста BUY/SELL", options=["auto", "tiny", "small", "normal", "large", "huge"], group=grp_sig)
+sig_text_col   = input.color(color.white, "Цвет текста BUY/SELL", group=grp_sig)
+sig_bg_buy_col = input.color(color.new(#089981, 15), "Фон BUY сигнала", group=grp_sig)
+sig_bg_sell_col= input.color(color.new(#f23645, 15), "Фон SELL сигнала", group=grp_sig)
+info_gap       = input.float(0.4,  "Дистанция Инфоблока (ATR)", minval=0.1, step=0.1, group=grp_sig)
+info_text_size = input.string("tiny", "Размер текста Инфоблока", options=["auto", "tiny", "small", "normal", "large", "huge"], group=grp_sig)
+info_align     = input.string("Left", "Расположение текста Инфоблока", options=["Left", "Center", "Right"], group=grp_sig)
+info_text_col  = input.color(color.white, "Цвет текста Инфоблока", group=grp_sig)
+info_bg_col    = input.color(color.new(color.gray, 80), "Фон Инфоблока", group=grp_sig)
+en_bg_trend    = input.bool(false, "Фон графика по тренду", group=grp_sig)
+bg_bull_col    = input.color(color.new(#089981, 95), "Фон Бычий", group=grp_sig)
+bg_bear_col    = input.color(color.new(#f23645, 95), "Фон Медвежий", group=grp_sig)
+
+// ====================================================================================================================
+// 5. ДАШБОРД
+// ====================================================================================================================
+grp_dash = "5. Дашборд"
+en_dash            = input.bool(true, "Показывать Дашборд", group=grp_dash)
+dash_pos_str       = input.string("Снизу справа", "Позиция дашборда", options=["Сверху справа", "Снизу справа", "Снизу слева"], group=grp_dash)
+dash_text_col      = input.color(color.white, "Цвет текста дашборда", group=grp_dash)
+dash_text_size_str = input.string("small", "Размер текста дашборда", options=["auto", "tiny", "small", "normal", "large", "huge"], group=grp_dash)
+
+// ====================================================================================================================
+// 6. ВНЕШНИЕ ИНДИКАТОРЫ
+// ====================================================================================================================
+grp_p1 = "6. Внешние Индикаторы (Подключение)"
+float p1_alive_src    = input.source(close, "[P1] ALIVE_SIGNAL (9999.0)", group=grp_p1, tooltip="Связь со Sniper Main. Должно быть 9999.0")
+float p1_tf_src       = input.source(close, "[P1] Chart TF (Mins)", group=grp_p1)
+float p1_smc_src      = input.source(close, "[P1] Base: SMC Trend", group=grp_p1)
+float p1_bos_src      = input.source(close, "[P1] Confirmed BOS Level", group=grp_p1)
+float p1_bos_trig_src = input.source(close, "[P1] Base: BOS Trigger", group=grp_p1)
+float p1_ob_src       = input.source(close, "[P1] Base: OB State", group=grp_p1)
+float p1_ob_touch_src = input.source(close, "[P1] Base: OB Touch", group=grp_p1)
+float p1_sd_src       = input.source(close, "[P1] Base: S&D Zone", group=grp_p1)
+float p1_fvg_src      = input.source(close, "[P1] Base: FVG POC", group=grp_p1)
+float p1_fvg_top_src  = input.source(close, "[P1] Base: FVG Top", group=grp_p1)
+float p1_fvg_bot_src  = input.source(close, "[P1] Base: FVG Bottom", group=grp_p1)
+float p1_bb_src       = input.source(close, "[P1] Base: Breaker Signal", group=grp_p1)
+float p1_hm_src       = input.source(close, "[P1] Base: HM Sweep", group=grp_p1)
+float p1_hm_vol_src   = input.source(close, "[P1] Base: HM Sweep Vol", group=grp_p1)
+float p1_sdinv_src    = input.source(close, "[P1] Base: S&D Break", group=grp_p1)
+float p1_sweep_src    = input.source(close, "[P1] Base: SMC Sweep", group=grp_p1)
+float p1_choch_src    = input.source(close, "[P1] Base: CHoCH", group=grp_p1)
+float p1_choch_lvl_src= input.source(close, "[P1] Confirmed CHoCH Level", group=grp_p1)
+float p1_pd_src       = input.source(close, "[P1] Base: Premium/Discount", group=grp_p1)
+float p1_avwap_src    = input.source(close, "[P1] Institutional AVWAP", group=grp_p1)
+float p1_disp_src     = input.source(close, "[P1] Displacement Candle", group=grp_p1)
+float p1_bull_prox_src= input.source(close, "[P1] Bull OB Proximal", group=grp_p1, tooltip="Проксимальная зона ближайшего бычьего OB (структурный стоп-уровень)")
+float p1_bear_prox_src= input.source(close, "[P1] Bear OB Proximal", group=grp_p1, tooltip="Проксимальная зона ближайшего медвежьего OB (структурный стоп-уровень)")
+
+// ====================================================================================================================
+// 7. КОНСТРУКТОР СИГНАЛОВ (БАЗОВЫЙ СКОРИНГ)
+// ====================================================================================================================
+grp_score = "7. Конструктор сигналов (Скоринг)"
+req_score = input.int(4, "Целевой порог (авто-адаптация):", minval=1, maxval=35, group=grp_score)
+
+s_rsi_kde  = input.bool(true,  "Учет: KDE RSI",        inline="rsi_kde",  group=grp_score), m_rsi_kde  = input.bool(false, "Обязат.", inline="rsi_kde",  group=grp_score)
+s_stoch    = input.bool(true,  "Учет: Stoch Z",         inline="stc",      group=grp_score), m_stoch    = input.bool(false, "Обязат.", inline="stc",      group=grp_score)
+s_macd_dlx = input.bool(true,  "Учет: MACD Dlx",        inline="mac2",     group=grp_score), m_macd_dlx = input.bool(false, "Обязат.", inline="mac2",     group=grp_score)
+s_cci      = input.bool(true,  "Учет: Advanced CCI",    inline="cci",      group=grp_score), m_cci      = input.bool(false, "Обязат.", inline="cci",      group=grp_score)
+s_mdiv     = input.bool(true,  "Учет: Multi-Div",       inline="mdiv",     group=grp_score), m_mdiv     = input.bool(false, "Обязат.", inline="mdiv",     group=grp_score)
+s_peter    = input.bool(true,  "Учет: PeterO Div",      inline="pdv",      group=grp_score), m_peter    = input.bool(false, "Обязат.", inline="pdv",      group=grp_score)
+s_tfdiv    = input.bool(true,  "Учет: T-Finder Div",    inline="tfdv",     group=grp_score), m_tfdiv    = input.bool(false, "Обязат.", inline="tfdv",     group=grp_score)
+s_smt      = input.bool(true,  "Учет: SMT Div",         inline="smt",      group=grp_score), m_smt      = input.bool(false, "Обязат.", inline="smt",      group=grp_score)
+s_sm_act   = input.bool(true,  "Учет: SM Act",          inline="vol_act",  group=grp_score), m_sm_act   = input.bool(false, "Обязат.", inline="vol_act",  group=grp_score)
+s_sm_idx   = input.bool(true,  "Учет: SM Index",        inline="vol_idx",  group=grp_score), m_sm_idx   = input.bool(false, "Обязат.", inline="vol_idx",  group=grp_score)
+s_sm_int   = input.bool(true,  "Учет: SM Int",          inline="vol_int",  group=grp_score), m_sm_int   = input.bool(false, "Обязат.", inline="vol_int",  group=grp_score)
+s_cndl     = input.bool(true,  "Учет: Candles",         inline="cndl",     group=grp_score), m_cndl     = input.bool(false, "Обязат.", inline="cndl",     group=grp_score)
+s_ma_cross = input.bool(true,  "Учет: MA Cross",        inline="ma_x",     group=grp_score), m_ma_cross = input.bool(false, "Обязат.", inline="ma_x",     group=grp_score)
+s_ma_trend = input.bool(true,  "Учет: MA Trend",        inline="ma_t",     group=grp_score), m_ma_trend = input.bool(false, "Обязат.", inline="ma_t",     group=grp_score)
+s_smc      = input.bool(true,  "SMC Trend Вкл",         inline="smc",      group=grp_score), m_smc      = input.bool(false, "Обязат.", inline="smc",      group=grp_score)
+s_ob       = input.bool(true,  "OB Activity Вкл",       inline="ob",       group=grp_score), m_ob       = input.bool(false, "Обязат.", inline="ob",       group=grp_score)
+s_sd       = input.bool(true,  "S&D Zones Вкл",         inline="sd",       group=grp_score), m_sd       = input.bool(false, "Обязат.", inline="sd",       group=grp_score)
+s_fvg      = input.bool(true,  "FVG Вкл",               inline="fvg",      group=grp_score), m_fvg      = input.bool(false, "Обязат.", inline="fvg",      group=grp_score)
+s_bos      = input.bool(false, "BOS Level Вкл",         inline="bos",      group=grp_score), m_bos      = input.bool(false, "Обязат.", inline="bos",      group=grp_score)
+s_bb       = input.bool(true,  "Breaker Вкл",           inline="bb",       group=grp_score), m_bb       = input.bool(false, "Обязат.", inline="bb",       group=grp_score)
+s_hm       = input.bool(true,  "HeatMap Sweep Вкл",     inline="hm",       group=grp_score), m_hm       = input.bool(false, "Обязат.", inline="hm",       group=grp_score)
+s_sdinv    = input.bool(true,  "S&D Break Вкл",         inline="sdinv",    group=grp_score), m_sdinv    = input.bool(false, "Обязат.", inline="sdinv",    group=grp_score)
+s_sweep    = input.bool(true,  "SMC Sweep Вкл",         inline="swp",      group=grp_score), m_sweep    = input.bool(false, "Обязат.", inline="swp",      group=grp_score)
+s_choch    = input.bool(true,  "CHoCH Вкл",             inline="choch",    group=grp_score), m_choch    = input.bool(false, "Обязат.", inline="choch",    group=grp_score)
+s_pd       = input.bool(true,  "Prem/Discount Вкл",     inline="pd",       group=grp_score), m_pd       = input.bool(false, "Обязат.", inline="pd",       group=grp_score)
+s_avwap    = input.bool(true,  "AVWAP Align Вкл",       inline="avwap",    group=grp_score, tooltip="Цена выше/ниже институционального AVWAP"), m_avwap    = input.bool(false, "Обязат.", inline="avwap",    group=grp_score)
+s_disp     = input.bool(true,  "Displacement Вкл",      inline="disp",     group=grp_score, tooltip="Импульсная свеча (тело > 1.5 ATR) как подтверждение моментума"), m_disp     = input.bool(false, "Обязат.", inline="disp",     group=grp_score)
+s_ob_frsh  = input.bool(true,  "Fresh OB Вкл",          inline="obfr",     group=grp_score, tooltip="Первое касание OB — максимальная институциональная сила"), m_ob_frsh  = input.bool(false, "Обязат.", inline="obfr",     group=grp_score)
+
+// ====================================================================================================================
+// 8. СТРАТЕГИЯ: SL / MULTI-TP (%) И УПРАВЛЕНИЕ ПОЗИЦИЕЙ
+// ====================================================================================================================
+grp_sltp = "8. Стратегия: SL/TP (%)"
+en_sltp      = input.bool(true, "Включить визуализацию SL/TP", group=grp_sltp)
+tp1_perc     = input.float(1.0, "Take Profit 1 (%)", step=0.1, minval=0.1, group=grp_sltp)
+tp2_perc     = input.float(2.0, "Take Profit 2 (%)", step=0.1, minval=0.1, group=grp_sltp)
+tp3_perc     = input.float(3.0, "Take Profit 3 (%)", step=0.1, minval=0.1, group=grp_sltp)
+sl_perc      = input.float(1.0, "Stop Loss (%)", step=0.1, minval=0.1, group=grp_sltp)
+be_after_tp1 = input.bool(true, "Перевод в БУ после TP1", group=grp_sltp)
+
+// ====================================================================================================================
+// 9. КОМПЛЕКСНЫЕ ХАРДКОДНЫЕ ПАТТЕРНЫ (ИЗОЛИРОВАННОЕ УПРАВЛЕНИЕ)
+// ====================================================================================================================
+grp_hc_rev = "9.1. Hardcoded: Sniper Reversals"
+en_hc_a1  = input.bool(true, "A1: Каскадное подтверждение",              group=grp_hc_rev, tooltip="Логика: Слом структуры (CHoCH) + FVG не заполнен + HeatMap концентрация пулов на границе S&D зоны. Максимальная вероятность отработки.")
+en_hc_a3  = input.bool(true, "A3: Премиум-дисконт арбитраж (PD Matrix)", group=grp_hc_rev, tooltip="Логика: Глубокий Discount/Premium + активный FVG POC + S&D зона + SMT дивергенция коррелятов.")
+en_hc_c1  = input.bool(true, "C1: Тройная дивергенция (Triple Div Matrix)",group=grp_hc_rev, tooltip="Логика: Синхронная дивергенция: Momentum (KDE/MACD) + Volume (SM) + Structural (SMT/Fractal).")
+en_hc_c3  = input.bool(true, "C3: Фрактальная конвергенция",              group=grp_hc_rev, tooltip="Логика: T-Finder (Fractal Div) + PeterO + Multi-Div + свечной паттерн в одной точке.")
+en_hc_g3  = input.bool(true, "G3: Контртрендовый снайпер",                group=grp_hc_rev, tooltip="Логика: Торговля против тренда. Экстремальный Premium/Discount + огромный HeatMap пул + 4+ дивергенций + SM Index экстремум + SMT.")
+en_hc_zh1 = input.bool(true, "Ж1: Исторический кластер",                  group=grp_hc_rev, tooltip="Логика: KDE RSI в исторической зоне разворота + SM Interest подтверждает накопление.")
+en_hc_zh4 = input.bool(true, "Ж4: OTE Precision Entry",                   group=grp_hc_rev, tooltip="Логика: Цена строго в зоне Fibonacci 0.618–0.786 (OTE score=2) + AVWAP alignment + активный FVG в этой зоне + SMT дивергенция коррелятов.")
+
+grp_hc_trd = "9.2. Hardcoded: Trend Continuation"
+en_hc_b2  = input.bool(true, "B2: Объёмный дисбаланс (Volume Flush)",    group=grp_hc_trd, tooltip="Логика: FVG сформирован на высоком объеме (SM Act) + при откате SM Index растет. FVG 'живой'.")
+en_hc_c2  = input.bool(true, "C2: Скрытая дивергенция в тренде",         group=grp_hc_trd, tooltip="Логика: Устойчивый тренд SMC + PeterO Hidden Div на откате + цена в OB/FVG + SM Interest в сторону тренда.")
+en_hc_d1  = input.bool(true, "D1: Старший контекст - младший вход",      group=grp_hc_trd, tooltip="Логика: SMC тренд + Sweep/CHoCH в том же направлении + 3 осциллятора синхронно дают сигнал.")
+en_hc_d2  = input.bool(true, "D2: Объёмный след на откате",              group=grp_hc_trd, tooltip="Логика: Откат против тренда + SM Activity аномально низкая + касание OB/SD + SM Index держит тренд.")
+en_hc_g2  = input.bool(true, "G2: Пробой зоны консолидации",             group=grp_hc_trd, tooltip="Логика: Пробой S&D зоны (sdinv) + резкий всплеск SM Activity или выход KDE из нейтрали после флэта.")
+en_hc_zh2 = input.bool(true, "Ж2: Аномалия объема структуры",            group=grp_hc_trd, tooltip="Логика: Формирование BOS по тренду + аномально высокий объем SM Activity (climax/ускорение).")
+en_hc_zh6 = input.bool(true, "Ж6: Compression Boom (Взрыв)",             group=grp_hc_trd, tooltip="Логика: Рынок в фазе компрессии (низкая волатильность, высокий Choppiness) → пробой S&D зоны + SM Activity + Displacement. Самые взрывные движения.")
+en_hc_zh7 = input.bool(true, "Ж7: AVWAP Reclaim (Возврат)",              group=grp_hc_trd, tooltip="Логика: Цена пересекла AVWAP в сторону SMC-тренда + Fresh OB в точке пересечения + SM Interest держит тренд.")
+
+grp_hc_trp = "9.3. Hardcoded: Traps & Sweeps"
+en_hc_a2  = input.bool(true, "A2: Структурная ловушка (False BOS)",      group=grp_hc_trp, tooltip="Логика: BOS пробит, но объем мал + HeatMap sweep за уровнем + Stoch Z экстремум + возврат за уровень (CCI).")
+en_hc_b3  = input.bool(true, "B3: Дельта-ловушка (Delta Reversal)",      group=grp_hc_trp, tooltip="Логика: SM Index и SM Interest в противофазе + HeatMap Sweep + CHoCH + все 3 модуля дивергенций.")
+en_hc_e1  = input.bool(true, "E1: Ловушка в Demand/Supply (Bear/Bull Trap)", group=grp_hc_trp, tooltip="Логика: Ложный пробой S&D зоны (закрытие внутри) + аномальный объем (поглощение) + 3 дивергенции.")
+en_hc_g1  = input.bool(true, "G1: После снятия ликвидности (Post-Sweep)",group=grp_hc_trp, tooltip="Логика: Sweep был 1-3 бара назад + возврат и закрытие + HeatMap снят + CHoCH + SM Activity.")
+en_hc_zh3 = input.bool(true, "Ж3: Корреляционный сбой",                  group=grp_hc_trp, tooltip="Логика: SMT дивергенция (актив искусственно удержан) + HeatMap показывает пул в стороне удержания.")
+en_hc_zh5 = input.bool(true, "Ж5: CVD Absorption (Ловушка)",             group=grp_hc_trp, tooltip="Логика: Двустороннее поглощение объёма (Absorption) + CVD-дивергенция с ценой + S&D зона + свечной паттерн.")
+
+grp_hc_exh = "9.4. Hardcoded: Warnings & Exits"
+en_hc_f1  = input.bool(true, "F1: Regime Shift Warning 🔄",               group=grp_hc_exh, tooltip="Логика: Рынок переходит из ranging в trending (ADX рост + Choppiness падение) + BOS формируется + SM Activity всплеск. Предупреждение о смене фазы.")
+en_hc_b1  = input.bool(true, "B1: Тихий институционал (Accumulation)",   group=grp_hc_exh, tooltip="Логика: Горизонтальное движение. SM Interest копит, SM Index спит, SM Act шипует. S&D держит. KDE разворотный.")
+en_hc_e2  = input.bool(true, "E2: Истощение тренда (Trend Exhaustion) ⚠️",group=grp_hc_exh, tooltip="Логика: Долгий тренд SMC + SM Interest перевернулся + HeatMap пулы против тренда + OB превращаются в Breaker.")
+en_hc_e3  = input.bool(true, "E3: Ложный CHoCH (Блокиратор) 🛑",         group=grp_hc_exh, tooltip="Логика: CHoCH без SM Activity + нет HeatMap + нет дивергенций + S&D против. Отменяет сигнал.")
+
+// ====================================================================================================================
+// ИНИЦИАЛИЗАЦИЯ ИСТОЧНИКОВ И ГЛОБАЛЬНЫХ ПЕРЕМЕННЫХ
+// ====================================================================================================================
+is_conn(src) => not na(p1_alive_src) and p1_alive_src == 9999.0 and not na(src)
+
+bool tf_conn        = is_conn(p1_tf_src)
+bool smc_conn       = is_conn(p1_smc_src)
+bool bos_conn       = is_conn(p1_bos_src)
+bool bostrg_conn    = is_conn(p1_bos_trig_src)
+bool ob_conn        = is_conn(p1_ob_src)
+bool sd_conn        = is_conn(p1_sd_src)
+bool fvg_conn       = is_conn(p1_fvg_src)
+bool bb_conn        = is_conn(p1_bb_src)
+bool hm_conn        = is_conn(p1_hm_src)
+bool sdinv_conn     = is_conn(p1_sdinv_src)
+bool sweep_conn     = is_conn(p1_sweep_src)
+bool choch_conn     = is_conn(p1_choch_src)
+bool pd_conn        = is_conn(p1_pd_src)
+bool ob_touch_conn  = is_conn(p1_ob_touch_src)
+bool fvg_top_conn   = is_conn(p1_fvg_top_src)
+bool fvg_bot_conn   = is_conn(p1_fvg_bot_src)
+bool hm_vol_conn    = is_conn(p1_hm_vol_src)
+bool choch_lvl_conn = is_conn(p1_choch_lvl_src)
+bool avwap_conn     = is_conn(p1_avwap_src)
+bool disp_conn      = is_conn(p1_disp_src)
+bool bull_prox_conn = is_conn(p1_bull_prox_src)
+bool bear_prox_conn = is_conn(p1_bear_prox_src)
+
+float p1_tf_mins   = tf_conn      ? p1_tf_src            : na
+int   p1_smc_trend = smc_conn     ? int(p1_smc_src)      : na
+float p1_bos_level = bos_conn     ? p1_bos_src           : na
+int   p1_bos_trig  = bostrg_conn  ? int(p1_bos_trig_src) : 0
+int   p1_ob_signal = ob_conn      ? int(p1_ob_src)       : na
+int   p1_sd_zone   = sd_conn      ? int(p1_sd_src)       : na
+int   p1_fvg_dir   = fvg_conn     ? int(p1_fvg_src)      : na
+
+int   p1_bb_signal    = bb_conn     ? int(p1_bb_src)        : 0
+int   p1_hm_signal    = hm_conn     ? int(p1_hm_src)        : 0
+int   p1_sdinv_signal = sdinv_conn  ? int(p1_sdinv_src)     : 0
+int   p1_sweep_signal = sweep_conn  ? int(p1_sweep_src)     : 0
+int   p1_choch_signal = choch_conn  ? int(p1_choch_src)     : 0
+int   p1_pd_signal    = pd_conn     ? int(p1_pd_src)        : 0
+int   p1_ob_touch     = ob_touch_conn  ? int(p1_ob_touch_src)  : 0
+float p1_fvg_top      = fvg_top_conn   ? p1_fvg_top_src        : na
+float p1_fvg_bot      = fvg_bot_conn   ? p1_fvg_bot_src        : na
+float p1_hm_vol       = hm_vol_conn    ? p1_hm_vol_src         : 0.0
+float p1_choch_lvl    = choch_lvl_conn ? p1_choch_lvl_src      : na
+float p1_avwap        = avwap_conn     ? p1_avwap_src          : na
+int   p1_disp         = disp_conn      ? int(p1_disp_src)      : 0
+float p1_bull_prox    = bull_prox_conn ? p1_bull_prox_src      : na
+float p1_bear_prox    = bear_prox_conn ? p1_bear_prox_src      : na
+
+// ====================================================================================================================
+// ИНСТИТУЦИОНАЛЬНЫЙ ФИЛЬТР РЕЖИМА И ВОЛАТИЛЬНОСТИ
+// ====================================================================================================================
+float atr14  = ta.atr(14)
+float atr100 = ta.atr(100)
+bool  vol_ok = (atr14 / math.max(atr100, 1e-10)) > vol_th
+
+float chop_tr_sum = math.sum(ta.tr, chop_len)
+float chop_hi     = ta.highest(high, chop_len)
+float chop_lo     = ta.lowest(low, chop_len)
+float choppiness  = 100 * math.log10(chop_tr_sum / math.max(chop_hi - chop_lo, 1e-10)) / math.log10(chop_len)
+
+[di_plus, di_minus, adx_val] = ta.dmi(adx_len, adx_len)
+
+bool regime_trending    = adx_val > 25 and choppiness < 50
+bool regime_ranging     = choppiness > 61.8 or adx_val < 20
+bool regime_compression = vol_ok == false and choppiness > 61.8
+
+// ====================================================================================================================
+// ПАМЯТЬ СИГНАЛОВ (PERSISTENCE TIMERS)
+// ====================================================================================================================
+var int bars_since_choch_bull = 999, var int bars_since_choch_bear = 999
+var int bars_since_hm_bull    = 999, var int bars_since_hm_bear    = 999
+var int bars_since_sweep_bull = 999, var int bars_since_sweep_bear = 999
+
+bars_since_choch_bull := (choch_conn and p1_choch_src == 1)  ? 0 : math.min(bars_since_choch_bull + 1, 999)
+bars_since_choch_bear := (choch_conn and p1_choch_src == -1) ? 0 : math.min(bars_since_choch_bear + 1, 999)
+bars_since_hm_bull    := (hm_conn    and p1_hm_src == 1)     ? 0 : math.min(bars_since_hm_bull    + 1, 999)
+bars_since_hm_bear    := (hm_conn    and p1_hm_src == -1)    ? 0 : math.min(bars_since_hm_bear    + 1, 999)
+bars_since_sweep_bull := (sweep_conn and p1_sweep_src == 1)  ? 0 : math.min(bars_since_sweep_bull + 1, 999)
+bars_since_sweep_bear := (sweep_conn and p1_sweep_src == -1) ? 0 : math.min(bars_since_sweep_bear + 1, 999)
+
+// ====================================================================================================================
+// ГЛОБАЛЬНЫЕ РАСЧЕТЫ
+// ====================================================================================================================
+[g_mac_line, g_mac_signal, g_mac_hist] = ta.macd(close, 12, 26, 9)
+float g_macdL = g_mac_line
+float g_macdH = g_mac_hist
+
+float s_h1 = request.security(smt_sym1, timeframe.period, high)
+float s_l1 = request.security(smt_sym1, timeframe.period, low)
+float s_h2 = request.security(smt_sym2, timeframe.period, high)
+float s_l2 = request.security(smt_sym2, timeframe.period, low)
+
+float[] global_lt_v = request.security_lower_tf(syminfo.tickerid, sm_act_ltf, volume)
+float[] global_lt_c = request.security_lower_tf(syminfo.tickerid, sm_act_ltf, close)
+float[] global_lt_o = request.security_lower_tf(syminfo.tickerid, sm_act_ltf, open)
+
+float g_rsi   = ta.rsi(close, 14)
+float g_stc   = ta.sma(ta.stoch(close, high, low, 14), 3)
+float g_cci   = ta.cci(close, 10)
+float g_mom   = ta.mom(close, 10)
+float g_obv   = ta.obv
+float g_vwm   = ta.vwma(close, 12) - ta.vwma(close, 26)
+float g_cmf   = ta.sma((((close-low)-(high-close))/(high-low))*volume, 21) / ta.sma(volume, 21)
+float g_mfi   = ta.mfi(close, 14)
+
+float chg_close  = ta.change(close)
+float chg_high   = ta.change(high)
+float chg_low    = ta.change(low)
+float g_p_obv    = ta.cum(chg_close > 0 ? volume : chg_close < 0 ? -volume : 0)
+float g_p_diosc  = fixnan(100 * ta.rma(chg_high - (-chg_low), 14) / ta.rma(ta.tr, 14))
+float g_cndl_atr = ta.atr(14)
+
+// ====================================================================================================================
+// БАЗОВЫЕ РАСЧЕТЫ (Trend, MA, BOS)
+// ====================================================================================================================
+f_get_ma(src, len, type) =>
+    switch type
+        "EMA"  => ta.ema(src, len)
+        "WMA"  => ta.wma(src, len)
+        "HMA"  => ta.hma(src, len)
+        "ALMA" => ta.alma(src, len, alma_offset, alma_sigma)
+        => ta.sma(src, len)
+
+float ma_f = f_get_ma(close, ma_fast_len, ma_fast_type)
+float ma_s = f_get_ma(close, ma_slow_len, ma_slow_type)
+float ma_g = f_get_ma(close, ma_filt_len, ma_filt_type)
+
+bool cond_cross_bull = ma_f > ma_s
+bool cond_cross_bear = ma_f < ma_s
+bool cond_pglob_bull = close > ma_g
+bool cond_pglob_bear = close < ma_g
+
+bool ma_trend_bull = ma_sig_logic == "Fast > Slow" ? cond_cross_bull : ma_sig_logic == "Price > Global MA" ? cond_pglob_bull : (cond_cross_bull and cond_pglob_bull)
+bool ma_trend_bear = ma_sig_logic == "Fast > Slow" ? cond_cross_bear : ma_sig_logic == "Price > Global MA" ? cond_pglob_bear : (cond_cross_bear and cond_pglob_bear)
+
+int  ma_trend_status = ma_trend_bull ? 1 : ma_trend_bear ? -1 : 0
+
+bool x_ma_bull = ta.crossover(ma_f,  ma_s)
+bool x_ma_bear = ta.crossunder(ma_f, ma_s)
+
+plot(en_ma      ? ma_f : na, "MA Fast",   ma_fast_col, 1)
+plot(en_ma      ? ma_s : na, "MA Slow",   ma_slow_col, 2)
+plot(en_ma_filt ? ma_g : na, "MA Global", ma_filt_col, 2)
+plotshape(en_ma and en_ma_cross and x_ma_bull, "MA Cross Bull", shape.labelup,   location.belowbar, color.new(#2196F3, 30), 0, "✕", color.white, size=size.tiny)
+plotshape(en_ma and en_ma_cross and x_ma_bear, "MA Cross Bear", shape.labeldown, location.abovebar, color.new(#9C27B0, 30), 0, "✕", color.white, size=size.tiny)
+
+var float swing_h  = na, var float swing_l = na, var int auto_trend = 1
+float ph = ta.pivothigh(high, sync_len, sync_len), float pl = ta.pivotlow(low, sync_len, sync_len)
+if not na(ph)
+    swing_h := ph
+if not na(pl)
+    swing_l := pl
+
+bool cross_up = ta.crossover(close,  swing_h)
+bool cross_dn = ta.crossunder(close, swing_l)
+
+if not na(swing_h) and cross_up
+    auto_trend := 1
+if not na(swing_l) and cross_dn
+    auto_trend := -1
+
+int final_trend = smc_conn ? p1_smc_trend : auto_trend
+bgcolor(en_bg_trend ? (final_trend == 1 ? bg_bull_col : bg_bear_col) : na, title="Фон тренда")
+
+var int bars_since_bos = 999
+float bos_rounded = bos_conn ? math.round(p1_bos_level / syminfo.mintick) * syminfo.mintick : na
+float bos_prev    = nz(bos_rounded[1], na)
+bool  bos_changed = bos_conn and not na(bos_rounded) and not na(bos_prev) and bos_rounded != bos_prev
+bars_since_bos := bos_changed ? 0 : math.min(bars_since_bos + 1, 999)
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.1: KDE RSI
+// ====================================================================================================================
+f_gaussian(float dist, float bw) => 1.0 / math.sqrt(2.0 * math.pi) * math.pow(math.e, -0.5 * math.pow(dist / bw, 2.0))
+f_uniform(float dist, float bw)  => (math.abs(dist) > bw) ? 0.0 : 0.5
+f_sigmoid(float dist, float bw)  => 2.0 / math.pi * (1.0 / (math.pow(math.e, (dist / bw)) + math.pow(math.e, -(dist / bw))))
+
+f_kde(array<float> arr, string kernel, float bw, int steps) =>
+    arrSize = arr.size(), arrRange = arr.range(), arrMin = arr.min()
+    stepCount = arrRange / math.max(steps, 1)
+    densityRange = array.new<float>(steps * 2)
+    for i = 0 to (steps * 2) - 1
+        densityRange.set(i, arrMin + i * stepCount)
+    xArr = array.new<float>(), yArr = array.new<float>()
+    for i = 0 to densityRange.size() - 1
+        float temp = 0
+        for j = 0 to arr.size() - 1
+            switch kernel
+                "Gaussian" => temp += f_gaussian(densityRange.get(i) - arr.get(j), 1.0 / bw)
+                "Uniform"  => temp += f_uniform(densityRange.get(i) - arr.get(j), 1.0 / bw)
+                "Sigmoid"  => temp += f_sigmoid(densityRange.get(i) - arr.get(j), 1.0 / bw)
+        xArr.push(densityRange.get(i)), yArr.push(1.0 / math.max(arrSize, 1) * temp)
+    [xArr, yArr]
+
+f_prefixSum(array<float> arr, int l, int r) => arr.get(r) - (l == 0 ? 0 : arr.get(l - 1))
+
+float kde_rsi = na
+bool osc_kde_bull = false, bool osc_kde_bear = false
+
+var array<float> highPivotRSIs = array.new<float>(), var array<float> lowPivotRSIs  = array.new<float>()
+var array<float> KDEHighX = array.new<float>(), var array<float> KDEHighY = array.new<float>(), var array<float> KDEHighYSum = array.new<float>()
+var array<float> KDELowX  = array.new<float>(), var array<float> KDELowY  = array.new<float>(), var array<float> KDELowYSum  = array.new<float>()
+var bool in_kde_bull = false, var bool in_kde_bear = false
+
+if en_mod_kde
+    kde_rsi := ta.rsi(close, kde_rsi_len)
+    float kde_hp = ta.pivothigh(high, kde_piv_len, kde_piv_len)
+    float kde_lp = ta.pivotlow(low,  kde_piv_len, kde_piv_len)
+    float lowProb = 0.0, float highProb = 0.0
+
+    if not na(kde_hp)
+        if highPivotRSIs.size() > 300
+            highPivotRSIs.remove(0)
+        highPivotRSIs.push(kde_rsi[kde_piv_len])
+        [kx, ky] = f_kde(highPivotRSIs, kde_kernel, kde_bandw, kde_steps)
+        KDEHighX := kx, KDEHighY := ky
+        KDEHighYSum.clear()
+        float tH = 0.0
+        for i = 0 to KDEHighY.size() - 1
+            tH += KDEHighY.get(i), KDEHighYSum.push(tH)
+
+    if not na(kde_lp)
+        if lowPivotRSIs.size() > 300
+            lowPivotRSIs.remove(0)
+        lowPivotRSIs.push(kde_rsi[kde_piv_len])
+        [lx, ly] = f_kde(lowPivotRSIs, kde_kernel, kde_bandw, kde_steps)
+        KDELowX := lx, KDELowY := ly
+        KDELowYSum.clear()
+        float tL = 0.0
+        for i = 0 to KDELowY.size() - 1
+            tL += KDELowY.get(i), KDELowYSum.push(tL)
+
+    if highPivotRSIs.size() > 0 and KDEHighX.size() > 0
+        int search_L = array.binary_search_leftmost(KDEHighX, kde_rsi)
+        int search_R = array.binary_search_rightmost(KDEHighX, kde_rsi)
+        int highXIndexL = math.max(0, math.min(search_L, KDEHighX.size() - 1))
+        int highXIndexR = math.max(0, math.min(search_R, KDEHighX.size() - 1))
+        nearestIdxH = (math.abs(kde_rsi - KDEHighX.get(highXIndexL)) < math.abs(kde_rsi - KDEHighX.get(highXIndexR))) ? highXIndexL : highXIndexR
+        highProb := f_prefixSum(KDEHighYSum, 0, nearestIdxH)
+
+    if lowPivotRSIs.size() > 0 and KDELowX.size() > 0
+        int search_L = array.binary_search_leftmost(KDELowX, kde_rsi)
+        int search_R = array.binary_search_rightmost(KDELowX, kde_rsi)
+        int lowXIndexL = math.max(0, math.min(search_L, KDELowX.size() - 1))
+        int lowXIndexR = math.max(0, math.min(search_R, KDELowX.size() - 1))
+        nearestIdxL = (math.abs(kde_rsi - KDELowX.get(lowXIndexL)) < math.abs(kde_rsi - KDELowX.get(lowXIndexR))) ? lowXIndexL : lowXIndexR
+        lowProb := f_prefixSum(KDELowYSum, nearestIdxL, KDELowYSum.size() - 1)
+
+    float act_thresh = kde_thresh == "High" ? 0.4 : kde_thresh == "Medium" ? 0.25 : 0.15
+    bool curr_in_kde_bull = KDELowY.size()  > 0 and lowProb  > array.get(KDELowYSum,  KDELowYSum.size()  - 1) * (1.0 - act_thresh)
+    bool curr_in_kde_bear = KDEHighY.size() > 0 and highProb > array.get(KDEHighYSum, KDEHighYSum.size() - 1) * (1.0 - act_thresh)
+    osc_kde_bull := not curr_in_kde_bull and in_kde_bull
+    osc_kde_bear := not curr_in_kde_bear and in_kde_bear
+    in_kde_bull  := curr_in_kde_bull
+    in_kde_bear  := curr_in_kde_bear
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.2: STOCHASTIC Z-SCORE
+// ====================================================================================================================
+bool  osc_stoch_bull  = false, bool osc_stoch_bear = false
+float smoothed_scaled = na
+
+if en_mod_stoch
+    float stoch_basis = ta.sma(stoch_z_src, stoch_z_len)
+    float stoch_stdev = ta.stdev(stoch_z_src, stoch_z_len)
+    float zscore      = stoch_stdev == 0 ? 0.0 : (stoch_z_src - stoch_basis) / stoch_stdev
+    float highest_z   = ta.highest(zscore, stoch_z_len)
+    float lowest_z    = ta.lowest(zscore,  stoch_z_len)
+    float range_z     = highest_z - lowest_z
+    float stochZ      = range_z == 0 ? 50.0 : 100.0 * (zscore - lowest_z) / range_z
+    float scaledSZ    = (stochZ / 25.0) - 2.0
+    smoothed_scaled  := ta.hma(scaledSZ, stoch_z_len)
+    float smoothed_scaled_prev = nz(smoothed_scaled[1], 0.0)
+    float ltm = nz(ta.alma(zscore, stoch_z_len, 0.0, 0.1), 0.0)
+
+    bool stoch_cross_up = ta.crossover(smoothed_scaled,  nz(smoothed_scaled[1], 0.0))
+    bool stoch_cross_dn = ta.crossunder(smoothed_scaled, nz(smoothed_scaled[1], 0.0))
+    osc_stoch_bull := stoch_cross_up and (smoothed_scaled_prev < stoch_z_os) and (stoch_strict ? ltm > 0 : true)
+    osc_stoch_bear := stoch_cross_dn and (smoothed_scaled_prev > stoch_z_ob) and (stoch_strict ? ltm < 0 : true)
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.3: ADAPTIVE MACD DELUXE
+// ====================================================================================================================
+bool  osc_macd_dlx_bull = false, bool osc_macd_dlx_bear = false
+float dlx_macSeries = na, var float mac_dlx = 0.0
+
+if en_mod_dlx
+    float dlx_r          = ta.correlation(close, bar_index, macd_dlx_r2)
+    float dlx_detWgt     = 0.5 + 0.5 * nz(math.pow(dlx_r, 2), 0.0)
+    float dlx_fastK      = 2.0 / (macd_dlx_fast + 1)
+    float dlx_slowK      = 2.0 / (macd_dlx_slow + 1)
+    float dlx_blend      = dlx_detWgt * (1 - dlx_fastK) * (1 - dlx_slowK) + (1 - dlx_detWgt) * (1 - dlx_fastK) / (1 - dlx_slowK)
+    float dlx_priceDelta = close - nz(close[1], close)
+    float dlx_momentTerm = dlx_priceDelta * (dlx_fastK - dlx_slowK)
+    float dlx_feedbackTerm = (2 - dlx_fastK - dlx_slowK) * nz(mac_dlx[1], 0.0)
+    float dlx_dampTerm   = dlx_blend * nz(mac_dlx[2], 0.0)
+    mac_dlx := dlx_momentTerm + dlx_feedbackTerm - dlx_dampTerm
+
+    float dlx_hl_ema = ta.ema(high - low, macd_dlx_slow)
+    dlx_macSeries    := dlx_hl_ema == 0 ? 0.0 : (mac_dlx / dlx_hl_ema * 100.0)
+    osc_macd_dlx_bull := ta.crossover(dlx_macSeries,  macd_dlx_os)
+    osc_macd_dlx_bear := ta.crossunder(dlx_macSeries, macd_dlx_ob)
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.4: ADVANCED CCI (SuperTrend + L3)
+// ====================================================================================================================
+bool osc_cci_bull = false, bool osc_cci_bear = false
+
+if en_mod_cci
+    float st_cci_val  = ta.cci(close, cci_st_len)
+    float st_Up       = hl2 - (cci_st_factor * ta.atr(cci_st_pd))
+    float st_Dn       = hl2 + (cci_st_factor * ta.atr(cci_st_pd))
+
+    float st_TrendUp   = na, float st_TrendDown = na, int st_Trend = na
+    st_TrendUp   := nz(st_cci_val[1]) > 0 ? math.max(st_Up, nz(st_TrendUp[1],   st_Up)) : st_Up
+    st_TrendDown := nz(st_cci_val[1]) < 0 ? math.min(st_Dn, nz(st_TrendDown[1], st_Dn)) : st_Dn
+    st_Trend     := st_cci_val > 0 ? 1 : st_cci_val < 0 ? -1 : nz(st_Trend[1], 1)
+
+    float st_tsl      = st_Trend == 1 ? st_TrendUp : st_TrendDown
+    bool  st_cci_bull = ta.crossover(close,  st_tsl)
+    bool  st_cci_bear = ta.crossunder(close, st_tsl)
+
+    float l3_typ_price = (high + low + close) / 3.0
+    float l3_avgDev    = ta.dev(l3_typ_price, cci_l3_len)
+    float l3_cci_val   = (l3_typ_price - ta.sma(l3_typ_price, cci_l3_len)) / (0.015 * math.max(l3_avgDev, 1e-10))
+    float l3_ci_val    = ta.ema(l3_cci_val, cci_l3_ci)
+
+    bool l3_str_buy  = ta.crossover(l3_cci_val,  l3_ci_val) and l3_cci_val < -100
+    bool l3_nrm_buy  = ta.crossover(l3_cci_val,  l3_ci_val) and l3_cci_val >= -100 and l3_cci_val < 0
+    bool l3_str_sell = ta.crossunder(l3_cci_val, l3_ci_val) and l3_cci_val > 100
+    bool l3_nrm_sell = ta.crossunder(l3_cci_val, l3_ci_val) and l3_cci_val <= 100 and l3_cci_val > 0
+
+    bool l3_cci_bull = l3_str_buy  or l3_nrm_buy
+    bool l3_cci_bear = l3_str_sell or l3_nrm_sell
+
+    osc_cci_bull := st_cci_bull or l3_cci_bull
+    osc_cci_bear := st_cci_bear or l3_cci_bear
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.5: SMART MONEY VOLUME ACTIVITY (+ CVD & ABSORPTION)
+// ====================================================================================================================
+bool sm_act_bull = false, bool sm_act_bear = false
+var array<float> sm_vols = array.new<float>()
+
+var float cvd = 0.0
+var array<float> cvd_hist_arr = array.new<float>()
+bool cvd_bull_div  = false, bool cvd_bear_div = false
+bool sm_absorption = false
+
+if en_mod_smact
+    float[] lt_v    = global_lt_v
+    float[] lt_c    = global_lt_c
+    float[] lt_o    = global_lt_o
+    int res_size    = array.size(lt_v)
+    int sm_maximum  = sm_act_zlen * math.max(1, res_size)
+
+    if res_size > 0
+        float bar_cvd    = 0.0
+        float max_bull_vol = 0.0, float max_bear_vol = 0.0
+        for i = 0 to res_size - 1
+            float v = array.get(lt_v, i), c = array.get(lt_c, i), o = array.get(lt_o, i)
+            if c > o
+                bar_cvd      += v
+                max_bull_vol := math.max(max_bull_vol, v)
+            else if c < o
+                bar_cvd      -= v
+                max_bear_vol := math.max(max_bear_vol, v)
+
+        array.unshift(cvd_hist_arr, bar_cvd)
+        if array.size(cvd_hist_arr) > 50
+            array.pop(cvd_hist_arr)
+        cvd := array.sum(cvd_hist_arr)
+
+        if max_bull_vol > (ta.sma(volume, 50) * 0.5) and max_bear_vol > (ta.sma(volume, 50) * 0.5)
+            sm_absorption := true
+        cvd_bull_div := close < ta.sma(close, 10) and cvd > ta.sma(cvd, 10)
+        cvd_bear_div := close > ta.sma(close, 10) and cvd < ta.sma(cvd, 10)
+
+        for i = res_size - 1 to 0
+            array.unshift(sm_vols, array.get(lt_v, i))
+        while array.size(sm_vols) > sm_maximum
+            array.pop(sm_vols)
+
+        float volsAvg   = array.avg(sm_vols)
+        float volsStdev = array.stdev(sm_vols)
+
+        if volsStdev > 0
+            float max_z  = 0.0
+            int   max_idx = -1
+            for i = 0 to res_size - 1
+                float evtVol    = array.get(lt_v, i)
+                float act_zscore = (evtVol - volsAvg) / volsStdev
+                if act_zscore > max_z
+                    max_z   := act_zscore
+                    max_idx := i
+
+            if max_z > sm_act_th and max_idx != -1
+                float intra_close = array.get(lt_c, max_idx)
+                float intra_open  = array.get(lt_o, max_idx)
+                bool  isBull      = intra_close > intra_open
+                float bodyMin     = math.min(open, close)
+                float bodyMax     = math.max(open, close)
+
+                bool isAtClose       = math.abs(intra_close - close) < syminfo.mintick
+                bool isStrictInBody  = intra_close > bodyMin and intra_close < bodyMax
+                bool isNearBody      = intra_close >= bodyMin * 0.995 and intra_close <= bodyMax * 1.005
+
+                bool cls2 = isAtClose or isStrictInBody
+                bool cls1 = isNearBody and not cls2
+
+                if cls2
+                    if isBull
+                        sm_act_bull := true
+                    else
+                        sm_act_bear := true
+                else if cls1 and max_z > sm_act_th * 1.3
+                    if isBull
+                        sm_act_bull := true
+                    else
+                        sm_act_bear := true
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.6: SMART MONEY VOLUME INDEX
+// ====================================================================================================================
+bool  sm_idx_bull  = false, bool sm_idx_bear = false
+float sm_net_index = na
+
+if en_mod_smidx
+    float safe_pvi  = nz(ta.pvi, 1.0), float safe_nvi = nz(ta.nvi, 1.0)
+    float sm_dumb   = safe_pvi - ta.ema(safe_pvi, 255)
+    float sm_smart  = safe_nvi - ta.ema(safe_nvi, 255)
+    float sm_drsi   = ta.rsi(sm_dumb,  sm_idx_rr), float sm_srsi = ta.rsi(sm_smart, sm_idx_rr)
+    float drsi_safe     = sm_drsi == 0 ? 1e-10 : sm_drsi
+    float drsi_inv_safe = (100.0 - sm_drsi) == 0 ? 1e-10 : (100.0 - sm_drsi)
+    float sm_r_buy  = sm_srsi / drsi_safe
+    float sm_r_sell = (100.0 - sm_srsi) / drsi_inv_safe
+    float sm_sums_buy  = math.sum(sm_r_buy,  sm_idx_x)
+    float sm_sums_sell = math.sum(sm_r_sell, sm_idx_x)
+    float sm_peak      = ta.highest(math.max(sm_sums_buy, sm_sums_sell), sm_idx_peak)
+    float sm_peak_safe = sm_peak == 0 ? 1e-10 : sm_peak
+
+    sm_net_index := (sm_sums_buy / sm_peak_safe) - (sm_sums_sell / sm_peak_safe)
+
+    if sm_idx_strict
+        sm_idx_bull := ta.crossover(sm_net_index,  sm_idx_thr)
+        sm_idx_bear := ta.crossunder(sm_net_index, -sm_idx_thr)
+    else
+        sm_idx_bull := sm_net_index >  sm_idx_thr and sm_net_index > nz(sm_net_index[1])
+        sm_idx_bear := sm_net_index < -sm_idx_thr and sm_net_index < nz(sm_net_index[1])
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.7: SMART MONEY INTEREST INDEX
+// ====================================================================================================================
+bool sm_int_bull = false, bool sm_int_bear = false
+
+if en_mod_smint
+    float sm_int_dumb  = ta.pvi - ta.ema(ta.pvi, 255)
+    float sm_int_smart = ta.nvi - ta.ema(ta.nvi, 255)
+    float sm_int_drsi  = ta.rsi(sm_int_dumb,  sm_int_rr)
+    float sm_int_srsi  = ta.rsi(sm_int_smart, sm_int_rr)
+    float drsi_safe    = sm_int_drsi == 0 ? 1e-10 : sm_int_drsi
+    float srsi_safe    = sm_int_srsi == 0 ? 1e-10 : sm_int_srsi
+    float sm_int_r_buy   = sm_int_srsi / drsi_safe
+    float sm_int_r_sell  = sm_int_drsi / srsi_safe
+    float sm_int_sums_buy  = math.sum(sm_int_r_buy,  sm_int_x)
+    float sm_int_sums_sell = math.sum(sm_int_r_sell, sm_int_x)
+    float sm_int_peak_buy  = ta.highest(sm_int_sums_buy,  sm_int_peak)
+    float sm_int_peak_sell = ta.highest(sm_int_sums_sell, sm_int_peak)
+    float sm_int_index_buy  = sm_int_sums_buy  / (sm_int_peak_buy  == 0 ? 1e-10 : sm_int_peak_buy)
+    float sm_int_index_sell = sm_int_sums_sell / (sm_int_peak_sell == 0 ? 1e-10 : sm_int_peak_sell)
+
+    sm_int_bull := sm_int_index_buy  > sm_int_thr
+    sm_int_bear := sm_int_index_sell > sm_int_thr
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.8: MULTI-INDICATOR DIVERGENCE (LonesomeTheBlue)
+// ====================================================================================================================
+bool osc_mdiv_bull = false, bool osc_mdiv_bear = false
+int  total_mdiv_bull = 0,   int  total_mdiv_bear = 0
+var int[]   mdiv_ph_pos = array.new<int>(10, 0),   var int[]   mdiv_pl_pos = array.new<int>(10, 0)
+var float[] mdiv_ph_val = array.new<float>(10, 0.0), var float[] mdiv_pl_val = array.new<float>(10, 0.0)
+
+bool chk_reg = mdiv_type == "Regular" or mdiv_type == "Regular/Hidden"
+bool chk_hid = mdiv_type == "Hidden"  or mdiv_type == "Regular/Hidden"
+
+f_check_pos_div(series float src, int cond_type) =>
+    int div_found = 0
+    if src > src[1] or close > close[1]
+        for x = 0 to 9
+            int len = bar_index - array.get(mdiv_pl_pos, x) + mdiv_prd
+            if array.get(mdiv_pl_pos, x) == 0 or len > mdiv_maxb
+                break
+            if len > 5
+                bool cond1 = (cond_type == 1 and src[1] > src[len] and close[1] < array.get(mdiv_pl_val, x))
+                bool cond2 = (cond_type == 2 and src[1] < src[len] and close[1] > array.get(mdiv_pl_val, x))
+                if cond1 or cond2
+                    float slope1 = (src[1] - src[len]) / (len - 1), float vline1 = src[1] - slope1
+                    float slope2 = (close[1] - close[len]) / (len - 1), float vline2 = close[1] - slope2
+                    bool arrived = true
+                    for y = 2 to len - 1
+                        if src[y] < vline1 or close[y] < vline2
+                            arrived := false
+                            break
+                        vline1 -= slope1, vline2 -= slope2
+                    if arrived
+                        div_found := 1
+                        break
+    div_found
+
+f_check_neg_div(series float src, int cond_type) =>
+    int div_found = 0
+    if src < src[1] or close < close[1]
+        for x = 0 to 9
+            int len = bar_index - array.get(mdiv_ph_pos, x) + mdiv_prd
+            if array.get(mdiv_ph_pos, x) == 0 or len > mdiv_maxb
+                break
+            if len > 5
+                bool cond1 = (cond_type == 1 and src[1] < src[len] and close[1] > array.get(mdiv_ph_val, x))
+                bool cond2 = (cond_type == 2 and src[1] > src[len] and close[1] < array.get(mdiv_ph_val, x))
+                if cond1 or cond2
+                    float slope1 = (src[1] - src[len]) / (len - 1), float vline1 = src[1] - slope1
+                    float slope2 = (close[1] - close[len]) / (len - 1), float vline2 = close[1] - slope2
+                    bool arrived = true
+                    for y = 2 to len - 1
+                        if src[y] > vline1 or close[y] > vline2
+                            arrived := false
+                            break
+                        vline1 -= slope1, vline2 -= slope2
+                    if arrived
+                        div_found := 1
+                        break
+    div_found
+
+f_add_div(series float src, bool en) =>
+    int reg_pos = f_check_pos_div(src, 1)
+    int reg_neg = f_check_neg_div(src, 1)
+    int hid_pos = f_check_pos_div(src, 2)
+    int hid_neg = f_check_neg_div(src, 2)
+    int b = 0, int br = 0
+    if en
+        if chk_reg
+            b  += reg_pos
+            br += reg_neg
+        if chk_hid
+            b  += hid_pos
+            br += hid_neg
+    [b, br]
+
+if en_mod_mdiv
+    float mdiv_ph = ta.pivothigh(close, mdiv_prd, mdiv_prd)
+    float mdiv_pl = ta.pivotlow(close,  mdiv_prd, mdiv_prd)
+    if not na(mdiv_ph)
+        array.unshift(mdiv_ph_pos, bar_index), array.unshift(mdiv_ph_val, mdiv_ph), array.pop(mdiv_ph_pos), array.pop(mdiv_ph_val)
+    if not na(mdiv_pl)
+        array.unshift(mdiv_pl_pos, bar_index), array.unshift(mdiv_pl_val, mdiv_pl), array.pop(mdiv_pl_pos), array.pop(mdiv_pl_val)
+
+    [b1, br1]   = f_add_div(g_rsi,   true), [b2,  br2]  = f_add_div(g_macdL, true), [b3,  br3]  = f_add_div(g_macdH, true)
+    [b4, br4]   = f_add_div(g_stc,   true), [b5,  br5]  = f_add_div(g_cci,   true), [b6,  br6]  = f_add_div(g_mom,   true)
+    [b7, br7]   = f_add_div(g_obv,   true), [b8,  br8]  = f_add_div(g_vwm,   true), [b9,  br9]  = f_add_div(g_cmf,   true)
+    [b10, br10] = f_add_div(g_mfi,   true)
+
+    total_mdiv_bull := b1+b2+b3+b4+b5+b6+b7+b8+b9+b10
+    total_mdiv_bear := br1+br2+br3+br4+br5+br6+br7+br8+br9+br10
+    osc_mdiv_bull   := total_mdiv_bull >= mdiv_limit
+    osc_mdiv_bear   := total_mdiv_bear >= mdiv_limit
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 2.9: MULTI-DIV (PeterO NON-REPAINT)
+// ====================================================================================================================
+bool osc_peter_bull = false, bool osc_peter_bear = false
+
+f_petero_div(series float _osc, int _lbL, int _lbR, int _rL, int _rU) =>
+    bool pl_found = not na(ta.pivotlow(_osc,  _lbL, _lbR))
+    bool ph_found = not na(ta.pivothigh(_osc, _lbL, _lbR))
+
+    float osc_prev_l = ta.valuewhen(pl_found, _osc[_lbR],  1), float prc_prev_l = ta.valuewhen(pl_found, low[_lbR],  1)
+    float osc_prev_h = ta.valuewhen(ph_found, _osc[_lbR],  1), float prc_prev_h = ta.valuewhen(ph_found, high[_lbR], 1)
+
+    int l_bars_since = ta.barssince(pl_found[1]), int h_bars_since = ta.barssince(ph_found[1])
+    bool l_in_rng = l_bars_since >= _rL and l_bars_since <= _rU
+    bool h_in_rng = h_bars_since >= _rL and h_bars_since <= _rU
+
+    int b_reg = (low[_lbR]  < prc_prev_l and _osc[_lbR] > osc_prev_l and l_in_rng and pl_found) ? 1 : 0
+    int b_hid = (low[_lbR]  > prc_prev_l and _osc[_lbR] < osc_prev_l and l_in_rng and pl_found) ? 1 : 0
+    int s_reg = (high[_lbR] > prc_prev_h and _osc[_lbR] < osc_prev_h and h_in_rng and ph_found) ? 1 : 0
+    int s_hid = (high[_lbR] < prc_prev_h and _osc[_lbR] > osc_prev_h and h_in_rng and ph_found) ? 1 : 0
+
+    [b_reg + b_hid, s_reg + s_hid]
+
+if en_mod_peter
+    int pt_b = 0, int pt_s = 0
+    [b1,  s1]  = f_petero_div(g_rsi,     peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b1,  pt_s += s1
+    [b2,  s2]  = f_petero_div(g_macdL,   peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b2,  pt_s += s2
+    [b3,  s3]  = f_petero_div(g_macdH,   peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b3,  pt_s += s3
+    [b4,  s4]  = f_petero_div(g_mom,     peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b4,  pt_s += s4
+    [b5,  s5]  = f_petero_div(g_cci,     peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b5,  pt_s += s5
+    [b6,  s6]  = f_petero_div(g_p_obv,   peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b6,  pt_s += s6
+    [b7,  s7]  = f_petero_div(g_stc,     peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b7,  pt_s += s7
+    [b8,  s8]  = f_petero_div(g_p_diosc, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b8,  pt_s += s8
+    [b9,  s9]  = f_petero_div(g_vwm,     peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b9,  pt_s += s9
+    [b10, s10] = f_petero_div(g_cmf,     peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b += b10, pt_s += s10
+
+    osc_peter_bull := pt_b >= peter_limit
+    osc_peter_bear := pt_s >= peter_limit
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 3.0: TRADINGFINDER FRACTAL DIV
+// ====================================================================================================================
+bool osc_tfdiv_bull = false, bool osc_tfdiv_bear = false
+
+float tf_aoH  = ta.sma(hl2, 5) - ta.sma(hl2, 34)
+float tf_rsiH = ta.rsi(close, 14) - 50
+float tf_hist = tfdiv_type == "MACD" ? g_macdH : tfdiv_type == "AO" ? tf_aoH : tf_rsiH
+
+float tf_ema     = ta.ema(close, 50)
+bool  tf_up_trend = close[tfdiv_n] > tf_ema, bool tf_dn_trend = close[tfdiv_n] < tf_ema
+bool  tf_up_frac  = not na(ta.pivothigh(tfdiv_n, tfdiv_n)) and tf_up_trend
+bool  tf_dn_frac  = not na(ta.pivotlow(tfdiv_n,  tfdiv_n)) and tf_dn_trend
+
+float t_h_last_prc = ta.valuewhen(tf_up_frac, high[tfdiv_n],    0)
+float t_h_prev_prc = ta.valuewhen(tf_up_frac, high[tfdiv_n],    1)
+float t_h_last_hst = ta.valuewhen(tf_up_frac, tf_hist[tfdiv_n], 0)
+float t_h_prev_hst = ta.valuewhen(tf_up_frac, tf_hist[tfdiv_n], 1)
+int   t_h_last_bar = ta.valuewhen(tf_up_frac, bar_index[tfdiv_n], 0)
+int   t_h_prev_bar = ta.valuewhen(tf_up_frac, bar_index[tfdiv_n], 1)
+
+float t_l_last_prc = ta.valuewhen(tf_dn_frac, low[tfdiv_n],     0)
+float t_l_prev_prc = ta.valuewhen(tf_dn_frac, low[tfdiv_n],     1)
+float t_l_last_hst = ta.valuewhen(tf_dn_frac, tf_hist[tfdiv_n], 0)
+float t_l_prev_hst = ta.valuewhen(tf_dn_frac, tf_hist[tfdiv_n], 1)
+int   t_l_last_bar = ta.valuewhen(tf_dn_frac, bar_index[tfdiv_n], 0)
+int   t_l_prev_bar = ta.valuewhen(tf_dn_frac, bar_index[tfdiv_n], 1)
+
+float change_t_h = ta.change(t_h_last_prc)
+float change_t_l = ta.change(t_l_last_prc)
+
+if en_mod_tfdiv
+    bool tf_bear_cond    = (t_h_last_hst > 0 and t_h_prev_hst > 0 and (t_h_last_bar + 30 > bar_index) and (t_h_last_bar - t_h_prev_bar < 30))
+    bool is_tf_bear_div  = tf_bear_cond and (t_h_last_prc > t_h_prev_prc) and (t_h_last_hst < t_h_prev_hst)
+    osc_tfdiv_bear      := change_t_h != 0 and is_tf_bear_div
+
+    bool tf_bull_cond    = (t_l_last_hst < 0 and t_l_prev_hst < 0 and (t_l_last_bar + 30 > bar_index) and (t_l_last_bar - t_l_prev_bar < 30))
+    bool is_tf_bull_div  = tf_bull_cond and (t_l_last_prc < t_l_prev_prc) and (t_l_last_hst > t_l_prev_hst)
+    osc_tfdiv_bull      := change_t_l != 0 and is_tf_bull_div
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 3.1: SMT DIVERGENCES
+// ====================================================================================================================
+bool osc_smt_bull = false, bool osc_smt_bear = false
+
+f_get_smt_div(bool is_ph, float y2, float sym_y2) =>
+    var float y1 = na, var float sym_y1 = na
+    var int smt_count    = 0
+    var int last_div_bar = 0
+    int RESET_BARS = 50
+
+    if bar_index - last_div_bar > RESET_BARS
+        smt_count := 0
+
+    if y2 != y2[1] and sym_y2 != sym_y2[1]
+        if not na(y1) and not na(sym_y1)
+            if (y2 - y1) * (sym_y2 - sym_y1) < 0
+                smt_count    += 1
+                last_div_bar := bar_index
+        sym_y1 := sym_y2
+        y1     := y2
+    else if (is_ph and y2 > y2[1]) or (not is_ph and y2 < y2[1])
+        sym_y1 := na
+        y1     := y2
+    smt_count
+
+if en_mod_smt
+    float smt_ph = fixnan(ta.pivothigh(smt_len, smt_len))
+    float smt_pl = fixnan(ta.pivotlow(smt_len,  smt_len))
+    float h1 = s_h1, float l1 = s_l1
+    float h2 = s_h2, float l2 = s_l2
+
+    float sym_ph1 = fixnan(ta.pivothigh(h1, smt_len, smt_len)), float sym_pl1 = fixnan(ta.pivotlow(l1, smt_len, smt_len))
+    float sym_ph2 = fixnan(ta.pivothigh(h2, smt_len, smt_len)), float sym_pl2 = fixnan(ta.pivotlow(l2, smt_len, smt_len))
+    int ph_smt1 = f_get_smt_div(true,  smt_ph, sym_ph1), int pl_smt1 = f_get_smt_div(false, smt_pl, sym_pl1)
+    int ph_smt2 = f_get_smt_div(true,  smt_ph, sym_ph2), int pl_smt2 = f_get_smt_div(false, smt_pl, sym_pl2)
+
+    if smt_ph != nz(smt_ph[1])
+        if (smt_use1 and ph_smt1 > nz(ph_smt1[1])) or (smt_use2 and ph_smt2 > nz(ph_smt2[1]))
+            osc_smt_bear := true
+
+    if smt_pl != nz(smt_pl[1])
+        if (smt_use1 and pl_smt1 > nz(pl_smt1[1])) or (smt_use2 and pl_smt2 > nz(pl_smt2[1]))
+            osc_smt_bull := true
+
+// ====================================================================================================================
+// ИЗОЛИРОВАННЫЙ МОДУЛЬ 3.2: LUXALGO CANDLESTICK PATTERNS & TREND FILTER
+// ====================================================================================================================
+float c_upper = ta.highest(math.max(cndl_minor_len, 1))
+float c_lower = ta.lowest(math.max(cndl_minor_len,  1))
+var int minor_dir = 0
+if high == c_upper and minor_dir != 1
+    minor_dir := 1
+if low  == c_lower and minor_dir != -1
+    minor_dir := -1
+
+var int major_dir = 0
+float maj_ema1 = ta.ema(close, math.max(cndl_maj_ema1, 1))
+float maj_ema2 = ta.ema(close, math.max(cndl_maj_ema2, 1))
+[st_val, st_dir] = ta.supertrend(math.max(cndl_maj_st_f, 0.1), math.max(cndl_maj_st_l, 1))
+
+float maj_dc_upper = ta.highest(math.max(cndl_maj_dc, 1))
+float maj_dc_lower = ta.lowest(math.max(cndl_maj_dc,  1))
+var int maj_dc_dir = 0
+if high == maj_dc_upper and maj_dc_dir != 1
+    maj_dc_dir := 1
+if low  == maj_dc_lower and maj_dc_dir != -1
+    maj_dc_dir := -1
+
+var int os = 0
+float choch_upper = ta.highest(math.max(cndl_maj_swing, 2))
+float choch_lower = ta.lowest(math.max(cndl_maj_swing,  2))
+os := high[math.max(cndl_maj_swing, 2)] > choch_upper ? 0 : low[math.max(cndl_maj_swing, 2)] < choch_lower ? 1 : nz(os[1])
+float c_top_choch = os == 0 and nz(os[1]) != 0 ? high[math.max(cndl_maj_swing, 2)] : na
+float c_btm_choch = os == 1 and nz(os[1]) != 1 ? low[math.max(cndl_maj_swing,  2)] : na
+
+var float t_val = na, var float b_val = na
+var int t_count = 1,  var int b_count = 1
+if not na(c_top_choch)
+    t_val := c_top_choch, t_count := 1
+if not na(c_btm_choch)
+    b_val := c_btm_choch, b_count := 1
+
+bool bull_choch = ta.crossover(close,  t_val) and t_count == 1
+bool bear_choch = ta.crossunder(close, b_val) and b_count == 1
+var int choch_dir = 0
+if bull_choch and choch_dir != 1
+    t_count := 0, choch_dir := 1
+if bear_choch and choch_dir != -1
+    b_count := 0, choch_dir := -1
+
+if cndl_maj_type == "EMA"
+    major_dir := maj_ema1 > maj_ema2 ? 1 : -1
+else if cndl_maj_type == "SuperTrend"
+    major_dir := int(math.sign(st_dir))
+else if cndl_maj_type == "Donchian Channel"
+    major_dir := maj_dc_dir
+else
+    major_dir := choch_dir
+
+bool  rc        = close < open
+bool  gc        = close > open
+float cand_top  = math.max(open, close)
+float cand_bot  = math.min(open, close)
+float hl_width  = high - low
+float bod_width = cand_top - cand_bot
+float hw_per    = hl_width == 0 ? 0 : ((high - cand_top) / hl_width) * 100
+float lw_per    = hl_width == 0 ? 0 : ((cand_bot - low)  / hl_width) * 100
+float b_per     = hl_width == 0 ? 0 : (bod_width / hl_width) * 100
+bool  is_doji   = math.round_to_mintick(close) == math.round_to_mintick(open)
+
+bool is_minor_bear = minor_dir < 0
+bool is_minor_bull = minor_dir > 0
+
+bool p_hammer   = lw_per > (b_per*2) and b_per < 50 and hw_per < 2 and not is_doji and is_minor_bear
+bool p_ihammer  = hw_per > (b_per*2) and b_per < 50 and lw_per < 2 and not is_doji and is_minor_bear
+bool p_rising_3 = gc[4] and b_per[4] > 50 and rc[3] and cand_top[3] <= high[4] and cand_bot[3] >= low[4] and rc[2] and cand_top[2] <= high[4] and cand_bot[2] >= low[4] and rc[1] and cand_top[1] <= high[4] and cand_bot[1] >= low[4] and gc and close > high[4] and b_per > 50 and is_minor_bull[4]
+bool p_bull_eng = rc[1] and gc and bod_width > (bod_width[1]/2) and open < close[1] and cand_top > cand_top[1] and not p_rising_3 and not is_doji[1] and is_minor_bear
+bool p_3ws      = gc[2] and b_per[2]>70 and gc[1] and b_per[1]>70 and cand_bot[1] >= cand_bot[2] and cand_bot[1] <= cand_top[2] and close[1] > high[2] and gc and b_per>70 and cand_bot >= cand_bot[1] and cand_bot <= cand_top[1] and close > high[1] and is_minor_bear[2]
+bool p_mstar    = rc[2] and b_per[2] > 80 and rc[1] and bod_width[1] < (bod_width[2]/2) and open[1] < close[2] and gc and close > hl2[2] and is_minor_bear[2]
+bool p_bull_har = gc and high <= cand_top[1] and low >= cand_bot[1] and rc[1] and is_minor_bear[1]
+bool p_tw_bot   = math.round_to_mintick(low) == math.round_to_mintick(low[1]) and gc and rc[1] and is_minor_bear[1]
+
+bool p_sstar    = hw_per > (b_per*2) and b_per < 50 and lw_per < 2 and not is_doji and is_minor_bull
+bool p_hman     = lw_per > (b_per*2) and b_per < 50 and hw_per < 2 and not is_doji and is_minor_bull
+bool p_falling_3= rc[4] and b_per[4] > 50 and gc[3] and cand_top[3] <= high[4] and cand_bot[3] >= low[4] and gc[2] and cand_top[2] <= high[4] and cand_bot[2] >= low[4] and gc[1] and cand_top[1] <= high[4] and cand_bot[1] >= low[4] and rc and close < low[4] and b_per > 50 and is_minor_bear[4]
+bool p_bear_eng = gc[1] and rc and bod_width > (bod_width[1]/2) and open > close[1] and cand_bot < cand_bot[1] and not p_falling_3 and not is_doji[1] and is_minor_bull
+bool p_3bc      = rc[2] and b_per[2]>70 and rc[1] and b_per[1]>70 and cand_top[1] <= cand_top[2] and cand_top[1] >= cand_bot[2] and close[1] < low[2] and rc and b_per>70 and cand_top <= cand_top[1] and cand_top >= cand_bot[1] and close < low[1] and is_minor_bull[2]
+bool p_estar    = gc[2] and b_per[2] > 80 and gc[1] and bod_width[1] < (bod_width[2]/2) and open[1] > close[2] and rc and close < hl2[2] and is_minor_bull[2]
+bool p_bear_har = rc and high <= cand_top[1] and low >= cand_bot[1] and gc[1] and is_minor_bull[1]
+bool p_tw_top   = math.round_to_mintick(high) == math.round_to_mintick(high[1]) and rc and gc[1] and is_minor_bull[1]
+
+bool is_major_bull = not en_cndl_trend or major_dir > 0
+bool is_major_bear = not en_cndl_trend or major_dir < 0
+
+bool   cndl_bull = false, bool cndl_bear = false, bool is_neutral = false
+string cndl_name = ""
+
+if en_mod_cndl
+    if en_hammer   and p_hammer   and is_major_bull
+        cndl_bull := true, cndl_name := "Молот"
+    else if en_ihammer  and p_ihammer  and is_major_bull
+        cndl_bull := true, cndl_name := "Пер. Молот"
+    else if en_bull_eng and p_bull_eng and is_major_bull
+        cndl_bull := true, cndl_name := "Быч. Поглощение"
+    else if en_r3       and p_rising_3 and is_major_bull
+        cndl_bull := true, cndl_name := "Метод 3 Подн."
+    else if en_3ws      and p_3ws      and is_major_bull
+        cndl_bull := true, cndl_name := "3 Белых Солдата"
+    else if en_mstar    and p_mstar    and is_major_bull
+        cndl_bull := true, cndl_name := "Утренняя Звезда"
+    else if en_bull_har and p_bull_har and is_major_bull
+        cndl_bull := true, cndl_name := "Бычье Харами"
+    else if en_tw_bot   and p_tw_bot   and is_major_bull
+        cndl_bull := true, cndl_name := "Пинцет Дно"
+
+    if en_sstar    and p_sstar    and is_major_bear
+        cndl_bear := true, cndl_name := "Падающая Звезда"
+    else if en_hman     and p_hman     and is_major_bear
+        cndl_bear := true, cndl_name := "Повешенный"
+    else if en_bear_eng and p_bear_eng and is_major_bear
+        cndl_bear := true, cndl_name := "Медв. Поглощение"
+    else if en_f3       and p_falling_3 and is_major_bear
+        cndl_bear := true, cndl_name := "Метод 3 Пад."
+    else if en_3bc      and p_3bc      and is_major_bear
+        cndl_bear := true, cndl_name := "3 Черные Вороны"
+    else if en_estar    and p_estar    and is_major_bear
+        cndl_bear := true, cndl_name := "Вечерняя Звезда"
+    else if en_bear_har and p_bear_har and is_major_bear
+        cndl_bear := true, cndl_name := "Медв. Харами"
+    else if en_tw_top   and p_tw_top   and is_major_bear
+        cndl_bear := true, cndl_name := "Пинцет Вершина"
+
+    if en_doji and is_doji and not cndl_bull and not cndl_bear
+        is_neutral := true, cndl_name := "Doji (Нейтраль)"
+
+plotshape(en_mod_cndl and cndl_show_lbl and cndl_bull, title="Бычий паттерн",    style=shape.triangleup,   location=location.belowbar, color=cndl_bull_col, text="", size=size.tiny)
+if en_mod_cndl and cndl_show_lbl and cndl_bull
+    label.new(bar_index, low  - g_cndl_atr*0.2, text=cndl_name, style=label.style_label_up,   color=color.new(color.white, 100), textcolor=cndl_bull_col, size=get_size(cndl_lbl_size))
+
+plotshape(en_mod_cndl and cndl_show_lbl and cndl_bear, title="Медвежий паттерн", style=shape.triangledown, location=location.abovebar, color=cndl_bear_col, text="", size=size.tiny)
+if en_mod_cndl and cndl_show_lbl and cndl_bear
+    label.new(bar_index, high + g_cndl_atr*0.2, text=cndl_name, style=label.style_label_down, color=color.new(color.white, 100), textcolor=cndl_bear_col, size=get_size(cndl_lbl_size))
+
+plotshape(en_mod_cndl and cndl_show_lbl and is_neutral, title="Нейтральный паттерн", style=shape.xcross, location=location.abovebar, color=cndl_neut_col, text="", size=size.tiny)
+if en_mod_cndl and cndl_show_lbl and is_neutral
+    label.new(bar_index, high + g_cndl_atr*0.2, text=cndl_name, style=label.style_label_down, color=color.new(color.white, 100), textcolor=cndl_neut_col, size=get_size(cndl_lbl_size))
+
+barcolor(en_mod_cndl and cndl_bar_col ? (cndl_bull ? cndl_bull_col : cndl_bear ? cndl_bear_col : is_neutral ? cndl_neut_col : na) : na)
+
+// ====================================================================================================================
+// СТРУКТУРА P1 И БАЗОВАЯ ЛОГИКА (+ ИНТЕГРАЦИЯ TRUE OTE)
+// ====================================================================================================================
+bool b_smc_bull = smc_conn ? p1_smc_trend ==  1 : false, bool b_smc_bear = smc_conn ? p1_smc_trend == -1 : false
+bool b_ob_bull  = ob_conn  ? p1_ob_signal ==  1 : false, bool b_ob_bear  = ob_conn  ? p1_ob_signal == -1 : false
+bool b_sd_bull  = sd_conn  ? p1_sd_zone   ==  1 : false, bool b_sd_bear  = sd_conn  ? p1_sd_zone   == -1 : false
+bool b_fvg_bull = fvg_conn ? p1_fvg_dir   ==  1 : false, bool b_fvg_bear = fvg_conn ? p1_fvg_dir   == -1 : false
+bool b_bos_bull = bos_conn ? (bars_since_bos <= bos_bars_ok and p1_smc_trend ==  1) : false
+bool b_bos_bear = bos_conn ? (bars_since_bos <= bos_bars_ok and p1_smc_trend == -1) : false
+
+bool b_bb_bull    = p1_bb_signal    ==  1, bool b_bb_bear    = p1_bb_signal    == -1
+bool b_hm_bull    = p1_hm_signal    ==  1, bool b_hm_bear    = p1_hm_signal    == -1
+bool b_sdinv_bull = p1_sdinv_signal ==  1, bool b_sdinv_bear = p1_sdinv_signal == -1
+bool b_sweep_bull = p1_sweep_signal ==  1, bool b_sweep_bear = p1_sweep_signal == -1
+bool b_choch_bull = p1_choch_signal ==  1, bool b_choch_bear = p1_choch_signal == -1
+bool b_bostrg_bull= p1_bos_trig     ==  1, bool b_bostrg_bear= p1_bos_trig     == -1
+
+bool b_ob_fresh_bull   = p1_ob_touch == 1
+bool b_ob_fresh_bear   = p1_ob_touch == -1
+
+bool b_fvg_precise_bull = fvg_top_conn and fvg_bot_conn and close <= p1_fvg_top and close >= p1_fvg_bot and p1_fvg_dir ==  1
+bool b_fvg_precise_bear = fvg_top_conn and fvg_bot_conn and close <= p1_fvg_top and close >= p1_fvg_bot and p1_fvg_dir == -1
+
+bool b_hm_vol_bull = hm_vol_conn and p1_hm_vol > ta.sma(volume, 50) * 1.5
+bool b_hm_vol_bear = hm_vol_conn and p1_hm_vol > ta.sma(volume, 50) * 1.5
+
+bool b_avwap_bull = avwap_conn and close > p1_avwap
+bool b_avwap_bear = avwap_conn and close < p1_avwap
+
+bool b_disp_bull = disp_conn and p1_disp ==  1
+bool b_disp_bear = disp_conn and p1_disp == -1
+
+bool avwap_cross_bull = avwap_conn and ta.crossover(close,  p1_avwap)
+bool avwap_cross_bear = avwap_conn and ta.crossunder(close, p1_avwap)
+
+// --- ИНТЕГРАЦИЯ TRUE OTE (FIBONACCI) ---
+var float recent_swing_h = na, var float recent_swing_l = na
+if is_conn(p1_choch_src) and (p1_choch_src != 0 or p1_bos_src != 0)
+    recent_swing_h := high
+    recent_swing_l := low
+else
+    recent_swing_h := math.max(nz(recent_swing_h, high), high)
+    recent_swing_l := math.min(nz(recent_swing_l, low),  low)
+
+float impulse_range  = recent_swing_h - recent_swing_l
+float ote_long_top   = recent_swing_h - (impulse_range * 0.618)
+float ote_long_bot   = recent_swing_h - (impulse_range * 0.786)
+float disc_long_top  = recent_swing_h - (impulse_range * 0.5)
+
+float ote_short_bot  = recent_swing_l + (impulse_range * 0.618)
+float ote_short_top  = recent_swing_l + (impulse_range * 0.786)
+float prem_short_bot = recent_swing_l + (impulse_range * 0.5)
+
+int ote_score_bull = close <= ote_long_top  and close >= ote_long_bot  ? 2 : close < disc_long_top  ? 1 : 0
+int ote_score_bear = close >= ote_short_bot and close <= ote_short_top ? 2 : close > prem_short_bot ? 1 : 0
+
+bool b_pd_bull = pd_conn ? (ote_score_bull >= 1) : false
+bool b_pd_bear = pd_conn ? (ote_score_bear >= 1) : false
+
+// ====================================================================================================================
+// СЕКЦИЯ 9: КОМПЛЕКСНЫЕ ХАРДКОДНЫЕ ПАТТЕРНЫ (ЛОГИКА SniperR)
+// ====================================================================================================================
+
+// --- Счётчики для C1 ---
+int c1_mom_bull = (osc_kde_bull ? 1 : 0) + (osc_macd_dlx_bull ? 1 : 0) + (osc_cci_bull ? 1 : 0) + (osc_stoch_bull ? 1 : 0)
+int c1_vol_bull = (sm_idx_bull  ? 1 : 0) + (sm_int_bull  ? 1 : 0) + (osc_mdiv_bull ? 1 : 0) + (sm_act_bull ? 1 : 0)
+int c1_mom_bear = (osc_kde_bear ? 1 : 0) + (osc_macd_dlx_bear ? 1 : 0) + (osc_cci_bear ? 1 : 0) + (osc_stoch_bear ? 1 : 0)
+int c1_vol_bear = (sm_idx_bear  ? 1 : 0) + (sm_int_bear  ? 1 : 0) + (osc_mdiv_bear ? 1 : 0) + (sm_act_bear ? 1 : 0)
+
+// ====================================================================================================================
+// 9.1 РАЗВОРОТЫ
+// ====================================================================================================================
+
+// A1: Каскадный разворот
+bool pat_A1_bull = en_hc_a1
+     and b_smc_bull
+     and bars_since_choch_bull <= 3
+     and b_fvg_precise_bull
+     and bars_since_hm_bull <= 5
+     and (b_sd_bull or b_ob_bull)
+     and (sm_act_bull or sm_idx_bull)
+
+bool pat_A1_bear = en_hc_a1
+     and b_smc_bear
+     and bars_since_choch_bear <= 3
+     and b_fvg_precise_bear
+     and bars_since_hm_bear <= 5
+     and (b_sd_bear or b_ob_bear)
+     and (sm_act_bear or sm_idx_bear)
+
+// A3: Точка PD-арбитража
+bool pat_A3_bull = en_hc_a3
+     and ote_score_bull == 2
+     and b_fvg_precise_bull
+     and b_sd_bull
+     and osc_smt_bull
+     and (sm_int_bull or sm_idx_bull)
+
+bool pat_A3_bear = en_hc_a3
+     and ote_score_bear == 2
+     and b_fvg_precise_bear
+     and b_sd_bear
+     and osc_smt_bear
+     and (sm_int_bear or sm_idx_bear)
+
+// C1: Тройное дивергентное давление
+bool pat_C1_bull = en_hc_c1
+     and (c1_mom_bull >= 2)
+     and (c1_vol_bull >= 2)
+     and (osc_smt_bull or osc_tfdiv_bull)
+     and (b_ob_bull or b_fvg_bull or b_sd_bull or ote_score_bull >= 1)
+
+bool pat_C1_bear = en_hc_c1
+     and (c1_mom_bear >= 2)
+     and (c1_vol_bear >= 2)
+     and (osc_smt_bear or osc_tfdiv_bear)
+     and (b_ob_bear or b_fvg_bear or b_sd_bear or ote_score_bear >= 1)
+
+// C3: Фрактальная конвергенция
+bool pat_C3_bull = en_hc_c3
+     and osc_tfdiv_bull
+     and osc_peter_bull
+     and osc_mdiv_bull
+     and cndl_bull
+     and (sm_act_bull or sm_int_bull)
+
+bool pat_C3_bear = en_hc_c3
+     and osc_tfdiv_bear
+     and osc_peter_bear
+     and osc_mdiv_bear
+     and cndl_bear
+     and (sm_act_bear or sm_int_bear)
+
+// G3: Контртрендовый снайпер
+bool pat_G3_bull = en_hc_g3
+     and b_smc_bear
+     and ote_score_bull == 2
+     and bars_since_hm_bull <= 5
+     and (total_mdiv_bull >= 4)
+     and sm_idx_bull
+     and osc_smt_bull
+     and cndl_bull
+
+bool pat_G3_bear = en_hc_g3
+     and b_smc_bull
+     and ote_score_bear == 2
+     and bars_since_hm_bear <= 5
+     and (total_mdiv_bear >= 4)
+     and sm_idx_bear
+     and osc_smt_bear
+     and cndl_bear
+
+// Ж1: Исторический кластер RSI
+bool pat_ZH1_bull = en_hc_zh1
+     and osc_kde_bull
+     and sm_int_bull
+     and b_fvg_precise_bull
+     and (b_ob_bull or b_sd_bull)
+     and (osc_mdiv_bull or osc_peter_bull)
+
+bool pat_ZH1_bear = en_hc_zh1
+     and osc_kde_bear
+     and sm_int_bear
+     and b_fvg_precise_bear
+     and (b_ob_bear or b_sd_bear)
+     and (osc_mdiv_bear or osc_peter_bear)
+
+// Ж4: Снайперский OTE-вход
+bool pat_ZH4_bull = en_hc_zh4
+     and ote_score_bull == 2
+     and b_avwap_bull
+     and b_fvg_precise_bull
+     and osc_smt_bull
+     and (sm_int_bull or sm_idx_bull)
+
+bool pat_ZH4_bear = en_hc_zh4
+     and ote_score_bear == 2
+     and b_avwap_bear
+     and b_fvg_precise_bear
+     and osc_smt_bear
+     and (sm_int_bear or sm_idx_bear)
+
+// ====================================================================================================================
+// 9.2 ПРОДОЛЖЕНИЕ ТРЕНДА
+// ====================================================================================================================
+
+// B2: Живой объёмный дисбаланс
+bool pat_B2_bull = en_hc_b2
+     and b_smc_bull
+     and (b_fvg_bull or b_fvg_precise_bull)
+     and sm_act_bull
+     and sm_idx_bull
+     and b_disp_bull
+
+bool pat_B2_bear = en_hc_b2
+     and b_smc_bear
+     and (b_fvg_bear or b_fvg_precise_bear)
+     and sm_act_bear
+     and sm_idx_bear
+     and b_disp_bear
+
+// C2: Скрытая дивергенция в тренде
+bool pat_C2_bull = en_hc_c2
+     and b_smc_bull
+     and ma_trend_bull
+     and osc_peter_bull
+     and (b_ob_bull or b_fvg_precise_bull)
+     and sm_int_bull
+     and not sm_act_bear
+
+bool pat_C2_bear = en_hc_c2
+     and b_smc_bear
+     and ma_trend_bear
+     and osc_peter_bear
+     and (b_ob_bear or b_fvg_precise_bear)
+     and sm_int_bear
+     and not sm_act_bull
+
+// D1: Контекст старшего — вход по событию
+bool pat_D1_bull = en_hc_d1
+     and b_smc_bull
+     and (bars_since_sweep_bull <= 3 or bars_since_choch_bull <= 3)
+     and (osc_kde_bull or osc_stoch_bull or osc_macd_dlx_bull)
+     and (b_ob_bull or b_fvg_bull or b_sd_bull)
+     and (sm_act_bull or sm_idx_bull)
+
+bool pat_D1_bear = en_hc_d1
+     and b_smc_bear
+     and (bars_since_sweep_bear <= 3 or bars_since_choch_bear <= 3)
+     and (osc_kde_bear or osc_stoch_bear or osc_macd_dlx_bear)
+     and (b_ob_bear or b_fvg_bear or b_sd_bear)
+     and (sm_act_bear or sm_idx_bear)
+
+// D2: Тихий откат в тренде
+bool pat_D2_bull = en_hc_d2
+     and b_smc_bull
+     and not sm_act_bear
+     and (b_ob_bull or b_sd_bull or b_ob_fresh_bull)
+     and sm_idx_bull
+     and sm_int_bull
+
+bool pat_D2_bear = en_hc_d2
+     and b_smc_bear
+     and not sm_act_bull
+     and (b_ob_bear or b_sd_bear or b_ob_fresh_bear)
+     and sm_idx_bear
+     and sm_int_bear
+
+// G2: Взрыв из консолидации
+bool pat_G2_bull = en_hc_g2
+     and (regime_compression[1] or regime_ranging[1])
+     and b_sdinv_bull
+     and sm_act_bull
+     and b_disp_bull
+     and (b_smc_bull or osc_kde_bull or ma_trend_bull)
+
+bool pat_G2_bear = en_hc_g2
+     and (regime_compression[1] or regime_ranging[1])
+     and b_sdinv_bear
+     and sm_act_bear
+     and b_disp_bear
+     and (b_smc_bear or osc_kde_bear or ma_trend_bear)
+
+// Ж2: Структурный объёмный всплеск
+bool pat_ZH2_bull = en_hc_zh2
+     and b_bostrg_bull
+     and sm_act_bull
+     and b_smc_bull
+     and (sm_idx_bull or sm_int_bull)
+
+bool pat_ZH2_bear = en_hc_zh2
+     and b_bostrg_bear
+     and sm_act_bear
+     and b_smc_bear
+     and (sm_idx_bear or sm_int_bear)
+
+// Ж6: Взрыв компрессии
+bool pat_ZH6_bull = en_hc_zh6
+     and regime_compression
+     and b_sdinv_bull
+     and sm_act_bull
+     and b_disp_bull
+     and (b_smc_bull or ma_trend_bull)
+
+bool pat_ZH6_bear = en_hc_zh6
+     and regime_compression
+     and b_sdinv_bear
+     and sm_act_bear
+     and b_disp_bear
+     and (b_smc_bear or ma_trend_bear)
+
+// Ж7: Возврат через AVWAP
+bool pat_ZH7_bull = en_hc_zh7
+     and avwap_cross_bull
+     and b_smc_bull
+     and b_ob_fresh_bull
+     and sm_int_bull
+     and (osc_kde_bull or osc_macd_dlx_bull or sm_act_bull)
+
+bool pat_ZH7_bear = en_hc_zh7
+     and avwap_cross_bear
+     and b_smc_bear
+     and b_ob_fresh_bear
+     and sm_int_bear
+     and (osc_kde_bear or osc_macd_dlx_bear or sm_act_bear)
+
+// ====================================================================================================================
+// 9.3 ЛОВУШКИ И СВИПЫ
+// ====================================================================================================================
+
+// A2: Ложный структурный пробой
+bool pat_A2_bull = en_hc_a2
+     and b_bostrg_bear
+     and not sm_act_bear
+     and bars_since_hm_bear <= 3
+     and (osc_stoch_bull or osc_kde_bull)
+     and osc_cci_bull
+     and (b_sd_bull or b_ob_bull or b_fvg_precise_bull)
+
+bool pat_A2_bear = en_hc_a2
+     and b_bostrg_bull
+     and not sm_act_bull
+     and bars_since_hm_bull <= 3
+     and (osc_stoch_bear or osc_kde_bear)
+     and osc_cci_bear
+     and (b_sd_bear or b_ob_bear or b_fvg_precise_bear)
+
+// B3: Дельта-ловушка
+bool pat_B3_bull = en_hc_b3
+     and sm_idx_bull
+     and sm_int_bear
+     and bars_since_hm_bull <= 5
+     and (b_choch_bull or bars_since_choch_bull <= 5)
+     and (osc_mdiv_bull and osc_peter_bull)
+     and (osc_tfdiv_bull or osc_smt_bull)
+
+bool pat_B3_bear = en_hc_b3
+     and sm_idx_bear
+     and sm_int_bull
+     and bars_since_hm_bear <= 5
+     and (b_choch_bear or bars_since_choch_bear <= 5)
+     and (osc_mdiv_bear and osc_peter_bear)
+     and (osc_tfdiv_bear or osc_smt_bear)
+
+// E1: Ловушка в зоне спроса / предложения
+bool pat_E1_bull = en_hc_e1
+     and b_sd_bull
+     and b_sdinv_bear
+     and sm_act_bull
+     and not sm_act_bear
+     and (osc_mdiv_bull and osc_peter_bull)
+     and (osc_tfdiv_bull or osc_smt_bull)
+
+bool pat_E1_bear = en_hc_e1
+     and b_sd_bear
+     and b_sdinv_bull
+     and sm_act_bear
+     and not sm_act_bull
+     and (osc_mdiv_bear and osc_peter_bear)
+     and (osc_tfdiv_bear or osc_smt_bear)
+
+// G1: Вход после снятия ликвидности
+bool pat_G1_bull = en_hc_g1
+     and bars_since_sweep_bull <= 3
+     and (b_choch_bull or bars_since_choch_bull <= 5)
+     and sm_act_bull
+     and (b_ob_bull or b_fvg_precise_bull or b_sd_bull)
+     and (osc_kde_bull or osc_stoch_bull or osc_macd_dlx_bull)
+
+bool pat_G1_bear = en_hc_g1
+     and bars_since_sweep_bear <= 3
+     and (b_choch_bear or bars_since_choch_bear <= 5)
+     and sm_act_bear
+     and (b_ob_bear or b_fvg_precise_bear or b_sd_bear)
+     and (osc_kde_bear or osc_stoch_bear or osc_macd_dlx_bear)
+
+// Ж3: Межрыночный корреляционный сбой
+bool pat_ZH3_bull = en_hc_zh3
+     and osc_smt_bull
+     and bars_since_hm_bull <= 5
+     and (sm_int_bull or sm_idx_bull)
+     and (b_ob_bull or b_sd_bull or b_fvg_precise_bull)
+
+bool pat_ZH3_bear = en_hc_zh3
+     and osc_smt_bear
+     and bars_since_hm_bear <= 5
+     and (sm_int_bear or sm_idx_bear)
+     and (b_ob_bear or b_sd_bear or b_fvg_precise_bear)
+
+// Ж5: CVD-поглощение
+bool pat_ZH5_bull = en_hc_zh5
+     and sm_absorption
+     and cvd_bull_div
+     and b_sd_bull
+     and cndl_bull
+     and (osc_kde_bull or osc_stoch_bull)
+
+bool pat_ZH5_bear = en_hc_zh5
+     and sm_absorption
+     and cvd_bear_div
+     and b_sd_bear
+     and cndl_bear
+     and (osc_kde_bear or osc_stoch_bear)
+
+// ====================================================================================================================
+// 9.4 ПРЕДУПРЕЖДЕНИЯ И БЛОКИРОВЩИКИ
+// ====================================================================================================================
+
+// F1: Смена режима рынка
+bool warn_F1_shift_bull = en_hc_f1 and regime_ranging[1] and regime_trending and b_bos_bull and sm_act_bull
+bool warn_F1_shift_bear = en_hc_f1 and regime_ranging[1] and regime_trending and b_bos_bear and sm_act_bear
+
+// B1: Тихое накопление / распределение
+bool pat_B1_bull = en_hc_b1
+     and sm_int_bull
+     and not sm_idx_bull
+     and sm_act_bull
+     and (b_sd_bull or b_ob_bull)
+     and osc_kde_bull
+     and regime_ranging
+
+bool pat_B1_bear = en_hc_b1
+     and sm_int_bear
+     and not sm_idx_bear
+     and sm_act_bear
+     and (b_sd_bear or b_ob_bear)
+     and osc_kde_bear
+     and regime_ranging
+
+// E2: Истощение тренда
+bool warn_E2_bull_exhaustion = en_hc_e2 and b_smc_bull and sm_int_bear and b_hm_bear and b_bb_bear
+bool warn_E2_bear_exhaustion = en_hc_e2 and b_smc_bear and sm_int_bull and b_hm_bull and b_bb_bull
+
+// E3: Блокировщик ложного CHoCH
+bool block_E3_choch_bull = en_hc_e3 and b_choch_bull and not sm_act_bull and not b_hm_bull and not (osc_mdiv_bull or osc_peter_bull or osc_tfdiv_bull) and not b_sd_bull
+bool block_E3_choch_bear = en_hc_e3 and b_choch_bear and not sm_act_bear and not b_hm_bear and not (osc_mdiv_bear or osc_peter_bear or osc_tfdiv_bear) and not b_sd_bear
+
+// ====================================================================================================================
+// ПРИОРИТЕТНЫЙ ВЫБОР АКТИВНОГО ПАТТЕРНА
+// ====================================================================================================================
+string active_hc_bull_name = ""
+if pat_A1_bull
+    active_hc_bull_name := "Каскадный разворот"
+else if pat_A3_bull
+    active_hc_bull_name := "Точка PD-арбитража"
+else if pat_C1_bull
+    active_hc_bull_name := "Тройное дивергентное давление"
+else if pat_C3_bull
+    active_hc_bull_name := "Фрактальная конвергенция"
+else if pat_G3_bull
+    active_hc_bull_name := "Контртрендовый снайпер"
+else if pat_ZH1_bull
+    active_hc_bull_name := "Исторический кластер RSI"
+else if pat_ZH4_bull
+    active_hc_bull_name := "Снайперский OTE-вход"
+else if pat_B2_bull
+    active_hc_bull_name := "Живой объёмный дисбаланс"
+else if pat_C2_bull
+    active_hc_bull_name := "Скрытая дивергенция в тренде"
+else if pat_D1_bull
+    active_hc_bull_name := "Контекст старшего — вход по событию"
+else if pat_D2_bull
+    active_hc_bull_name := "Тихий откат в тренде"
+else if pat_G2_bull
+    active_hc_bull_name := "Взрыв из консолидации"
+else if pat_ZH2_bull
+    active_hc_bull_name := "Структурный объёмный всплеск"
+else if pat_ZH6_bull
+    active_hc_bull_name := "Взрыв компрессии"
+else if pat_ZH7_bull
+    active_hc_bull_name := "Возврат через AVWAP"
+else if pat_A2_bull
+    active_hc_bull_name := "Ложный структурный пробой"
+else if pat_B3_bull
+    active_hc_bull_name := "Дельта-ловушка"
+else if pat_E1_bull
+    active_hc_bull_name := "Ловушка в зоне спроса"
+else if pat_G1_bull
+    active_hc_bull_name := "Вход после снятия ликвидности"
+else if pat_ZH3_bull
+    active_hc_bull_name := "Межрыночный корреляционный сбой"
+else if pat_ZH5_bull
+    active_hc_bull_name := "CVD-поглощение"
+else if pat_B1_bull
+    active_hc_bull_name := "Тихое накопление"
+
+string active_hc_bear_name = ""
+if pat_A1_bear
+    active_hc_bear_name := "Каскадный разворот"
+else if pat_A3_bear
+    active_hc_bear_name := "Точка PD-арбитража"
+else if pat_C1_bear
+    active_hc_bear_name := "Тройное дивергентное давление"
+else if pat_C3_bear
+    active_hc_bear_name := "Фрактальная конвергенция"
+else if pat_G3_bear
+    active_hc_bear_name := "Контртрендовый снайпер"
+else if pat_ZH1_bear
+    active_hc_bear_name := "Исторический кластер RSI"
+else if pat_ZH4_bear
+    active_hc_bear_name := "Снайперский OTE-вход"
+else if pat_B2_bear
+    active_hc_bear_name := "Живой объёмный дисбаланс"
+else if pat_C2_bear
+    active_hc_bear_name := "Скрытая дивергенция в тренде"
+else if pat_D1_bear
+    active_hc_bear_name := "Контекст старшего — вход по событию"
+else if pat_D2_bear
+    active_hc_bear_name := "Тихий откат в тренде"
+else if pat_G2_bear
+    active_hc_bear_name := "Взрыв из консолидации"
+else if pat_ZH2_bear
+    active_hc_bear_name := "Структурный объёмный всплеск"
+else if pat_ZH6_bear
+    active_hc_bear_name := "Взрыв компрессии"
+else if pat_ZH7_bear
+    active_hc_bear_name := "Возврат через AVWAP"
+else if pat_A2_bear
+    active_hc_bear_name := "Ложный структурный пробой"
+else if pat_B3_bear
+    active_hc_bear_name := "Дельта-ловушка"
+else if pat_E1_bear
+    active_hc_bear_name := "Ловушка в зоне предложения"
+else if pat_G1_bear
+    active_hc_bear_name := "Вход после снятия ликвидности"
+else if pat_ZH3_bear
+    active_hc_bear_name := "Межрыночный корреляционный сбой"
+else if pat_ZH5_bear
+    active_hc_bear_name := "CVD-поглощение"
+else if pat_B1_bear
+    active_hc_bear_name := "Тихое распределение"
+
+bool hc_buy_trigger  = en_debug_mode ? debug_force_bull : (active_hc_bull_name != "")
+bool hc_sell_trigger = en_debug_mode ? debug_force_bear : (active_hc_bear_name != "")
+
+// ====================================================================================================================
+// 10. АЛГОРИТМ СКОРИНГА (ДИНАМИЧЕСКИЙ ВЕС + СТРОГИЕ ФИЛЬТРЫ)
+// ====================================================================================================================
+int  buy_score  = 0, int  sell_score  = 0
+bool buy_valid  = true, bool sell_valid = true
+
+if s_rsi_kde
+    buy_score  += osc_kde_bull ? 1 : 0
+    sell_score += osc_kde_bear ? 1 : 0
+if m_rsi_kde
+    buy_valid  := buy_valid  and osc_kde_bull
+    sell_valid := sell_valid and osc_kde_bear
+
+if s_stoch
+    buy_score  += osc_stoch_bull ? 1 : 0
+    sell_score += osc_stoch_bear ? 1 : 0
+if m_stoch
+    buy_valid  := buy_valid  and osc_stoch_bull
+    sell_valid := sell_valid and osc_stoch_bear
+
+if s_macd_dlx
+    buy_score  += osc_macd_dlx_bull ? 1 : 0
+    sell_score += osc_macd_dlx_bear ? 1 : 0
+if m_macd_dlx
+    buy_valid  := buy_valid  and osc_macd_dlx_bull
+    sell_valid := sell_valid and osc_macd_dlx_bear
+
+if s_cci
+    buy_score  += osc_cci_bull ? 1 : 0
+    sell_score += osc_cci_bear ? 1 : 0
+if m_cci
+    buy_valid  := buy_valid  and osc_cci_bull
+    sell_valid := sell_valid and osc_cci_bear
+
+if s_mdiv
+    buy_score  += osc_mdiv_bull ? 1 : 0
+    sell_score += osc_mdiv_bear ? 1 : 0
+if m_mdiv
+    buy_valid  := buy_valid  and osc_mdiv_bull
+    sell_valid := sell_valid and osc_mdiv_bear
+
+if s_peter
+    buy_score  += osc_peter_bull ? 1 : 0
+    sell_score += osc_peter_bear ? 1 : 0
+if m_peter
+    buy_valid  := buy_valid  and osc_peter_bull
+    sell_valid := sell_valid and osc_peter_bear
+
+if s_tfdiv
+    buy_score  += osc_tfdiv_bull ? 1 : 0
+    sell_score += osc_tfdiv_bear ? 1 : 0
+if m_tfdiv
+    buy_valid  := buy_valid  and osc_tfdiv_bull
+    sell_valid := sell_valid and osc_tfdiv_bear
+
+if s_smt
+    buy_score  += osc_smt_bull ? 1 : 0
+    sell_score += osc_smt_bear ? 1 : 0
+if m_smt
+    buy_valid  := buy_valid  and osc_smt_bull
+    sell_valid := sell_valid and osc_smt_bear
+
+if s_sm_act
+    buy_score  += sm_act_bull ? 1 : 0
+    sell_score += sm_act_bear ? 1 : 0
+if m_sm_act
+    buy_valid  := buy_valid  and sm_act_bull
+    sell_valid := sell_valid and sm_act_bear
+
+if s_sm_idx
+    buy_score  += sm_idx_bull ? 1 : 0
+    sell_score += sm_idx_bear ? 1 : 0
+if m_sm_idx
+    buy_valid  := buy_valid  and sm_idx_bull
+    sell_valid := sell_valid and sm_idx_bear
+
+if s_sm_int
+    buy_score  += sm_int_bull ? 1 : 0
+    sell_score += sm_int_bear ? 1 : 0
+if m_sm_int
+    buy_valid  := buy_valid  and sm_int_bull
+    sell_valid := sell_valid and sm_int_bear
+
+if s_cndl
+    buy_score  += cndl_bull ? 1 : 0
+    sell_score += cndl_bear ? 1 : 0
+if m_cndl
+    buy_valid  := buy_valid  and cndl_bull
+    sell_valid := sell_valid and cndl_bear
+
+if s_ma_cross
+    buy_score  += x_ma_bull ? 1 : 0
+    sell_score += x_ma_bear ? 1 : 0
+if m_ma_cross
+    buy_valid  := buy_valid  and x_ma_bull
+    sell_valid := sell_valid and x_ma_bear
+
+if s_ma_trend
+    buy_score  += ma_trend_bull ? 1 : 0
+    sell_score += ma_trend_bear ? 1 : 0
+if m_ma_trend
+    buy_valid  := buy_valid  and ma_trend_bull
+    sell_valid := sell_valid and ma_trend_bear
+
+if s_smc
+    buy_score  += b_smc_bull ? 1 : 0
+    sell_score += b_smc_bear ? 1 : 0
+if m_smc
+    buy_valid  := buy_valid  and b_smc_bull
+    sell_valid := sell_valid and b_smc_bear
+
+if s_ob
+    buy_score  += b_ob_bull ? 1 : 0
+    sell_score += b_ob_bear ? 1 : 0
+if m_ob
+    buy_valid  := buy_valid  and b_ob_bull
+    sell_valid := sell_valid and b_ob_bear
+
+if s_sd
+    buy_score  += b_sd_bull ? 1 : 0
+    sell_score += b_sd_bear ? 1 : 0
+if m_sd
+    buy_valid  := buy_valid  and b_sd_bull
+    sell_valid := sell_valid and b_sd_bear
+
+if s_fvg
+    buy_score  += (b_fvg_bull or b_fvg_precise_bull) ? 1 : 0
+    sell_score += (b_fvg_bear or b_fvg_precise_bear) ? 1 : 0
+if m_fvg
+    buy_valid  := buy_valid  and (b_fvg_bull or b_fvg_precise_bull)
+    sell_valid := sell_valid and (b_fvg_bear or b_fvg_precise_bear)
+
+if s_bos
+    buy_score  += b_bos_bull ? 1 : 0
+    sell_score += b_bos_bear ? 1 : 0
+if m_bos
+    buy_valid  := buy_valid  and b_bos_bull
+    sell_valid := sell_valid and b_bos_bear
+
+if s_bb
+    buy_score  += b_bb_bull ? 1 : 0
+    sell_score += b_bb_bear ? 1 : 0
+if m_bb
+    buy_valid  := buy_valid  and b_bb_bull
+    sell_valid := sell_valid and b_bb_bear
+
+if s_hm
+    buy_score  += b_hm_bull ? 1 : 0
+    sell_score += b_hm_bear ? 1 : 0
+if m_hm
+    buy_valid  := buy_valid  and b_hm_bull
+    sell_valid := sell_valid and b_hm_bear
+
+if s_sdinv
+    buy_score  += b_sdinv_bull ? 1 : 0
+    sell_score += b_sdinv_bear ? 1 : 0
+if m_sdinv
+    buy_valid  := buy_valid  and b_sdinv_bull
+    sell_valid := sell_valid and b_sdinv_bear
+
+if s_sweep
+    buy_score  += b_sweep_bull ? 1 : 0
+    sell_score += b_sweep_bear ? 1 : 0
+if m_sweep
+    buy_valid  := buy_valid  and b_sweep_bull
+    sell_valid := sell_valid and b_sweep_bear
+
+if s_choch
+    buy_score  += b_choch_bull ? 1 : 0
+    sell_score += b_choch_bear ? 1 : 0
+if m_choch
+    buy_valid  := buy_valid  and b_choch_bull
+    sell_valid := sell_valid and b_choch_bear
+
+if s_pd
+    buy_score  += b_pd_bull ? 1 : 0
+    sell_score += b_pd_bear ? 1 : 0
+if m_pd
+    buy_valid  := buy_valid  and b_pd_bull
+    sell_valid := sell_valid and b_pd_bear
+
+if s_avwap
+    buy_score  += b_avwap_bull ? 1 : 0
+    sell_score += b_avwap_bear ? 1 : 0
+if m_avwap
+    buy_valid  := buy_valid  and b_avwap_bull
+    sell_valid := sell_valid and b_avwap_bear
+
+if s_disp
+    buy_score  += b_disp_bull ? 1 : 0
+    sell_score += b_disp_bear ? 1 : 0
+if m_disp
+    buy_valid  := buy_valid  and b_disp_bull
+    sell_valid := sell_valid and b_disp_bear
+
+if s_ob_frsh
+    buy_score  += b_ob_fresh_bull ? 1 : 0
+    sell_score += b_ob_fresh_bear ? 1 : 0
+if m_ob_frsh
+    buy_valid  := buy_valid  and b_ob_fresh_bull
+    sell_valid := sell_valid and b_ob_fresh_bear
+
+if en_regime and regime_trending
+    if (m_rsi_kde or m_stoch or m_macd_dlx)
+        buy_valid := true, sell_valid := true
+if en_regime and regime_ranging
+    if (m_bos or m_choch)
+        buy_valid := true, sell_valid := true
+
+// ====================================================================================================================
+// 11. ГЕНЕРАЦИЯ ФИНАЛЬНЫХ СИГНАЛОВ
+// ====================================================================================================================
+bool is_buy  = false
+bool is_sell = false
+
+var int bars_since_buy  = 999
+var int bars_since_sell = 999
+
+if not block_E3_choch_bull
+    if (hc_buy_trigger or (buy_score >= req_score and buy_valid))
+        if bars_since_buy >= sig_lookback
+            is_buy        := true
+            bars_since_buy := 0
+
+if not block_E3_choch_bear
+    if (hc_sell_trigger or (sell_score >= req_score and sell_valid))
+        if bars_since_sell >= sig_lookback
+            is_sell        := true
+            bars_since_sell := 0
+
+bars_since_buy  += is_buy  ? 0 : 1
+bars_since_sell += is_sell ? 0 : 1
+
+// ====================================================================================================================
+// 12. SL/TP РАСЧЁТ И ОТРИСОВКА
+// ====================================================================================================================
+var float trade_entry = na
+var float current_sl  = na
+var float tp1_level   = na, var float tp2_level = na, var float tp3_level = na
+var int   trade_dir   = 0
+var bool  tp1_hit     = false, var bool tp2_hit = false, var bool tp3_hit = false
+
+if is_buy
+    trade_entry := close
+    trade_dir   := 1
+    tp1_hit     := false, tp2_hit := false, tp3_hit := false
+    if bull_prox_conn and not na(p1_bull_prox)
+        current_sl := p1_bull_prox
+    else
+        current_sl := close * (1 - sl_perc / 100)
+    tp1_level := trade_entry + (trade_entry * (tp1_perc / 100))
+    tp2_level := trade_entry + (trade_entry * (tp2_perc / 100))
+    tp3_level := trade_entry + (trade_entry * (tp3_perc / 100))
+
+if is_sell
+    trade_entry := close
+    trade_dir   := -1
+    tp1_hit     := false, tp2_hit := false, tp3_hit := false
+    if bear_prox_conn and not na(p1_bear_prox)
+        current_sl := p1_bear_prox
+    else
+        current_sl := close * (1 + sl_perc / 100)
+    tp1_level := trade_entry - (trade_entry * (tp1_perc / 100))
+    tp2_level := trade_entry - (trade_entry * (tp2_perc / 100))
+    tp3_level := trade_entry - (trade_entry * (tp3_perc / 100))
+
+if trade_dir == 1
+    if low <= current_sl
+        trade_dir := 0
+    else
+        if high >= tp1_level and not tp1_hit
+            tp1_hit := true
+            if be_after_tp1
+                current_sl := trade_entry
+        if high >= tp2_level and not tp2_hit
+            tp2_hit := true
+        if high >= tp3_level and not tp3_hit
+            tp3_hit := true
+            trade_dir := 0
+
+if trade_dir == -1
+    if high >= current_sl
+        trade_dir := 0
+    else
+        if low <= tp1_level and not tp1_hit
+            tp1_hit := true
+            if be_after_tp1
+                current_sl := trade_entry
+        if low <= tp2_level and not tp2_hit
+            tp2_hit := true
+        if low <= tp3_level and not tp3_hit
+            tp3_hit := true
+            trade_dir := 0
+
+plot(en_sltp and trade_dir != 0 ? trade_entry : na, "Entry",     color.blue,                  style=plot.style_linebr)
+plot(en_sltp and trade_dir != 0 ? current_sl  : na, "Stop Loss", color.red,                   style=plot.style_linebr)
+plot(en_sltp and trade_dir != 0 and not tp1_hit ? tp1_level : na, "TP1", color.new(color.green, 50), style=plot.style_linebr)
+plot(en_sltp and trade_dir != 0 and not tp2_hit ? tp2_level : na, "TP2", color.new(color.green, 30), style=plot.style_linebr)
+plot(en_sltp and trade_dir != 0 and not tp3_hit ? tp3_level : na, "TP3", color.green,               style=plot.style_linebr)
+
+// ====================================================================================================================
+// 13. ВИЗУАЛИЗАЦИЯ — СИГНАЛЫ + ИНФОБЛОК (ФОРМАТ SniperR)
+// ====================================================================================================================
+f_get_align(str) =>
+    str == "Left" ? text.align_left : str == "Right" ? text.align_right : text.align_center
+
+if is_buy and en_sig_labels
+    label.new(bar_index, low - ta.atr(14), text="BUY", style=label.style_label_up, color=color.new(#089981, 0), textcolor=sig_text_col, size=get_size(sig_text_size))
+
+if is_sell and en_sig_labels
+    label.new(bar_index, high + ta.atr(14), text="SELL", style=label.style_label_down, color=color.new(#f23645, 0), textcolor=sig_text_col, size=get_size(sig_text_size))
+
+// ─── ИНФОБЛОК BUY ───────────────────────────────────────────────────────────
+if is_buy and en_info_block
+    string info = "🚀 " + active_hc_bull_name + "\n"
+    if active_hc_bull_name == ""
+        info := "🎯 СКОР: " + str.tostring(buy_score) + "/" + str.tostring(req_score) + "\n"
+    info += "─── Аргументы ──────────\n"
+
+    if pat_A1_bull
+        info += "✅ SMC тренд бычий\n"
+        info += "✅ CHoCH (" + str.tostring(bars_since_choch_bull) + " бар назад)\n"
+        info += "✅ FVG точный вход\n"
+        info += "✅ HeatMap снят (" + str.tostring(bars_since_hm_bull) + " бар)\n"
+        info += (b_sd_bull ? "✅ S&D Demand\n" : "✅ Order Block\n")
+        info += (sm_act_bull ? "✅ SM Activity всплеск\n" : "✅ SM Index быки\n")
+    else if pat_A3_bull
+        info += "✅ OTE 0.618–0.786\n"
+        info += "✅ FVG точный вход\n"
+        info += "✅ S&D Demand\n"
+        info += "✅ SMT дивергенция\n"
+        info += (sm_int_bull ? "✅ SM Interest\n" : "✅ SM Index быки\n")
+    else if pat_C1_bull
+        info += "✅ Моментум (" + str.tostring(c1_mom_bull) + "/4)\n"
+        info += "✅ Объём (" + str.tostring(c1_vol_bull) + "/4)\n"
+        info += (osc_smt_bull ? "✅ SMT дивергенция\n" : "✅ Фрактальная Div\n")
+        if b_ob_bull
+            info += "✅ Order Block\n"
+        else if b_fvg_bull
+            info += "✅ FVG Active\n"
+        else if b_sd_bull
+            info += "✅ S&D Demand\n"
+        else if ote_score_bull >= 1
+            info += "✅ Discount Zone\n"
+    else if pat_C3_bull
+        info += "✅ Фрактальная Div\n"
+        info += "✅ PeterO дивергенция\n"
+        info += "✅ Multi-Div (" + str.tostring(total_mdiv_bull) + ")\n"
+        info += "✅ Свечной паттерн: " + cndl_name + "\n"
+        info += (sm_act_bull ? "✅ SM Activity всплеск\n" : "✅ SM Interest\n")
+    else if pat_G3_bull
+        info += "✅ SMC тренд медвежий (контртренд)\n"
+        info += "✅ OTE 0.618–0.786\n"
+        info += "✅ HeatMap снят (" + str.tostring(bars_since_hm_bull) + " бар)\n"
+        info += "✅ Multi-Div (" + str.tostring(total_mdiv_bull) + ")\n"
+        info += "✅ SM Index быки\n"
+        info += "✅ SMT дивергенция\n"
+        info += "✅ Свечной паттерн: " + cndl_name + "\n"
+    else if pat_ZH1_bull
+        info += "✅ KDE RSI моментум\n"
+        info += "✅ SM Interest\n"
+        info += "✅ FVG точный вход\n"
+        info += (b_ob_bull ? "✅ Order Block\n" : "✅ S&D Demand\n")
+        info += (osc_mdiv_bull ? "✅ Multi-Div (" + str.tostring(total_mdiv_bull) + ")\n" : "✅ PeterO дивергенция\n")
+    else if pat_ZH4_bull
+        info += "✅ OTE 0.618–0.786\n"
+        info += "✅ AVWAP выравнивание\n"
+        info += "✅ FVG точный вход\n"
+        info += "✅ SMT дивергенция\n"
+        info += (sm_int_bull ? "✅ SM Interest\n" : "✅ SM Index быки\n")
+    else if pat_B2_bull
+        info += "✅ SMC тренд бычий\n"
+        info += "✅ FVG Active\n"
+        info += "✅ SM Activity всплеск\n"
+        info += "✅ SM Index быки\n"
+        info += "✅ Displacement свеча\n"
+    else if pat_C2_bull
+        info += "✅ SMC тренд бычий\n"
+        info += "✅ MA тренд бычий\n"
+        info += "✅ PeterO дивергенция\n"
+        info += (b_ob_bull ? "✅ Order Block\n" : "✅ FVG точный вход\n")
+        info += "✅ SM Interest\n"
+    else if pat_D1_bull
+        info += "✅ SMC тренд бычий\n"
+        info += (bars_since_sweep_bull <= 3 ? "✅ Sweep (" + str.tostring(bars_since_sweep_bull) + " бар)\n" : "✅ CHoCH (" + str.tostring(bars_since_choch_bull) + " бар)\n")
+        if osc_kde_bull
+            info += "✅ KDE RSI моментум\n"
+        else if osc_stoch_bull
+            info += "✅ Stoch Z разворот\n"
+        else if osc_macd_dlx_bull
+            info += "✅ MACD Dlx сигнал\n"
+        if b_ob_bull
+            info += "✅ Order Block\n"
+        else if b_fvg_bull
+            info += "✅ FVG Active\n"
+        else if b_sd_bull
+            info += "✅ S&D Demand\n"
+        info += (sm_act_bull ? "✅ SM Activity всплеск\n" : "✅ SM Index быки\n")
+    else if pat_D2_bull
+        info += "✅ SMC тренд бычий\n"
+        info += "✅ SM Activity тихий (откат)\n"
+        if b_ob_bull
+            info += "✅ Order Block\n"
+        else if b_sd_bull
+            info += "✅ S&D Demand\n"
+        else if b_ob_fresh_bull
+            info += "✅ Fresh OB (1й вход)\n"
+        info += "✅ SM Index быки\n"
+        info += "✅ SM Interest\n"
+    else if pat_G2_bull
+        info += "✅ Предыдущая фаза: компрессия/флэт\n"
+        info += "✅ S&D пробой\n"
+        info += "✅ SM Activity всплеск\n"
+        info += "✅ Displacement свеча\n"
+        if b_smc_bull
+            info += "✅ SMC тренд бычий\n"
+        else if osc_kde_bull
+            info += "✅ KDE RSI моментум\n"
+        else if ma_trend_bull
+            info += "✅ MA тренд бычий\n"
+    else if pat_ZH2_bull
+        info += "✅ BOS триггер\n"
+        info += "✅ SM Activity всплеск\n"
+        info += "✅ SMC тренд бычий\n"
+        info += (sm_idx_bull ? "✅ SM Index быки\n" : "✅ SM Interest\n")
+    else if pat_ZH6_bull
+        info += "✅ Фаза компрессии\n"
+        info += "✅ S&D пробой\n"
+        info += "✅ SM Activity всплеск\n"
+        info += "✅ Displacement свеча\n"
+        info += (b_smc_bull ? "✅ SMC тренд бычий\n" : "✅ MA тренд бычий\n")
+    else if pat_ZH7_bull
+        info += "✅ AVWAP пересечение вверх\n"
+        info += "✅ SMC тренд бычий\n"
+        info += "✅ Fresh OB (1й вход)\n"
+        info += "✅ SM Interest\n"
+        if osc_kde_bull
+            info += "✅ KDE RSI моментум\n"
+        else if osc_macd_dlx_bull
+            info += "✅ MACD Dlx сигнал\n"
+        else if sm_act_bull
+            info += "✅ SM Activity всплеск\n"
+    else if pat_A2_bull
+        info += "✅ Ложный BOS медвежий\n"
+        info += "✅ SM Activity отсутствует\n"
+        info += "✅ HeatMap снят (" + str.tostring(bars_since_hm_bear) + " бар)\n"
+        info += (osc_stoch_bull ? "✅ Stoch Z разворот\n" : "✅ KDE RSI моментум\n")
+        info += "✅ CCI разворот\n"
+        if b_sd_bull
+            info += "✅ S&D Demand\n"
+        else if b_ob_bull
+            info += "✅ Order Block\n"
+        else if b_fvg_precise_bull
+            info += "✅ FVG точный вход\n"
+    else if pat_B3_bull
+        info += "✅ SM Index быки\n"
+        info += "✅ SM Interest медвежий (противофаза)\n"
+        info += "✅ HeatMap снят (" + str.tostring(bars_since_hm_bull) + " бар)\n"
+        info += (b_choch_bull ? "✅ CHoCH бычий\n" : "✅ CHoCH (" + str.tostring(bars_since_choch_bull) + " бар)\n")
+        info += "✅ Multi-Div (" + str.tostring(total_mdiv_bull) + ")\n"
+        info += "✅ PeterO дивергенция\n"
+        info += (osc_tfdiv_bull ? "✅ Фрактальная Div\n" : "✅ SMT дивергенция\n")
+    else if pat_E1_bull
+        info += "✅ S&D Demand\n"
+        info += "✅ S&D ложный пробой вниз\n"
+        info += "✅ SM Activity всплеск (поглощение)\n"
+        info += "✅ Multi-Div (" + str.tostring(total_mdiv_bull) + ")\n"
+        info += "✅ PeterO дивергенция\n"
+        info += (osc_tfdiv_bull ? "✅ Фрактальная Div\n" : "✅ SMT дивергенция\n")
+    else if pat_G1_bull
+        info += "✅ Sweep (" + str.tostring(bars_since_sweep_bull) + " бар назад)\n"
+        info += (b_choch_bull ? "✅ CHoCH бычий\n" : "✅ CHoCH (" + str.tostring(bars_since_choch_bull) + " бар)\n")
+        info += "✅ SM Activity всплеск\n"
+        if b_ob_bull
+            info += "✅ Order Block\n"
+        else if b_fvg_precise_bull
+            info += "✅ FVG точный вход\n"
+        else if b_sd_bull
+            info += "✅ S&D Demand\n"
+        if osc_kde_bull
+            info += "✅ KDE RSI моментум\n"
+        else if osc_stoch_bull
+            info += "✅ Stoch Z разворот\n"
+        else if osc_macd_dlx_bull
+            info += "✅ MACD Dlx сигнал\n"
+    else if pat_ZH3_bull
+        info += "✅ SMT дивергенция\n"
+        info += "✅ HeatMap снят (" + str.tostring(bars_since_hm_bull) + " бар)\n"
+        info += (sm_int_bull ? "✅ SM Interest\n" : "✅ SM Index быки\n")
+        if b_ob_bull
+            info += "✅ Order Block\n"
+        else if b_sd_bull
+            info += "✅ S&D Demand\n"
+        else if b_fvg_precise_bull
+            info += "✅ FVG точный вход\n"
+    else if pat_ZH5_bull
+        info += "✅ CVD Absorption (поглощение)\n"
+        info += "✅ CVD бычья дивергенция\n"
+        info += "✅ S&D Demand\n"
+        info += "✅ Свечной паттерн: " + cndl_name + "\n"
+        info += (osc_kde_bull ? "✅ KDE RSI моментум\n" : "✅ Stoch Z разворот\n")
+    else if pat_B1_bull
+        info += "✅ SM Interest (накопление)\n"
+        info += "✅ SM Index нейтральный\n"
+        info += "✅ SM Activity всплеск\n"
+        info += (b_sd_bull ? "✅ S&D Demand\n" : "✅ Order Block\n")
+        info += "✅ KDE RSI моментум\n"
+        info += "✅ Фаза флэта (ranging)\n"
+    else
+        if smc_conn
+            info += (b_smc_bull ? "✅" : "❌") + " SMC Trend\n"
+        if hm_conn
+            info += (b_hm_bull  ? "✅" : "❌") + " HeatMap Sweep\n"
+        if fvg_conn
+            info += ((b_fvg_bull or b_fvg_precise_bull) ? "✅" : "❌") + " FVG Active\n"
+        if osc_kde_bull
+            info += "✅ KDE RSI моментум\n"
+        if sm_act_bull
+            info += "✅ SM Activity всплеск\n"
+        if total_mdiv_bull >= mdiv_limit
+            info += "✅ Multi-Div (" + str.tostring(total_mdiv_bull) + ")\n"
+
+    // --- Бонусы BUY ---
+    bool hc_uses_ote2_b     = pat_A3_bull or pat_G3_bull or pat_ZH4_bull
+    bool hc_uses_ob_fresh_b = pat_D2_bull or pat_ZH7_bull
+    bool hc_uses_disp_b     = pat_B2_bull or pat_G2_bull or pat_ZH6_bull
+    bool hc_uses_cndl_b     = pat_C3_bull or pat_G3_bull or pat_ZH5_bull
+    bool hc_uses_smt_b      = pat_A3_bull or pat_C1_bull or pat_G3_bull or pat_ZH4_bull or pat_B3_bull or pat_E1_bull or pat_ZH3_bull
+    bool hc_uses_kde_b      = pat_ZH1_bull or pat_A2_bull or pat_ZH7_bull or pat_D1_bull or pat_G1_bull or pat_G2_bull or pat_B1_bull
+    bool hc_uses_stoch_b    = pat_A2_bull or pat_D1_bull or pat_G1_bull or pat_ZH5_bull
+    bool hc_uses_macd_b     = pat_D1_bull or pat_ZH7_bull or pat_G1_bull
+    bool hc_uses_mdiv_b     = pat_C1_bull or pat_C3_bull or pat_G3_bull or pat_B3_bull or pat_E1_bull
+    bool hc_uses_peter_b    = pat_C3_bull or pat_B3_bull or pat_C2_bull or pat_E1_bull
+    bool hc_uses_tfdiv_b    = pat_C1_bull or pat_C3_bull or pat_B3_bull or pat_E1_bull
+    bool hc_uses_avwap_b    = pat_ZH4_bull or pat_ZH7_bull
+    bool hc_uses_ob_b       = pat_A1_bull or pat_C1_bull or pat_D1_bull or pat_D2_bull or pat_G1_bull or pat_ZH1_bull or pat_ZH3_bull or pat_A2_bull
+    bool hc_uses_sd_b       = pat_A1_bull or pat_A3_bull or pat_C1_bull or pat_D1_bull or pat_D2_bull or pat_E1_bull or pat_G1_bull or pat_ZH1_bull or pat_ZH3_bull or pat_A2_bull or pat_G3_bull or pat_ZH5_bull or pat_B1_bull
+    bool hc_uses_fvg_b      = pat_A1_bull or pat_A3_bull or pat_C2_bull or pat_D1_bull or pat_G1_bull or pat_ZH1_bull or pat_ZH4_bull or pat_A2_bull or pat_ZH3_bull
+    bool hc_uses_smact_b    = pat_A1_bull or pat_C3_bull or pat_B2_bull or pat_D1_bull or pat_G1_bull or pat_G2_bull or pat_ZH2_bull or pat_ZH6_bull or pat_ZH7_bull or pat_E1_bull or pat_B1_bull
+    bool hc_uses_smidx_b    = pat_A1_bull or pat_A3_bull or pat_B2_bull or pat_C1_bull or pat_D1_bull or pat_D2_bull or pat_G3_bull or pat_ZH2_bull or pat_ZH4_bull or pat_B3_bull
+    bool hc_uses_smint_b    = pat_A3_bull or pat_C2_bull or pat_D2_bull or pat_ZH1_bull or pat_ZH4_bull or pat_ZH7_bull or pat_B1_bull
+    bool hc_uses_choch_b    = pat_A1_bull or pat_B3_bull or pat_G1_bull
+    bool hc_uses_sweep_b    = pat_D1_bull or pat_G1_bull
+
+    string bonus_str = ""
+    if ote_score_bull == 2     and not hc_uses_ote2_b     then bonus_str += "⭐ OTE 0.618–0.786\n"
+    if b_ob_fresh_bull         and not hc_uses_ob_fresh_b then bonus_str += "⭐ Fresh OB (1й вход)\n"
+    if b_disp_bull             and not hc_uses_disp_b     then bonus_str += "⭐ Displacement свеча\n"
+    if cndl_bull               and not hc_uses_cndl_b     then bonus_str += "⭐ Паттерн: " + cndl_name + "\n"
+    if osc_smt_bull            and not hc_uses_smt_b      then bonus_str += "⭐ SMT дивергенция\n"
+    if osc_kde_bull            and not hc_uses_kde_b      then bonus_str += "⭐ KDE RSI моментум\n"
+    if osc_stoch_bull          and not hc_uses_stoch_b    then bonus_str += "⭐ Stoch Z разворот\n"
+    if osc_macd_dlx_bull       and not hc_uses_macd_b     then bonus_str += "⭐ MACD Dlx сигнал\n"
+    if osc_mdiv_bull           and not hc_uses_mdiv_b     then bonus_str += "⭐ Multi-Div (" + str.tostring(total_mdiv_bull) + ")\n"
+    if osc_peter_bull          and not hc_uses_peter_b    then bonus_str += "⭐ PeterO дивергенция\n"
+    if osc_tfdiv_bull          and not hc_uses_tfdiv_b    then bonus_str += "⭐ Фрактальная Div\n"
+    if b_avwap_bull            and not hc_uses_avwap_b    then bonus_str += "⭐ AVWAP выравнивание\n"
+    if b_ob_bull               and not hc_uses_ob_b       then bonus_str += "⭐ Order Block\n"
+    if b_sd_bull               and not hc_uses_sd_b       then bonus_str += "⭐ S&D Demand\n"
+    if b_fvg_precise_bull      and not hc_uses_fvg_b      then bonus_str += "⭐ FVG точный вход\n"
+    if sm_act_bull             and not hc_uses_smact_b    then bonus_str += "⭐ SM Activity всплеск\n"
+    if sm_idx_bull             and not hc_uses_smidx_b    then bonus_str += "⭐ SM Index быки\n"
+    if sm_int_bull             and not hc_uses_smint_b    then bonus_str += "⭐ SM Interest\n"
+    if bars_since_choch_bull <= 3 and not hc_uses_choch_b then bonus_str += "⭐ CHoCH (" + str.tostring(bars_since_choch_bull) + " бар)\n"
+    if bars_since_sweep_bull  <= 3 and not hc_uses_sweep_b then bonus_str += "⭐ Sweep (" + str.tostring(bars_since_sweep_bull) + " бар)\n"
+    if bars_since_hm_bull <= 3 then bonus_str += "⭐ HeatMap снят (" + str.tostring(bars_since_hm_bull) + " бар)\n"
+    if bull_prox_conn and not na(p1_bull_prox)
+        bonus_str += "⭐ Struct SL: " + str.tostring(p1_bull_prox, format.mintick) + "\n"
+
+    if bonus_str != ""
+        info += "─── Бонусы ─────────────\n"
+        info += bonus_str
+
+    if warn_F1_shift_bull
+        info += "⚠️ Смена режима рынка!\n"
+    if warn_E2_bull_exhaustion
+        info += "⚠️ Истощение тренда!\n"
+
+    label.new(bar_index, low - ta.atr(14) * (1 + info_gap), text=info, style=label.style_label_up, color=info_bg_col, textcolor=info_text_col, size=get_size(info_text_size), textalign=f_get_align(info_align))
+
+// ─── ИНФОБЛОК SELL ──────────────────────────────────────────────────────────
+if is_sell and en_info_block
+    string info = "🚀 " + active_hc_bear_name + "\n"
+    if active_hc_bear_name == ""
+        info := "🎯 СКОР: " + str.tostring(sell_score) + "/" + str.tostring(req_score) + "\n"
+    info += "─── Аргументы ──────────\n"
+
+    if pat_A1_bear
+        info += "✅ SMC тренд медвежий\n"
+        info += "✅ CHoCH (" + str.tostring(bars_since_choch_bear) + " бар назад)\n"
+        info += "✅ FVG точный вход\n"
+        info += "✅ HeatMap снят (" + str.tostring(bars_since_hm_bear) + " бар)\n"
+        info += (b_sd_bear ? "✅ S&D Supply\n" : "✅ Order Block\n")
+        info += (sm_act_bear ? "✅ SM Activity всплеск\n" : "✅ SM Index медведи\n")
+    else if pat_A3_bear
+        info += "✅ OTE 0.618–0.786\n"
+        info += "✅ FVG точный вход\n"
+        info += "✅ S&D Supply\n"
+        info += "✅ SMT дивергенция\n"
+        info += (sm_int_bear ? "✅ SM Interest\n" : "✅ SM Index медведи\n")
+    else if pat_C1_bear
+        info += "✅ Моментум (" + str.tostring(c1_mom_bear) + "/4)\n"
+        info += "✅ Объём (" + str.tostring(c1_vol_bear) + "/4)\n"
+        info += (osc_smt_bear ? "✅ SMT дивергенция\n" : "✅ Фрактальная Div\n")
+        if b_ob_bear
+            info += "✅ Order Block\n"
+        else if b_fvg_bear
+            info += "✅ FVG Active\n"
+        else if b_sd_bear
+            info += "✅ S&D Supply\n"
+        else if ote_score_bear >= 1
+            info += "✅ Premium Zone\n"
+    else if pat_C3_bear
+        info += "✅ Фрактальная Div\n"
+        info += "✅ PeterO дивергенция\n"
+        info += "✅ Multi-Div (" + str.tostring(total_mdiv_bear) + ")\n"
+        info += "✅ Свечной паттерн: " + cndl_name + "\n"
+        info += (sm_act_bear ? "✅ SM Activity всплеск\n" : "✅ SM Interest\n")
+    else if pat_G3_bear
+        info += "✅ SMC тренд бычий (контртренд)\n"
+        info += "✅ OTE 0.618–0.786\n"
+        info += "✅ HeatMap снят (" + str.tostring(bars_since_hm_bear) + " бар)\n"
+        info += "✅ Multi-Div (" + str.tostring(total_mdiv_bear) + ")\n"
+        info += "✅ SM Index медведи\n"
+        info += "✅ SMT дивергенция\n"
+        info += "✅ Свечной паттерн: " + cndl_name + "\n"
+    else if pat_ZH1_bear
+        info += "✅ KDE RSI моментум\n"
+        info += "✅ SM Interest\n"
+        info += "✅ FVG точный вход\n"
+        info += (b_ob_bear ? "✅ Order Block\n" : "✅ S&D Supply\n")
+        info += (osc_mdiv_bear ? "✅ Multi-Div (" + str.tostring(total_mdiv_bear) + ")\n" : "✅ PeterO дивергенция\n")
+    else if pat_ZH4_bear
+        info += "✅ OTE 0.618–0.786\n"
+        info += "✅ AVWAP выравнивание\n"
+        info += "✅ FVG точный вход\n"
+        info += "✅ SMT дивергенция\n"
+        info += (sm_int_bear ? "✅ SM Interest\n" : "✅ SM Index медведи\n")
+    else if pat_B2_bear
+        info += "✅ SMC тренд медвежий\n"
+        info += "✅ FVG Active\n"
+        info += "✅ SM Activity всплеск\n"
+        info += "✅ SM Index медведи\n"
+        info += "✅ Displacement свеча\n"
+    else if pat_C2_bear
+        info += "✅ SMC тренд медвежий\n"
+        info += "✅ MA тренд медвежий\n"
+        info += "✅ PeterO дивергенция\n"
+        info += (b_ob_bear ? "✅ Order Block\n" : "✅ FVG точный вход\n")
+        info += "✅ SM Interest\n"
+    else if pat_D1_bear
+        info += "✅ SMC тренд медвежий\n"
+        info += (bars_since_sweep_bear <= 3 ? "✅ Sweep (" + str.tostring(bars_since_sweep_bear) + " бар)\n" : "✅ CHoCH (" + str.tostring(bars_since_choch_bear) + " бар)\n")
+        if osc_kde_bear
+            info += "✅ KDE RSI моментум\n"
+        else if osc_stoch_bear
+            info += "✅ Stoch Z разворот\n"
+        else if osc_macd_dlx_bear
+            info += "✅ MACD Dlx сигнал\n"
+        if b_ob_bear
+            info += "✅ Order Block\n"
+        else if b_fvg_bear
+            info += "✅ FVG Active\n"
+        else if b_sd_bear
+            info += "✅ S&D Supply\n"
+        info += (sm_act_bear ? "✅ SM Activity всплеск\n" : "✅ SM Index медведи\n")
+    else if pat_D2_bear
+        info += "✅ SMC тренд медвежий\n"
+        info += "✅ SM Activity тихий (откат)\n"
+        if b_ob_bear
+            info += "✅ Order Block\n"
+        else if b_sd_bear
+            info += "✅ S&D Supply\n"
+        else if b_ob_fresh_bear
+            info += "✅ Fresh OB (1й вход)\n"
+        info += "✅ SM Index медведи\n"
+        info += "✅ SM Interest\n"
+    else if pat_G2_bear
+        info += "✅ Предыдущая фаза: компрессия/флэт\n"
+        info += "✅ S&D пробой\n"
+        info += "✅ SM Activity всплеск\n"
+        info += "✅ Displacement свеча\n"
+        if b_smc_bear
+            info += "✅ SMC тренд медвежий\n"
+        else if osc_kde_bear
+            info += "✅ KDE RSI моментум\n"
+        else if ma_trend_bear
+            info += "✅ MA тренд медвежий\n"
+    else if pat_ZH2_bear
+        info += "✅ BOS триггер\n"
+        info += "✅ SM Activity всплеск\n"
+        info += "✅ SMC тренд медвежий\n"
+        info += (sm_idx_bear ? "✅ SM Index медведи\n" : "✅ SM Interest\n")
+    else if pat_ZH6_bear
+        info += "✅ Фаза компрессии\n"
+        info += "✅ S&D пробой\n"
+        info += "✅ SM Activity всплеск\n"
+        info += "✅ Displacement свеча\n"
+        info += (b_smc_bear ? "✅ SMC тренд медвежий\n" : "✅ MA тренд медвежий\n")
+    else if pat_ZH7_bear
+        info += "✅ AVWAP пересечение вниз\n"
+        info += "✅ SMC тренд медвежий\n"
+        info += "✅ Fresh OB (1й вход)\n"
+        info += "✅ SM Interest\n"
+        if osc_kde_bear
+            info += "✅ KDE RSI моментум\n"
+        else if osc_macd_dlx_bear
+            info += "✅ MACD Dlx сигнал\n"
+        else if sm_act_bear
+            info += "✅ SM Activity всплеск\n"
+    else if pat_A2_bear
+        info += "✅ Ложный BOS бычий\n"
+        info += "✅ SM Activity отсутствует\n"
+        info += "✅ HeatMap снят (" + str.tostring(bars_since_hm_bull) + " бар)\n"
+        info += (osc_stoch_bear ? "✅ Stoch Z разворот\n" : "✅ KDE RSI моментум\n")
+        info += "✅ CCI разворот\n"
+        if b_sd_bear
+            info += "✅ S&D Supply\n"
+        else if b_ob_bear
+            info += "✅ Order Block\n"
+        else if b_fvg_precise_bear
+            info += "✅ FVG точный вход\n"
+    else if pat_B3_bear
+        info += "✅ SM Index медведи\n"
+        info += "✅ SM Interest бычий (противофаза)\n"
+        info += "✅ HeatMap снят (" + str.tostring(bars_since_hm_bear) + " бар)\n"
+        info += (b_choch_bear ? "✅ CHoCH медвежий\n" : "✅ CHoCH (" + str.tostring(bars_since_choch_bear) + " бар)\n")
+        info += "✅ Multi-Div (" + str.tostring(total_mdiv_bear) + ")\n"
+        info += "✅ PeterO дивергенция\n"
+        info += (osc_tfdiv_bear ? "✅ Фрактальная Div\n" : "✅ SMT дивергенция\n")
+    else if pat_E1_bear
+        info += "✅ S&D Supply\n"
+        info += "✅ S&D ложный пробой вверх\n"
+        info += "✅ SM Activity всплеск (поглощение)\n"
+        info += "✅ Multi-Div (" + str.tostring(total_mdiv_bear) + ")\n"
+        info += "✅ PeterO дивергенция\n"
+        info += (osc_tfdiv_bear ? "✅ Фрактальная Div\n" : "✅ SMT дивергенция\n")
+    else if pat_G1_bear
+        info += "✅ Sweep (" + str.tostring(bars_since_sweep_bear) + " бар назад)\n"
+        info += (b_choch_bear ? "✅ CHoCH медвежий\n" : "✅ CHoCH (" + str.tostring(bars_since_choch_bear) + " бар)\n")
+        info += "✅ SM Activity всплеск\n"
+        if b_ob_bear
+            info += "✅ Order Block\n"
+        else if b_fvg_precise_bear
+            info += "✅ FVG точный вход\n"
+        else if b_sd_bear
+            info += "✅ S&D Supply\n"
+        if osc_kde_bear
+            info += "✅ KDE RSI моментум\n"
+        else if osc_stoch_bear
+            info += "✅ Stoch Z разворот\n"
+        else if osc_macd_dlx_bear
+            info += "✅ MACD Dlx сигнал\n"
+    else if pat_ZH3_bear
+        info += "✅ SMT дивергенция\n"
+        info += "✅ HeatMap снят (" + str.tostring(bars_since_hm_bear) + " бар)\n"
+        info += (sm_int_bear ? "✅ SM Interest\n" : "✅ SM Index медведи\n")
+        if b_ob_bear
+            info += "✅ Order Block\n"
+        else if b_sd_bear
+            info += "✅ S&D Supply\n"
+        else if b_fvg_precise_bear
+            info += "✅ FVG точный вход\n"
+    else if pat_ZH5_bear
+        info += "✅ CVD Absorption (поглощение)\n"
+        info += "✅ CVD медвежья дивергенция\n"
+        info += "✅ S&D Supply\n"
+        info += "✅ Свечной паттерн: " + cndl_name + "\n"
+        info += (osc_kde_bear ? "✅ KDE RSI моментум\n" : "✅ Stoch Z разворот\n")
+    else if pat_B1_bear
+        info += "✅ SM Interest (распределение)\n"
+        info += "✅ SM Index нейтральный\n"
+        info += "✅ SM Activity всплеск\n"
+        info += (b_sd_bear ? "✅ S&D Supply\n" : "✅ Order Block\n")
+        info += "✅ KDE RSI моментум\n"
+        info += "✅ Фаза флэта (ranging)\n"
+    else
+        if smc_conn
+            info += (b_smc_bear ? "✅" : "❌") + " SMC Trend\n"
+        if hm_conn
+            info += (b_hm_bear  ? "✅" : "❌") + " HeatMap Sweep\n"
+        if fvg_conn
+            info += ((b_fvg_bear or b_fvg_precise_bear) ? "✅" : "❌") + " FVG Active\n"
+        if osc_kde_bear
+            info += "✅ KDE RSI моментум\n"
+        if sm_act_bear
+            info += "✅ SM Activity всплеск\n"
+        if total_mdiv_bear >= mdiv_limit
+            info += "✅ Multi-Div (" + str.tostring(total_mdiv_bear) + ")\n"
+
+    // --- Бонусы SELL ---
+    bool hc_uses_ote2_s     = pat_A3_bear or pat_G3_bear or pat_ZH4_bear
+    bool hc_uses_ob_fresh_s = pat_D2_bear or pat_ZH7_bear
+    bool hc_uses_disp_s     = pat_B2_bear or pat_G2_bear or pat_ZH6_bear
+    bool hc_uses_cndl_s     = pat_C3_bear or pat_G3_bear or pat_ZH5_bear
+    bool hc_uses_smt_s      = pat_A3_bear or pat_C1_bear or pat_G3_bear or pat_ZH4_bear or pat_B3_bear or pat_E1_bear or pat_ZH3_bear
+    bool hc_uses_kde_s      = pat_ZH1_bear or pat_A2_bear or pat_ZH7_bear or pat_D1_bear or pat_G1_bear or pat_G2_bear or pat_B1_bear
+    bool hc_uses_stoch_s    = pat_A2_bear or pat_D1_bear or pat_G1_bear or pat_ZH5_bear
+    bool hc_uses_macd_s     = pat_D1_bear or pat_ZH7_bear or pat_G1_bear
+    bool hc_uses_mdiv_s     = pat_C1_bear or pat_C3_bear or pat_G3_bear or pat_B3_bear or pat_E1_bear
+    bool hc_uses_peter_s    = pat_C3_bear or pat_B3_bear or pat_C2_bear or pat_E1_bear
+    bool hc_uses_tfdiv_s    = pat_C1_bear or pat_C3_bear or pat_B3_bear or pat_E1_bear
+    bool hc_uses_avwap_s    = pat_ZH4_bear or pat_ZH7_bear
+    bool hc_uses_ob_s       = pat_A1_bear or pat_C1_bear or pat_D1_bear or pat_D2_bear or pat_G1_bear or pat_ZH1_bear or pat_ZH3_bear or pat_A2_bear
+    bool hc_uses_sd_s       = pat_A1_bear or pat_A3_bear or pat_C1_bear or pat_D1_bear or pat_D2_bear or pat_E1_bear or pat_G1_bear or pat_ZH1_bear or pat_ZH3_bear or pat_A2_bear or pat_G3_bear or pat_ZH5_bear or pat_B1_bear
+    bool hc_uses_fvg_s      = pat_A1_bear or pat_A3_bear or pat_C2_bear or pat_D1_bear or pat_G1_bear or pat_ZH1_bear or pat_ZH4_bear or pat_A2_bear or pat_ZH3_bear
+    bool hc_uses_smact_s    = pat_A1_bear or pat_C3_bear or pat_B2_bear or pat_D1_bear or pat_G1_bear or pat_G2_bear or pat_ZH2_bear or pat_ZH6_bear or pat_ZH7_bear or pat_E1_bear or pat_B1_bear
+    bool hc_uses_smidx_s    = pat_A1_bear or pat_A3_bear or pat_B2_bear or pat_C1_bear or pat_D1_bear or pat_D2_bear or pat_G3_bear or pat_ZH2_bear or pat_ZH4_bear or pat_B3_bear
+    bool hc_uses_smint_s    = pat_A3_bear or pat_C2_bear or pat_D2_bear or pat_ZH1_bear or pat_ZH4_bear or pat_ZH7_bear or pat_B1_bear
+    bool hc_uses_choch_s    = pat_A1_bear or pat_B3_bear or pat_G1_bear
+    bool hc_uses_sweep_s    = pat_D1_bear or pat_G1_bear
+
+    string bonus_str = ""
+    if ote_score_bear == 2      and not hc_uses_ote2_s     then bonus_str += "⭐ OTE 0.618–0.786\n"
+    if b_ob_fresh_bear          and not hc_uses_ob_fresh_s then bonus_str += "⭐ Fresh OB (1й вход)\n"
+    if b_disp_bear              and not hc_uses_disp_s     then bonus_str += "⭐ Displacement свеча\n"
+    if cndl_bear                and not hc_uses_cndl_s     then bonus_str += "⭐ Паттерн: " + cndl_name + "\n"
+    if osc_smt_bear             and not hc_uses_smt_s      then bonus_str += "⭐ SMT дивергенция\n"
+    if osc_kde_bear             and not hc_uses_kde_s      then bonus_str += "⭐ KDE RSI моментум\n"
+    if osc_stoch_bear           and not hc_uses_stoch_s    then bonus_str += "⭐ Stoch Z разворот\n"
+    if osc_macd_dlx_bear        and not hc_uses_macd_s     then bonus_str += "⭐ MACD Dlx сигнал\n"
+    if osc_mdiv_bear            and not hc_uses_mdiv_s     then bonus_str += "⭐ Multi-Div (" + str.tostring(total_mdiv_bear) + ")\n"
+    if osc_peter_bear           and not hc_uses_peter_s    then bonus_str += "⭐ PeterO дивергенция\n"
+    if osc_tfdiv_bear           and not hc_uses_tfdiv_s    then bonus_str += "⭐ Фрактальная Div\n"
+    if b_avwap_bear             and not hc_uses_avwap_s    then bonus_str += "⭐ AVWAP выравнивание\n"
+    if b_ob_bear                and not hc_uses_ob_s       then bonus_str += "⭐ Order Block\n"
+    if b_sd_bear                and not hc_uses_sd_s       then bonus_str += "⭐ S&D Supply\n"
+    if b_fvg_precise_bear       and not hc_uses_fvg_s      then bonus_str += "⭐ FVG точный вход\n"
+    if sm_act_bear              and not hc_uses_smact_s    then bonus_str += "⭐ SM Activity всплеск\n"
+    if sm_idx_bear              and not hc_uses_smidx_s    then bonus_str += "⭐ SM Index медведи\n"
+    if sm_int_bear              and not hc_uses_smint_s    then bonus_str += "⭐ SM Interest\n"
+    if bars_since_choch_bear <= 3 and not hc_uses_choch_s  then bonus_str += "⭐ CHoCH (" + str.tostring(bars_since_choch_bear) + " бар)\n"
+    if bars_since_sweep_bear  <= 3 and not hc_uses_sweep_s then bonus_str += "⭐ Sweep (" + str.tostring(bars_since_sweep_bear) + " бар)\n"
+    if bars_since_hm_bear <= 3 then bonus_str += "⭐ HeatMap снят (" + str.tostring(bars_since_hm_bear) + " бар)\n"
+    if bear_prox_conn and not na(p1_bear_prox)
+        bonus_str += "⭐ Struct SL: " + str.tostring(p1_bear_prox, format.mintick) + "\n"
+
+    if bonus_str != ""
+        info += "─── Бонусы ─────────────\n"
+        info += bonus_str
+
+    if warn_F1_shift_bear
+        info += "⚠️ Смена режима рынка!\n"
+    if warn_E2_bear_exhaustion
+        info += "⚠️ Истощение тренда!\n"
+
+    label.new(bar_index, high + ta.atr(14) * (1 + info_gap), text=info, style=label.style_label_down, color=info_bg_col, textcolor=info_text_col, size=get_size(info_text_size), textalign=f_get_align(info_align))
+
+// ====================================================================================================================
+// 14. ДАШБОРД (TABLE)
+// ====================================================================================================================
+var table dash = table.new(dash_pos_str == "Сверху справа" ? position.top_right : dash_pos_str == "Снизу справа" ? position.bottom_right : position.bottom_left, 3, 29, bgcolor=color.new(color.black, 80), border_width=1, border_color=color.gray)
+
+f_cell(table _tbl, int _col, int _row, string _txt, color _txt_col, color _cell_bg = na) =>
+    table.cell(_tbl, _col, _row, text=_txt, text_color=_txt_col, text_size=get_size(dash_text_size_str), bgcolor=_cell_bg)
+
+if en_dash
+    f_cell(dash, 0, 0, "СИСТЕМА",  dash_text_col)
+    f_cell(dash, 1, 0, "СТАТУС",   dash_text_col)
+    f_cell(dash, 2, 0, "ДЕТАЛИ",   dash_text_col)
+
+    f_cell(dash, 0, 1, "Связь (Main)", dash_text_col)
+    f_cell(dash, 1, 1, tf_conn ? "АКТИВНА" : "ОФФЛАЙН", tf_conn ? color.lime : color.red)
+    f_cell(dash, 2, 1, tf_conn ? "TF: " + str.tostring(p1_tf_mins) + "m" : "Только локально", dash_text_col)
+
+    f_cell(dash, 0, 2, "Фаза Рынка", dash_text_col)
+    f_cell(dash, 1, 2, regime_trending ? "ТРЕНД" : regime_ranging ? "ФЛЭТ" : regime_compression ? "КОМПРЕССИЯ" : "NEUTRAL", regime_trending ? color.lime : regime_ranging ? color.orange : regime_compression ? color.yellow : color.gray)
+    f_cell(dash, 2, 2, "ADX:" + str.tostring(math.round(adx_val, 1)) + " C:" + str.tostring(math.round(choppiness, 1)), dash_text_col)
+
+    f_cell(dash, 0, 3, "SMC Тренд", dash_text_col)
+    f_cell(dash, 1, 3, b_smc_bull ? "БЫЧИЙ" : b_smc_bear ? "МЕДВЕЖИЙ" : "НЕТ", b_smc_bull ? color.lime : b_smc_bear ? color.red : color.gray)
+    f_cell(dash, 2, 3, "Main Export", dash_text_col)
+
+    f_cell(dash, 0, 4, "KDE RSI", dash_text_col)
+    f_cell(dash, 1, 4, osc_kde_bull ? "ПОКУПКА" : osc_kde_bear ? "ПРОДАЖА" : "НЕЙТРАЛЬ", osc_kde_bull ? color.lime : osc_kde_bear ? color.red : color.gray)
+    f_cell(dash, 2, 4, str.tostring(math.round(kde_rsi, 1)), dash_text_col)
+
+    f_cell(dash, 0, 5, "Stoch Z", dash_text_col)
+    f_cell(dash, 1, 5, osc_stoch_bull ? "ПОКУПКА" : osc_stoch_bear ? "ПРОДАЖА" : "НЕЙТРАЛЬ", osc_stoch_bull ? color.lime : osc_stoch_bear ? color.red : color.gray)
+    f_cell(dash, 2, 5, str.tostring(math.round(smoothed_scaled, 2)), dash_text_col)
+
+    f_cell(dash, 0, 6, "MACD Deluxe", dash_text_col)
+    f_cell(dash, 1, 6, osc_macd_dlx_bull ? "ПОКУПКА" : osc_macd_dlx_bear ? "ПРОДАЖА" : "НЕЙТРАЛЬ", osc_macd_dlx_bull ? color.lime : osc_macd_dlx_bear ? color.red : color.gray)
+    f_cell(dash, 2, 6, str.tostring(math.round(dlx_macSeries, 1)), dash_text_col)
+
+    f_cell(dash, 0, 7, "Adv. CCI", dash_text_col)
+    f_cell(dash, 1, 7, osc_cci_bull ? "ПОКУПКА" : osc_cci_bear ? "ПРОДАЖА" : "НЕЙТРАЛЬ", osc_cci_bull ? color.lime : osc_cci_bear ? color.red : color.gray)
+    f_cell(dash, 2, 7, "ST / L3", dash_text_col)
+
+    f_cell(dash, 0, 8, "Multi-Div", dash_text_col)
+    f_cell(dash, 1, 8, osc_mdiv_bull ? "ПОКУПКА" : osc_mdiv_bear ? "ПРОДАЖА" : "НЕТ", osc_mdiv_bull ? color.lime : osc_mdiv_bear ? color.red : color.gray)
+    f_cell(dash, 2, 8, "B:" + str.tostring(total_mdiv_bull) + " S:" + str.tostring(total_mdiv_bear), dash_text_col)
+
+    f_cell(dash, 0, 9, "PeterO Div", dash_text_col)
+    f_cell(dash, 1, 9, osc_peter_bull ? "ПОКУПКА" : osc_peter_bear ? "ПРОДАЖА" : "НЕТ", osc_peter_bull ? color.lime : osc_peter_bear ? color.red : color.gray)
+    f_cell(dash, 2, 9, "NR Div", dash_text_col)
+
+    f_cell(dash, 0, 10, "TF Fractal", dash_text_col)
+    f_cell(dash, 1, 10, osc_tfdiv_bull ? "ПОКУПКА" : osc_tfdiv_bear ? "ПРОДАЖА" : "НЕТ", osc_tfdiv_bull ? color.lime : osc_tfdiv_bear ? color.red : color.gray)
+    f_cell(dash, 2, 10, "Fractal + " + tfdiv_type, dash_text_col)
+
+    f_cell(dash, 0, 11, "SMT Div", dash_text_col)
+    f_cell(dash, 1, 11, osc_smt_bull ? "ПОКУПКА" : osc_smt_bear ? "ПРОДАЖА" : "НЕТ", osc_smt_bull ? color.lime : osc_smt_bear ? color.red : color.gray)
+    f_cell(dash, 2, 11, "Intermarket", dash_text_col)
+
+    f_cell(dash, 0, 12, "SM Activity", dash_text_col)
+    f_cell(dash, 1, 12, sm_act_bull ? "ПОКУПКА (Всплеск)" : sm_act_bear ? "ПРОДАЖА (Всплеск)" : "ШТИЛЬ", sm_act_bull ? color.lime : sm_act_bear ? color.red : color.gray)
+    f_cell(dash, 2, 12, "Z-Score Thr", dash_text_col)
+
+    f_cell(dash, 0, 13, "SM Index", dash_text_col)
+    f_cell(dash, 1, 13, sm_idx_bull ? "БЫКИ ДОМИН." : sm_idx_bear ? "МЕДВЕДИ ДОМИН." : "НЕЙТРАЛЬ", sm_idx_bull ? color.lime : sm_idx_bear ? color.red : color.gray)
+    f_cell(dash, 2, 13, str.tostring(math.round(sm_net_index, 2)), dash_text_col)
+
+    f_cell(dash, 0, 14, "SM Interest", dash_text_col)
+    f_cell(dash, 1, 14, sm_int_bull ? "АКУМУЛЯЦИЯ" : sm_int_bear ? "ДИСТРИБУЦИЯ" : "СПЯТ", sm_int_bull ? color.lime : sm_int_bear ? color.red : color.gray)
+    f_cell(dash, 2, 14, "NVI/PVI", dash_text_col)
+
+    f_cell(dash, 0, 15, "HeatMap Swp", dash_text_col)
+    f_cell(dash, 1, 15, b_hm_bull ? "СНЯЛИ НИЗ" : b_hm_bear ? "СНЯЛИ ВЕРХ" : "НЕТ", b_hm_bull ? color.lime : b_hm_bear ? color.red : color.gray)
+    f_cell(dash, 2, 15, str.tostring(p1_hm_vol, format.volume), dash_text_col)
+
+    f_cell(dash, 0, 16, "Order Block", dash_text_col)
+    f_cell(dash, 1, 16, b_ob_bull ? "В ЗОНЕ BUY" : b_ob_bear ? "В ЗОНЕ SELL" : "ВНЕ ЗОН", b_ob_bull ? color.lime : b_ob_bear ? color.red : color.gray)
+    f_cell(dash, 2, 16, b_ob_fresh_bull or b_ob_fresh_bear ? "FRESH (1 Touch)" : "Mitigated", dash_text_col)
+
+    f_cell(dash, 0, 17, "S&D Zone", dash_text_col)
+    f_cell(dash, 1, 17, b_sd_bull ? "DEMAND" : b_sd_bear ? "SUPPLY" : "ВНЕ ЗОН", b_sd_bull ? color.lime : b_sd_bear ? color.red : color.gray)
+    f_cell(dash, 2, 17, b_sdinv_bull or b_sdinv_bear ? "Breakout Alert" : "Hold", dash_text_col)
+
+    f_cell(dash, 0, 18, "FVG POC", dash_text_col)
+    f_cell(dash, 1, 18, b_fvg_bull ? "В БЫЧЬЕМ" : b_fvg_bear ? "В МЕДВЕЖЬЕМ" : "ВНЕ GAP", b_fvg_bull ? color.lime : b_fvg_bear ? color.red : color.gray)
+    f_cell(dash, 2, 18, b_fvg_precise_bull or b_fvg_precise_bear ? "Precise In" : "Near", dash_text_col)
+
+    f_cell(dash, 0, 19, "SMC Sweep", dash_text_col)
+    f_cell(dash, 1, 19, b_sweep_bull ? "СВЕЙП НИЗ" : b_sweep_bear ? "СВЕЙП ВЕРХ" : "НЕТ", b_sweep_bull ? color.lime : b_sweep_bear ? color.red : color.gray)
+    f_cell(dash, 2, 19, "x", dash_text_col)
+
+    f_cell(dash, 0, 20, "Candle Pat", dash_text_col)
+    f_cell(dash, 1, 20, cndl_bull ? "БЫЧИЙ" : cndl_bear ? "МЕДВЕЖИЙ" : "НЕТ", cndl_bull ? color.lime : cndl_bear ? color.red : color.gray)
+    f_cell(dash, 2, 20, cndl_name, dash_text_col)
+
+    f_cell(dash, 0, 21, "SMC BOS", dash_text_col)
+    f_cell(dash, 1, 21, b_bos_bull ? "BOS (BULL)" : b_bos_bear ? "BOS (BEAR)" : "НЕТ", b_bos_bull ? color.lime : b_bos_bear ? color.red : color.gray)
+    f_cell(dash, 2, 21, "LvL: " + str.tostring(p1_bos_level), dash_text_col)
+
+    f_cell(dash, 0, 22, "SMC CHoCH", dash_text_col)
+    f_cell(dash, 1, 22, b_choch_bull ? "CHoCH (BULL)" : b_choch_bear ? "CHoCH (BEAR)" : "НЕТ", b_choch_bull ? color.lime : b_choch_bear ? color.red : color.gray)
+    f_cell(dash, 2, 22, "LvL: " + str.tostring(p1_choch_lvl), dash_text_col)
+
+    f_cell(dash, 0, 23, "True OTE", dash_text_col)
+    f_cell(dash, 1, 23, ote_score_bull == 2 ? "OTE LONG" : ote_score_bear == 2 ? "OTE SHORT" : ote_score_bull == 1 ? "DISCOUNT" : ote_score_bear == 1 ? "PREMIUM" : "EQUATOR", ote_score_bull == 2 or ote_score_bear == 2 ? color.lime : ote_score_bull == 1 or ote_score_bear == 1 ? color.yellow : color.gray)
+    f_cell(dash, 2, 23, "Fibo Matrix", dash_text_col)
+
+    f_cell(dash, 0, 24, "AVWAP", dash_text_col)
+    f_cell(dash, 1, 24, b_avwap_bull ? "ЦЕНА ВЫШЕ" : b_avwap_bear ? "ЦЕНА НИЖЕ" : "НЕТ ДАННЫХ", b_avwap_bull ? color.lime : b_avwap_bear ? color.red : color.gray)
+    f_cell(dash, 2, 24, str.tostring(p1_avwap, format.mintick), dash_text_col)
+
+    f_cell(dash, 0, 25, "Displacement", dash_text_col)
+    f_cell(dash, 1, 25, b_disp_bull ? "IMPULSE UP" : b_disp_bear ? "IMPULSE DOWN" : "FLAT", b_disp_bull ? color.lime : b_disp_bear ? color.red : color.gray)
+    f_cell(dash, 2, 25, "Body > 1.5 ATR", dash_text_col)
+
+    f_cell(dash, 0, 26, "Volume CVD", dash_text_col)
+    f_cell(dash, 1, 26, sm_absorption ? "ABSORPTION" : cvd_bull_div ? "BULL DIV" : cvd_bear_div ? "BEAR DIV" : "NORMAL", sm_absorption ? color.yellow : cvd_bull_div ? color.lime : cvd_bear_div ? color.red : color.gray)
+    f_cell(dash, 2, 26, "CVD Delta", dash_text_col)
+
+    string p_txt = active_hc_bull_name != "" ? active_hc_bull_name : active_hc_bear_name != "" ? active_hc_bear_name : "Сбор данных..."
+    color  p_col = active_hc_bull_name != "" ? color.lime : active_hc_bear_name != "" ? color.red : color.gray
+    if warn_F1_shift_bull or warn_F1_shift_bear
+        p_txt := "⚠️ F1: REGIME SHIFT DETECTED"
+        p_col := color.orange
+    f_cell(dash, 0, 27, "ХАРДКОД ПАТТЕРН", dash_text_col)
+    table.merge_cells(dash, 1, 27, 2, 27)
+    f_cell(dash, 1, 27, p_txt, p_col)
