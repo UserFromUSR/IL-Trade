@@ -2214,3 +2214,774 @@ if _r.bear
 // Итоговые HC булевы
 bool hc_raw_bull = en_debug_mode ? debug_force_bull : hc_active_bull.size() > 0
 bool hc_raw_bear = en_debug_mode ? debug_force_bear : hc_active_bear.size() > 0
+
+// ====================================================================================================================
+// HC PENDING TIMER
+// ====================================================================================================================
+var bool pending_buy_hc   = false
+var bool pending_sell_hc  = false
+var int  pending_buy_bars = 0
+var int  pending_sell_bars = 0
+
+if hc_raw_bull
+    if not ltf_gate_bull
+        pending_buy_hc := true, pending_buy_bars := 0
+    else
+        pending_buy_hc := false
+if pending_buy_hc
+    pending_buy_bars += 1
+    if pending_buy_bars > 3
+        pending_buy_hc := false, pending_buy_bars := 0
+else if not hc_raw_bull
+    pending_buy_bars := 0
+
+if hc_raw_bear
+    if not ltf_gate_bear
+        pending_sell_hc := true, pending_sell_bars := 0
+    else
+        pending_sell_hc := false
+if pending_sell_hc
+    pending_sell_bars += 1
+    if pending_sell_bars > 3
+        pending_sell_hc := false, pending_sell_bars := 0
+else if not hc_raw_bear
+    pending_sell_bars := 0
+
+bool hc_buy_trigger  = en_debug_mode ? debug_force_bull
+    : (hc_raw_bull and ltf_gate_bull) or (pending_buy_hc  and ltf_gate_bull)
+bool hc_sell_trigger = en_debug_mode ? debug_force_bear
+    : (hc_raw_bear and ltf_gate_bear) or (pending_sell_hc and ltf_gate_bear)
+
+// ====================================================================================================================
+// СКОРИНГ
+// ====================================================================================================================
+int  buy_score  = 0
+int  sell_score = 0
+bool buy_valid  = true
+bool sell_valid = true
+
+if s_rsi_kde   then buy_score += osc_kde_bull      ? 1:0  else na, sell_score += osc_kde_bear      ? 1:0  else na
+if m_rsi_kde   then buy_valid := buy_valid  and osc_kde_bull,       sell_valid := sell_valid and osc_kde_bear
+if s_stoch     then buy_score += osc_stoch_bull    ? 1:0  else na, sell_score += osc_stoch_bear    ? 1:0  else na
+if m_stoch     then buy_valid := buy_valid  and osc_stoch_bull,     sell_valid := sell_valid and osc_stoch_bear
+if s_macd_dlx  then buy_score += osc_macd_dlx_bull ? 1:0  else na, sell_score += osc_macd_dlx_bear ? 1:0  else na
+if m_macd_dlx  then buy_valid := buy_valid  and osc_macd_dlx_bull,  sell_valid := sell_valid and osc_macd_dlx_bear
+if s_cci       then buy_score += osc_cci_bull      ? 1:0  else na, sell_score += osc_cci_bear      ? 1:0  else na
+if m_cci       then buy_valid := buy_valid  and osc_cci_bull,       sell_valid := sell_valid and osc_cci_bear
+if s_mdiv      then buy_score += osc_mdiv_bull     ? 1:0  else na, sell_score += osc_mdiv_bear     ? 1:0  else na
+if m_mdiv      then buy_valid := buy_valid  and osc_mdiv_bull,      sell_valid := sell_valid and osc_mdiv_bear
+if s_peter     then buy_score += osc_peter_bull    ? 1:0  else na, sell_score += osc_peter_bear    ? 1:0  else na
+if m_peter     then buy_valid := buy_valid  and osc_peter_bull,     sell_valid := sell_valid and osc_peter_bear
+if s_tfdiv     then buy_score += osc_tfdiv_bull    ? 1:0  else na, sell_score += osc_tfdiv_bear    ? 1:0  else na
+if m_tfdiv     then buy_valid := buy_valid  and osc_tfdiv_bull,     sell_valid := sell_valid and osc_tfdiv_bear
+if s_smt       then buy_score += osc_smt_bull      ? 1:0  else na, sell_score += osc_smt_bear      ? 1:0  else na
+if m_smt       then buy_valid := buy_valid  and osc_smt_bull,       sell_valid := sell_valid and osc_smt_bear
+if s_sm_act    then buy_score += sm_act_bull       ? 1:0  else na, sell_score += sm_act_bear       ? 1:0  else na
+if m_sm_act    then buy_valid := buy_valid  and sm_act_bull,        sell_valid := sell_valid and sm_act_bear
+if s_sm_idx    then buy_score += sm_idx_bull       ? 1:0  else na, sell_score += sm_idx_bear       ? 1:0  else na
+if m_sm_idx    then buy_valid := buy_valid  and sm_idx_bull,        sell_valid := sell_valid and sm_idx_bear
+if s_sm_int    then buy_score += sm_int_bull       ? 1:0  else na, sell_score += sm_int_bear       ? 1:0  else na
+if m_sm_int    then buy_valid := buy_valid  and sm_int_bull,        sell_valid := sell_valid and sm_int_bear
+if s_cndl      then buy_score += cndl_bull         ? 1:0  else na, sell_score += cndl_bear         ? 1:0  else na
+if m_cndl      then buy_valid := buy_valid  and cndl_bull,          sell_valid := sell_valid and cndl_bear
+if s_ma_cross  then buy_score += x_ma_bull         ? 1:0  else na, sell_score += x_ma_bear         ? 1:0  else na
+if m_ma_cross  then buy_valid := buy_valid  and x_ma_bull,          sell_valid := sell_valid and x_ma_bear
+if s_ma_trend  then buy_score += ma_trend_bull     ? 1:0  else na, sell_score += ma_trend_bear     ? 1:0  else na
+if m_ma_trend  then buy_valid := buy_valid  and ma_trend_bull,      sell_valid := sell_valid and ma_trend_bear
+if s_smc       then buy_score += b_smc_bull        ? 1:0  else na, sell_score += b_smc_bear        ? 1:0  else na
+if m_smc       then buy_valid := buy_valid  and b_smc_bull,         sell_valid := sell_valid and b_smc_bear
+if s_ob        then buy_score += b_ob_bull         ? 1:0  else na, sell_score += b_ob_bear         ? 1:0  else na
+if m_ob        then buy_valid := buy_valid  and b_ob_bull,          sell_valid := sell_valid and b_ob_bear
+if s_sd        then buy_score += b_sd_bull         ? 1:0  else na, sell_score += b_sd_bear         ? 1:0  else na
+if m_sd        then buy_valid := buy_valid  and b_sd_bull,          sell_valid := sell_valid and b_sd_bear
+if s_fvg       then buy_score += (b_fvg_bull or b_fvg_precise_bull) ? 1:0 else na
+               sell_score += (b_fvg_bear or b_fvg_precise_bear) ? 1:0 else na
+if m_fvg       then buy_valid := buy_valid  and (b_fvg_bull or b_fvg_precise_bull)
+               sell_valid := sell_valid and (b_fvg_bear or b_fvg_precise_bear)
+if s_bos       then buy_score += b_bos_bull ? 1:0 else na, sell_score += b_bos_bear ? 1:0 else na
+if m_bos       then buy_valid := buy_valid  and b_bos_bull, sell_valid := sell_valid and b_bos_bear
+if s_bb        then buy_score += b_bb_bull  ? 1:0 else na, sell_score += b_bb_bear  ? 1:0 else na
+if m_bb        then buy_valid := buy_valid  and b_bb_bull,  sell_valid := sell_valid and b_bb_bear
+if s_hm        then buy_score += b_hm_bull  ? 1:0 else na, sell_score += b_hm_bear  ? 1:0 else na
+if m_hm        then buy_valid := buy_valid  and b_hm_bull,  sell_valid := sell_valid and b_hm_bear
+if s_sdinv     then buy_score += b_sdinv_bull ? 1:0 else na, sell_score += b_sdinv_bear ? 1:0 else na
+if m_sdinv     then buy_valid := buy_valid  and b_sdinv_bull, sell_valid := sell_valid and b_sdinv_bear
+if s_sweep     then buy_score += b_sweep_bull ? 1:0 else na, sell_score += b_sweep_bear ? 1:0 else na
+if m_sweep     then buy_valid := buy_valid  and b_sweep_bull, sell_valid := sell_valid and b_sweep_bear
+if s_choch     then buy_score += b_choch_bull ? 1:0 else na, sell_score += b_choch_bear ? 1:0 else na
+if m_choch     then buy_valid := buy_valid  and b_choch_bull, sell_valid := sell_valid and b_choch_bear
+if s_pd        then buy_score += b_pd_bull  ? 1:0 else na, sell_score += b_pd_bear  ? 1:0 else na
+if m_pd        then buy_valid := buy_valid  and b_pd_bull,  sell_valid := sell_valid and b_pd_bear
+if s_avwap     then buy_score += b_avwap_bull ? 1:0 else na, sell_score += b_avwap_bear ? 1:0 else na
+if m_avwap     then buy_valid := buy_valid  and b_avwap_bull, sell_valid := sell_valid and b_avwap_bear
+if s_disp      then buy_score += b_disp_bull  ? 1:0 else na, sell_score += b_disp_bear  ? 1:0 else na
+if m_disp      then buy_valid := buy_valid  and b_disp_bull,  sell_valid := sell_valid and b_disp_bear
+if s_ob_frsh   then buy_score += b_ob_fresh_bull ? 1:0 else na, sell_score += b_ob_fresh_bear ? 1:0 else na
+if m_ob_frsh   then buy_valid := buy_valid  and b_ob_fresh_bull, sell_valid := sell_valid and b_ob_fresh_bear
+
+// Ослабление обязательных при активном тренде/боковике
+if en_regime and regime_trending and (m_rsi_kde or m_stoch or m_macd_dlx)
+    buy_valid := true, sell_valid := true
+if en_regime and regime_ranging and (m_bos or m_choch)
+    buy_valid := true, sell_valid := true
+
+// ====================================================================================================================
+// ГЕНЕРАЦИЯ СИГНАЛОВ
+// ====================================================================================================================
+bool signal_is_hc_buy    = hc_buy_trigger
+bool signal_is_score_buy = not hc_buy_trigger and (buy_score >= req_score and buy_valid)
+bool signal_is_hc_sell   = hc_sell_trigger
+bool signal_is_score_sell= not hc_sell_trigger and (sell_score >= req_score and sell_valid)
+
+var bool is_buy  = false
+var bool is_sell = false
+var int  bars_since_any_buy  = 999
+var int  bars_since_any_sell = 999
+
+is_buy  := false
+is_sell := false
+bars_since_any_buy  := math.min(bars_since_any_buy  + 1, 999)
+bars_since_any_sell := math.min(bars_since_any_sell + 1, 999)
+
+if barstate.isconfirmed
+    if (signal_is_hc_buy  or signal_is_score_buy)  and bars_since_any_buy  >= sig_lookback and not block_E3_bull
+        is_buy  := true, bars_since_any_buy  := 0
+    if (signal_is_hc_sell or signal_is_score_sell) and bars_since_any_sell >= sig_lookback and not block_E3_bear
+        is_sell := true, bars_since_any_sell := 0
+
+// Снимаем блокировщик после генерации (уже применён выше)
+// E3: если CHoCH без подтверждения — блокируем
+if block_E3_bull then is_buy  := false
+if block_E3_bear then is_sell := false
+
+// ====================================================================================================================
+// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ИНФОБЛОКА
+// ====================================================================================================================
+f_get_align(str) =>
+    str == "Left" ? text.align_left : str == "Right" ? text.align_right : text.align_center
+
+// Проверить: имя условия уже использовано в HC ключах?
+f_in_keys(string keys, string name) => str.contains(keys, name)
+
+// ── Бонус-строка: сработало, но не является обязательным условием HC ─────────
+f_bonus_line(bool fired, string display_name, string hc_keys, string dir_suffix) =>
+    string line = ""
+    if fired and not f_in_keys(hc_keys, display_name)
+        line := "➕ " + display_name + dir_suffix + "\n"
+    line
+
+// ====================================================================================================================
+// ОСНОВНАЯ ФУНКЦИЯ ИНФОБЛОКА
+// Структура:
+//   1. LTF Каскад (живые данные с аргументами каждого тира)
+//   2. Финальный сигнал: HC название или Скор
+//   3. HC Аргументы (если HC)
+//   4. Бонусы — сработали, но не входят в HC условия (без дублей)
+//   5. Структурный ref (SL-подсказка)
+//   6. Предупреждения
+// ====================================================================================================================
+f_build_info(bool is_bull, bool ltf_all_confirmed) =>
+    int    n       = is_bull ? hc_active_bull.size() : hc_active_bear.size()
+    int    ltf_sc  = is_bull ? ltf_bull_conf   : ltf_bear_conf
+    int    pnd_b   = is_bull ? pending_buy_bars : pending_sell_bars
+    bool   is_hc   = is_bull ? signal_is_hc_buy  : signal_is_hc_sell
+    int    sc      = is_bull ? buy_score  : sell_score
+    string hc_keys = is_bull ? hc_keys_bull_first : hc_keys_bear_first
+    string info    = ""
+
+    // ── 1. LTF КАСКАД (живые данные) ─────────────────────────────────────────
+    string tier_hdr = ltf_sc == 3 ? "🟢" : ltf_sc == 2 ? "🟡" : ltf_sc == 1 ? "⚪" : "❌"
+    info += tier_hdr + " LTF Каскад (" + str.tostring(ltf_sc) + "/3 тира) ─────\n"
+    info += (is_bull ? ltf1_detail_b : ltf1_detail_s) + "\n"
+    info += (is_bull ? ltf2_detail_b : ltf2_detail_s) + "\n"
+    info += (is_bull ? ltf3_detail_b : ltf3_detail_s) + "\n"
+    info += (is_bull ? ltf_cascade_verdict_b : ltf_cascade_verdict_s) + "\n"
+    if not ltf_all_confirmed
+        if ltf_sc == 0
+            info += "⚠️ LTF: ни один тир не подтвердил\n"
+        else if ltf_sc == 1
+            info += "⚠️ " + (is_bull ? mtf_tv_2 : mtf_tv_2) + "м и " + (is_bull ? mtf_tv_3 : mtf_tv_3) + "м не подтвердили\n"
+        else if ltf_sc == 2
+            info += "⚠️ " + (is_bull ? mtf_tv_3 : mtf_tv_3) + "м не подтвердил\n"
+    if pnd_b > 0
+        info += "⏳ Ждали LTF: " + str.tostring(pnd_b) + " бар\n"
+
+    // ── 2. ФИНАЛЬНЫЙ СИГНАЛ ───────────────────────────────────────────────────
+    info += "──────────────────────────\n"
+    if is_hc
+        if n == 1
+            info += "🚀 " + (is_bull ? hc_active_bull.get(0) : hc_active_bear.get(0)) + "\n"
+        else if n > 1
+            info += "🔥 HC-матрица (" + str.tostring(n) + " паттерна)\n"
+            if is_bull
+                for nm in hc_active_bull
+                    info += "  › " + nm + "\n"
+            else
+                for nm in hc_active_bear
+                    info += "  › " + nm + "\n"
+        // ── 3. HC АРГУМЕНТЫ ───────────────────────────────────────────────────
+        if hc_keys != ""
+            info += "── HC Аргументы ──\n"
+            array<string> keys_arr = str.split(hc_keys, "|")
+            for k in keys_arr
+                if k != ""
+                    info += "✅ " + k + "\n"
+        // ── 4. БОНУСЫ ─────────────────────────────────────────────────────────
+        // Сработали дополнительно, не являются обязательными для этого HC
+        string bonus_txt = ""
+        if is_bull
+            bonus_txt += f_bonus_line(b_smc_bull,        "SMC бычий",         hc_keys, "")
+            bonus_txt += f_bonus_line(b_ob_fresh_bull,   "Fresh OB",           hc_keys, "")
+            bonus_txt += f_bonus_line(b_ob_bull and not b_ob_fresh_bull, "OB State", hc_keys, "")
+            bonus_txt += f_bonus_line(b_sd_bull,         "S&D Demand",         hc_keys, "")
+            bonus_txt += f_bonus_line(b_fvg_precise_bull,"FVG точный",         hc_keys, "")
+            bonus_txt += f_bonus_line(b_fvg_bull and not b_fvg_precise_bull,"FVG Active",hc_keys,"")
+            bonus_txt += f_bonus_line(ote_score_bull==2, "OTE 0.618-0.786",    hc_keys, "")
+            bonus_txt += f_bonus_line(ote_score_bull==1, "OTE Discount",        hc_keys, "")
+            bonus_txt += f_bonus_line(b_avwap_bull,      "AVWAP выравн.",       hc_keys, "")
+            bonus_txt += f_bonus_line(b_bb_bull,         "Breaker Block",       hc_keys, "")
+            bonus_txt += f_bonus_line(b_disp_bull,       "Displacement",        hc_keys, "")
+            bonus_txt += f_bonus_line(bars_since_choch_bull<=5,"CHoCH ≤5 бар", hc_keys, "")
+            bonus_txt += f_bonus_line(bars_since_sweep_bull<=5,"Sweep ≤5 бар", hc_keys, "")
+            bonus_txt += f_bonus_line(bars_since_hm_bull<=7,"HM Sweep ≤7 бар", hc_keys, "")
+            bonus_txt += f_bonus_line(sm_act_bull,       "SM Activity",         hc_keys, "")
+            bonus_txt += f_bonus_line(sm_idx_bull,       "SM Index",            hc_keys, "")
+            bonus_txt += f_bonus_line(sm_int_bull,       "SM Interest",         hc_keys, "")
+            bonus_txt += f_bonus_line(cvd_bull_div,      "CVD дивергенция",     hc_keys, "")
+            bonus_txt += f_bonus_line(sm_absorption,     "SM Absorption",       hc_keys, "")
+            bonus_txt += f_bonus_line(osc_kde_bull,      "KDE RSI",             hc_keys, "")
+            bonus_txt += f_bonus_line(osc_stoch_bull,    "Stoch Z",             hc_keys, "")
+            bonus_txt += f_bonus_line(osc_macd_dlx_bull, "MACD Deluxe",         hc_keys, "")
+            bonus_txt += f_bonus_line(osc_cci_bull,      "Adv CCI",             hc_keys, "")
+            bonus_txt += f_bonus_line(osc_mdiv_bull,     "Multi-Div",           hc_keys, "")
+            bonus_txt += f_bonus_line(osc_peter_bull,    "PeterO Div",          hc_keys, "")
+            bonus_txt += f_bonus_line(osc_tfdiv_bull,    "Fractal Div",         hc_keys, "")
+            bonus_txt += f_bonus_line(osc_smt_bull,      "SMT Div",             hc_keys, "")
+            bonus_txt += f_bonus_line(cndl_bull,         "Свеча: " + cndl_name, hc_keys, "")
+            bonus_txt += f_bonus_line(ma_trend_bull,     "MA тренд бычий",      hc_keys, "")
+            bonus_txt += f_bonus_line(b_master_bull,     "Main Master Signal",  hc_keys, "")
+            bonus_txt += f_bonus_line(b_conf_bull_ok,    "Main Confluence ≥8",  hc_keys, "")
+            bonus_txt += f_bonus_line(p1_p2agrees_b,     "P2 Консенсус",        hc_keys, "")
+        else
+            bonus_txt += f_bonus_line(b_smc_bear,        "SMC медвежий",        hc_keys, "")
+            bonus_txt += f_bonus_line(b_ob_fresh_bear,   "Fresh OB",            hc_keys, "")
+            bonus_txt += f_bonus_line(b_ob_bear and not b_ob_fresh_bear,"OB State",hc_keys,"")
+            bonus_txt += f_bonus_line(b_sd_bear,         "S&D Supply",          hc_keys, "")
+            bonus_txt += f_bonus_line(b_fvg_precise_bear,"FVG точный",          hc_keys, "")
+            bonus_txt += f_bonus_line(b_fvg_bear and not b_fvg_precise_bear,"FVG Active",hc_keys,"")
+            bonus_txt += f_bonus_line(ote_score_bear==2, "OTE 0.618-0.786",     hc_keys, "")
+            bonus_txt += f_bonus_line(ote_score_bear==1, "OTE Premium",          hc_keys, "")
+            bonus_txt += f_bonus_line(b_avwap_bear,      "AVWAP выравн.",        hc_keys, "")
+            bonus_txt += f_bonus_line(b_bb_bear,         "Breaker Block",        hc_keys, "")
+            bonus_txt += f_bonus_line(b_disp_bear,       "Displacement",         hc_keys, "")
+            bonus_txt += f_bonus_line(bars_since_choch_bear<=5,"CHoCH ≤5 бар",  hc_keys, "")
+            bonus_txt += f_bonus_line(bars_since_sweep_bear<=5,"Sweep ≤5 бар",  hc_keys, "")
+            bonus_txt += f_bonus_line(bars_since_hm_bear<=7,"HM Sweep ≤7 бар",  hc_keys, "")
+            bonus_txt += f_bonus_line(sm_act_bear,       "SM Activity",          hc_keys, "")
+            bonus_txt += f_bonus_line(sm_idx_bear,       "SM Index",             hc_keys, "")
+            bonus_txt += f_bonus_line(sm_int_bear,       "SM Interest",          hc_keys, "")
+            bonus_txt += f_bonus_line(cvd_bear_div,      "CVD дивергенция",      hc_keys, "")
+            bonus_txt += f_bonus_line(sm_absorption,     "SM Absorption",        hc_keys, "")
+            bonus_txt += f_bonus_line(osc_kde_bear,      "KDE RSI",              hc_keys, "")
+            bonus_txt += f_bonus_line(osc_stoch_bear,    "Stoch Z",              hc_keys, "")
+            bonus_txt += f_bonus_line(osc_macd_dlx_bear, "MACD Deluxe",          hc_keys, "")
+            bonus_txt += f_bonus_line(osc_cci_bear,      "Adv CCI",              hc_keys, "")
+            bonus_txt += f_bonus_line(osc_mdiv_bear,     "Multi-Div",            hc_keys, "")
+            bonus_txt += f_bonus_line(osc_peter_bear,    "PeterO Div",           hc_keys, "")
+            bonus_txt += f_bonus_line(osc_tfdiv_bear,    "Fractal Div",          hc_keys, "")
+            bonus_txt += f_bonus_line(osc_smt_bear,      "SMT Div",              hc_keys, "")
+            bonus_txt += f_bonus_line(cndl_bear,         "Свеча: " + cndl_name,  hc_keys, "")
+            bonus_txt += f_bonus_line(ma_trend_bear,     "MA тренд медвежий",    hc_keys, "")
+            bonus_txt += f_bonus_line(b_master_bear,     "Main Master Signal",   hc_keys, "")
+            bonus_txt += f_bonus_line(b_conf_bear_ok,    "Main Confluence ≥8",   hc_keys, "")
+            bonus_txt += f_bonus_line(p1_p2agrees_s,     "P2 Консенсус",         hc_keys, "")
+        if bonus_txt != ""
+            info += "── Бонусы ──\n" + bonus_txt
+    else
+        // Скоринг — все сработавшие факторы (минимально необходимые + все остальные)
+        info += "🎯 СКОР: " + str.tostring(sc) + "/" + str.tostring(req_score) + "\n"
+        info += "── Сработавшие факторы ──\n"
+        if is_bull
+            if b_smc_bull         then info += "✅ SMC бычий\n"
+            if b_ob_fresh_bull    then info += "✅ Fresh OB (1й вход)\n"
+            else if b_ob_bull     then info += "✅ OB State\n"
+            if b_sd_bull          then info += "✅ S&D Demand\n"
+            if b_fvg_precise_bull then info += "✅ FVG точный\n"
+            else if b_fvg_bull    then info += "✅ FVG Active\n"
+            if ote_score_bull==2  then info += "✅ OTE 0.618-0.786\n"
+            else if ote_score_bull==1 then info += "✅ Discount зона\n"
+            if b_avwap_bull       then info += "✅ AVWAP выравн.\n"
+            if b_bb_bull          then info += "✅ Breaker Block\n"
+            if b_disp_bull        then info += "✅ Displacement\n"
+            if bars_since_choch_bull<=5 then info += "✅ CHoCH (" + str.tostring(bars_since_choch_bull) + " бар)\n"
+            if bars_since_sweep_bull<=5 then info += "✅ Sweep (" + str.tostring(bars_since_sweep_bull) + " бар)\n"
+            if bars_since_hm_bull<=7    then info += "✅ HM Sweep (" + str.tostring(bars_since_hm_bull) + " бар)\n"
+            if sm_act_bull        then info += "✅ SM Activity\n"
+            if sm_idx_bull        then info += "✅ SM Index\n"
+            if sm_int_bull        then info += "✅ SM Interest\n"
+            if cvd_bull_div       then info += "✅ CVD дивергенция\n"
+            if sm_absorption      then info += "✅ SM Absorption\n"
+            if osc_kde_bull       then info += "✅ KDE RSI\n"
+            if osc_stoch_bull     then info += "✅ Stoch Z\n"
+            if osc_macd_dlx_bull  then info += "✅ MACD Deluxe\n"
+            if osc_cci_bull       then info += "✅ Adv CCI\n"
+            if osc_mdiv_bull      then info += "✅ Multi-Div (" + str.tostring(total_mdiv_bull) + ")\n"
+            if osc_peter_bull     then info += "✅ PeterO Div\n"
+            if osc_tfdiv_bull     then info += "✅ Fractal Div\n"
+            if osc_smt_bull       then info += "✅ SMT Div\n"
+            if cndl_bull          then info += "✅ Свеча: " + cndl_name + "\n"
+            if ma_trend_bull      then info += "✅ MA тренд бычий\n"
+            if b_master_bull      then info += "✅ Main Master Signal\n"
+            if p1_p2agrees_b      then info += "✅ P2 Консенсус\n"
+        else
+            if b_smc_bear         then info += "✅ SMC медвежий\n"
+            if b_ob_fresh_bear    then info += "✅ Fresh OB (1й вход)\n"
+            else if b_ob_bear     then info += "✅ OB State\n"
+            if b_sd_bear          then info += "✅ S&D Supply\n"
+            if b_fvg_precise_bear then info += "✅ FVG точный\n"
+            else if b_fvg_bear    then info += "✅ FVG Active\n"
+            if ote_score_bear==2  then info += "✅ OTE 0.618-0.786\n"
+            else if ote_score_bear==1 then info += "✅ Premium зона\n"
+            if b_avwap_bear       then info += "✅ AVWAP выравн.\n"
+            if b_bb_bear          then info += "✅ Breaker Block\n"
+            if b_disp_bear        then info += "✅ Displacement\n"
+            if bars_since_choch_bear<=5 then info += "✅ CHoCH (" + str.tostring(bars_since_choch_bear) + " бар)\n"
+            if bars_since_sweep_bear<=5 then info += "✅ Sweep (" + str.tostring(bars_since_sweep_bear) + " бар)\n"
+            if bars_since_hm_bear<=7    then info += "✅ HM Sweep (" + str.tostring(bars_since_hm_bear) + " бар)\n"
+            if sm_act_bear        then info += "✅ SM Activity\n"
+            if sm_idx_bear        then info += "✅ SM Index\n"
+            if sm_int_bear        then info += "✅ SM Interest\n"
+            if cvd_bear_div       then info += "✅ CVD дивергенция\n"
+            if sm_absorption      then info += "✅ SM Absorption\n"
+            if osc_kde_bear       then info += "✅ KDE RSI\n"
+            if osc_stoch_bear     then info += "✅ Stoch Z\n"
+            if osc_macd_dlx_bear  then info += "✅ MACD Deluxe\n"
+            if osc_cci_bear       then info += "✅ Adv CCI\n"
+            if osc_mdiv_bear      then info += "✅ Multi-Div (" + str.tostring(total_mdiv_bear) + ")\n"
+            if osc_peter_bear     then info += "✅ PeterO Div\n"
+            if osc_tfdiv_bear     then info += "✅ Fractal Div\n"
+            if osc_smt_bear       then info += "✅ SMT Div\n"
+            if cndl_bear          then info += "✅ Свеча: " + cndl_name + "\n"
+            if ma_trend_bear      then info += "✅ MA тренд медвежий\n"
+            if b_master_bear      then info += "✅ Main Master Signal\n"
+            if p1_p2agrees_s      then info += "✅ P2 Консенсус\n"
+
+    // ── 5. СТРУКТУРНЫЙ REF (SL-подсказка) ────────────────────────────────────
+    if is_bull and bull_prox_conn and not na(p1_bull_prox)
+        info += "⭐ Struct ref: " + str.tostring(p1_bull_prox, format.mintick) + "\n"
+    if not is_bull and bear_prox_conn and not na(p1_bear_prox)
+        info += "⭐ Struct ref: " + str.tostring(p1_bear_prox, format.mintick) + "\n"
+
+    // ── 6. ПРЕДУПРЕЖДЕНИЯ ─────────────────────────────────────────────────────
+    if is_bull
+        if warn_F1_shift_bull      then info += "⚠️ Смена режима рынка!\n"
+        if warn_E2_bull_exhaustion then info += "⚠️ Истощение тренда!\n"
+    else
+        if warn_F1_shift_bear      then info += "⚠️ Смена режима рынка!\n"
+        if warn_E2_bear_exhaustion then info += "⚠️ Истощение тренда!\n"
+
+    info
+
+// ====================================================================================================================
+// ЖИВОЙ СВЕТОФОР — ДИНАМИЧЕСКИЙ ЛЕЙБЛ (⚪ → 🟡 → 🔵 → 🟢)
+// Обновляется каждый тик внутри barstate.isrealtime.
+// Удаляется на barstate.isconfirmed — заменяется историческим финальным лейблом.
+// ====================================================================================================================
+var label dynamic_lbl = na
+// Сохраняем состояние светофора на момент закрытия для финального сигнала
+var int   last_mtf_state_at_close_b = 0
+var int   last_mtf_state_at_close_s = 0
+
+if barstate.isrealtime and en_live_lbl
+    int   cur_bull  = mtf_state_bull
+    int   cur_bear  = mtf_state_bear
+    bool  is_bull_d = cur_bull >= cur_bear and cur_bull > 0
+    bool  is_bear_d = cur_bear > cur_bull  and cur_bear > 0
+    int   cur_state = math.max(cur_bull, cur_bear)
+
+    if cur_state > 0
+        string dir = is_bull_d ? "BUY ↑" : "SELL ↓"
+        color  c   = cur_state == 3 ? color.new(#1565C0, 10)
+                   : cur_state == 2 ? color.new(color.orange, 10)
+                   : color.new(color.gray, 20)
+        string icon = cur_state == 3 ? "🔵" : cur_state == 2 ? "🟡" : "⚪"
+        string tier_txt = cur_state == 3
+            ? "5м Плотный контроль (" + dir + ")"
+            : cur_state == 2
+            ? "3м Приготовиться (" + dir + ")"
+            : "1м Внимание (" + dir + ")"
+
+        // Компактные LTF данные для живого лейбла
+        string ltf1_s = is_bull_d ? ltf1_detail_b : ltf1_detail_s
+        string ltf2_s = is_bull_d ? ltf2_detail_b : ltf2_detail_s
+        string ltf3_s = is_bull_d ? ltf3_detail_b : ltf3_detail_s
+        string poi_s  = ""
+        if is_bull_d
+            poi_s := (b_ob_bull ? "OB " : "") + (b_sd_bull ? "S&D " : "")
+                   + (b_fvg_precise_bull ? "FVG " : "") + (ote_score_bull >= 1 ? "OTE" : "")
+        else
+            poi_s := (b_ob_bear ? "OB " : "") + (b_sd_bear ? "S&D " : "")
+                   + (b_fvg_precise_bear ? "FVG " : "") + (ote_score_bear >= 1 ? "OTE" : "")
+
+        string live_txt = icon + " " + tier_txt + "\n"
+                        + ltf1_s + "\n" + ltf2_s + "\n" + ltf3_s + "\n"
+                        + "POI: " + poi_s
+
+        float  y_pos  = is_bull_d ? low  - atr14 * live_lbl_gap : high + atr14 * live_lbl_gap
+        string lbl_st = is_bull_d ? label.style_label_up : label.style_label_down
+
+        if na(dynamic_lbl)
+            dynamic_lbl := label.new(bar_index, y_pos, text=live_txt,
+                style=lbl_st, color=c, textcolor=color.white, size=size.small)
+        else
+            label.set_xy(dynamic_lbl,   bar_index, y_pos)
+            label.set_text(dynamic_lbl, live_txt)
+            label.set_color(dynamic_lbl, c)
+            label.set_style(dynamic_lbl, lbl_st)
+    else
+        // Вне POI или LTF не подтвердил → удаляем светофор
+        if not na(dynamic_lbl)
+            label.delete(dynamic_lbl), dynamic_lbl := na
+
+// Запоминаем состояние на момент закрытия свечи
+if barstate.isconfirmed
+    last_mtf_state_at_close_b := mtf_state_bull
+    last_mtf_state_at_close_s := mtf_state_bear
+    // Удаляем плавающий светофор — он будет заменён историческим финальным лейблом
+    if not na(dynamic_lbl)
+        label.delete(dynamic_lbl), dynamic_lbl := na
+
+// ====================================================================================================================
+// ВИЗУАЛИЗАЦИЯ — ИСТОРИЧЕСКИЕ ЛЕЙБЛЫ BUY/SELL И ИНФОБЛОК
+// Финальный лейбл: цвет зависит от того сколько LTF тиров подтвердилось
+// ====================================================================================================================
+if is_buy
+    // Цвет: зелёный если все 3 тира, оранжевый если 2, обычный если 1 или 0
+    color buy_col = last_mtf_state_at_close_b == 3 ? color.new(#00c853, 0)
+                  : last_mtf_state_at_close_b == 2 ? color.new(#ff9800, 0)
+                  : color.new(#089981, 0)
+    string buy_txt = last_mtf_state_at_close_b == 3 ? "🟢 BUY"
+                   : last_mtf_state_at_close_b == 2 ? "🟡 BUY"
+                   : last_mtf_state_at_close_b == 1 ? "⚪ BUY" : "BUY"
+
+    if en_sig_labels
+        label.new(bar_index, low - atr14, text=buy_txt, style=label.style_label_up,
+            color=buy_col, textcolor=sig_text_col, size=get_size(sig_text_size))
+    if en_info_block
+        bool ltf_all_ok = last_mtf_state_at_close_b >= 3
+        label.new(bar_index, low - atr14 * (1 + info_gap), text=f_build_info(true, ltf_all_ok),
+            style=label.style_label_up, color=ltf_all_ok ? color.new(#1b5e20, 15) : info_bg_col,
+            textcolor=info_text_col, size=get_size(info_text_size), textalign=f_get_align(info_align))
+
+if is_sell
+    color sell_col = last_mtf_state_at_close_s == 3 ? color.new(#d50000, 0)
+                   : last_mtf_state_at_close_s == 2 ? color.new(#ff9800, 0)
+                   : color.new(#f23645, 0)
+    string sell_txt = last_mtf_state_at_close_s == 3 ? "🟢 SELL"
+                    : last_mtf_state_at_close_s == 2 ? "🟡 SELL"
+                    : last_mtf_state_at_close_s == 1 ? "⚪ SELL" : "SELL"
+
+    if en_sig_labels
+        label.new(bar_index, high + atr14, text=sell_txt, style=label.style_label_down,
+            color=sell_col, textcolor=sig_text_col, size=get_size(sig_text_size))
+    if en_info_block
+        bool ltf_all_ok = last_mtf_state_at_close_s >= 3
+        label.new(bar_index, high + atr14 * (1 + info_gap), text=f_build_info(false, ltf_all_ok),
+            style=label.style_label_down, color=ltf_all_ok ? color.new(#b71c1c, 15) : info_bg_col,
+            textcolor=info_text_col, size=get_size(info_text_size), textalign=f_get_align(info_align))
+
+// ====================================================================================================================
+// ДАШБОРД
+// ====================================================================================================================
+var table dash = table.new(
+    dash_pos_str == "Сверху справа" ? position.top_right
+    : dash_pos_str == "Снизу справа" ? position.bottom_right
+    : position.bottom_left,
+    3, 38,
+    bgcolor=color.new(color.black, 80), border_width=1, border_color=color.gray)
+
+f_cell(table _t, int _c, int _r, string _txt, color _tc, color _bg = na) =>
+    table.cell(_t, _c, _r, text=_txt, text_color=_tc, text_size=get_size(dash_text_size_str), bgcolor=_bg)
+
+if en_dash
+    // ── ЗАГОЛОВОК ─────────────────────────────────────────────────────────────
+    f_cell(dash, 0, 0, "СИСТЕМА",   dash_text_col)
+    f_cell(dash, 1, 0, "СТАТУС",    dash_text_col)
+    f_cell(dash, 2, 0, "ДЕТАЛИ",    dash_text_col)
+
+    f_cell(dash, 0, 1, "Связь (Main)", dash_text_col)
+    f_cell(dash, 1, 1, tf_conn ? "АКТИВНА" : "ОФФЛАЙН", tf_conn ? color.lime : color.red)
+    f_cell(dash, 2, 1, tf_conn ? "TF: " + str.tostring(p1_tf_mins) + "м" : "Только локально", dash_text_col)
+
+    f_cell(dash, 0, 2, "Фаза Рынка", dash_text_col)
+    f_cell(dash, 1, 2,
+        regime_trending ? "ТРЕНД" : regime_ranging ? "ФЛЭТ" : regime_compression ? "КОМПРЕССИЯ" : "NEUTRAL",
+        regime_trending ? color.lime : regime_ranging ? color.orange : regime_compression ? color.yellow : color.gray)
+    f_cell(dash, 2, 2, "ADX:" + str.tostring(math.round(adx_val,1)) + " C:" + str.tostring(math.round(choppiness,1)), dash_text_col)
+
+    // ── MTF КАСКАД (живой светофор) ───────────────────────────────────────────
+    int   live_bull = mtf_state_bull, int live_bear = mtf_state_bear
+    bool  has_bull_casc = live_bull > 0 and in_poi_bull
+    bool  has_bear_casc = live_bear > 0 and in_poi_bear
+    color casc_col = has_bull_casc ? (live_bull == 3 ? color.new(#1565C0,0) : live_bull == 2 ? color.orange : color.gray)
+                   : has_bear_casc ? (live_bear == 3 ? color.new(#b71c1c,0) : live_bear == 2 ? color.orange : color.gray)
+                   : color.gray
+    string casc_icon = has_bull_casc ? (live_bull == 3 ? "🔵 BUY 3/3" : live_bull == 2 ? "🟡 BUY 2/3" : "⚪ BUY 1/3")
+                     : has_bear_casc ? (live_bear == 3 ? "🔵 SELL 3/3": live_bear == 2 ? "🟡 SELL 2/3": "⚪ SELL 1/3")
+                     : "— Вне POI"
+
+    f_cell(dash, 0, 3, "MTF Светофор", dash_text_col)
+    f_cell(dash, 1, 3, casc_icon, casc_col)
+    f_cell(dash, 2, 3, "Окно: " + str.tostring(mtf_window) + " баров", dash_text_col)
+
+    // LTF тиры
+    f_cell(dash, 0, 4, "LTF1 (" + mtf_tv_1 + "м)", dash_text_col)
+    f_cell(dash, 1, 4,
+        eff_ltf1_bull >= mtf_thresh ? "BUY ✅ " + str.tostring(eff_ltf1_bull) + "/6"
+        : eff_ltf1_bear >= mtf_thresh ? "SELL ✅ " + str.tostring(eff_ltf1_bear) + "/6"
+        : "⏳ B:" + str.tostring(eff_ltf1_bull) + "/6 S:" + str.tostring(eff_ltf1_bear) + "/6",
+        eff_ltf1_bull >= mtf_thresh ? color.lime : eff_ltf1_bear >= mtf_thresh ? color.red : color.gray)
+    f_cell(dash, 2, 4, (ltf1b_conn or ltf1s_conn) ? "Main P1" : "Local fallback", dash_text_col)
+
+    f_cell(dash, 0, 5, "LTF2 (" + mtf_tv_2 + "м)", dash_text_col)
+    f_cell(dash, 1, 5,
+        eff_ltf2_bull >= mtf_thresh ? "BUY ✅ " + str.tostring(eff_ltf2_bull) + "/6"
+        : eff_ltf2_bear >= mtf_thresh ? "SELL ✅ " + str.tostring(eff_ltf2_bear) + "/6"
+        : "⏳ B:" + str.tostring(eff_ltf2_bull) + "/6 S:" + str.tostring(eff_ltf2_bear) + "/6",
+        eff_ltf2_bull >= mtf_thresh ? color.lime : eff_ltf2_bear >= mtf_thresh ? color.red : color.gray)
+    f_cell(dash, 2, 5, (ltf2b_conn or ltf2s_conn) ? "Main P1" : "Local fallback", dash_text_col)
+
+    f_cell(dash, 0, 6, "LTF3 (" + mtf_tv_3 + "м)", dash_text_col)
+    f_cell(dash, 1, 6,
+        eff_ltf3_bull >= mtf_thresh ? "BUY ✅ " + str.tostring(eff_ltf3_bull) + "/6"
+        : eff_ltf3_bear >= mtf_thresh ? "SELL ✅ " + str.tostring(eff_ltf3_bear) + "/6"
+        : "⏳ B:" + str.tostring(eff_ltf3_bull) + "/6 S:" + str.tostring(eff_ltf3_bear) + "/6",
+        eff_ltf3_bull >= mtf_thresh ? color.lime : eff_ltf3_bear >= mtf_thresh ? color.red : color.gray)
+    f_cell(dash, 2, 6, (ltf3b_conn or ltf3s_conn) ? "Main P1" : "Local fallback", dash_text_col)
+
+    f_cell(dash, 0, 7, "POI Zone",    dash_text_col)
+    f_cell(dash, 1, 7,
+        in_poi_bull ? "BULL POI ✅" : in_poi_bear ? "BEAR POI ✅" : "Вне POI",
+        in_poi_bull ? color.lime : in_poi_bear ? color.red : color.gray)
+    f_cell(dash, 2, 7, "OB/S&D/FVG/OTE", dash_text_col)
+
+    // ── ОСНОВНЫЕ МОДУЛИ ───────────────────────────────────────────────────────
+    f_cell(dash, 0, 8,  "SMC Тренд",  dash_text_col)
+    f_cell(dash, 1, 8,  b_smc_bull ? "БЫЧИЙ" : b_smc_bear ? "МЕДВЕЖИЙ" : "НЕТ",
+        b_smc_bull ? color.lime : b_smc_bear ? color.red : color.gray)
+    f_cell(dash, 2, 8,  "Main Export", dash_text_col)
+
+    f_cell(dash, 0, 9,  "KDE RSI",    dash_text_col)
+    f_cell(dash, 1, 9,  osc_kde_bull ? "ПОКУПКА" : osc_kde_bear ? "ПРОДАЖА" : "НЕЙТРАЛЬ",
+        osc_kde_bull ? color.lime : osc_kde_bear ? color.red : color.gray)
+    f_cell(dash, 2, 9,  str.tostring(math.round(kde_rsi,1)), dash_text_col)
+
+    f_cell(dash, 0, 10, "Stoch Z",    dash_text_col)
+    f_cell(dash, 1, 10, osc_stoch_bull ? "ПОКУПКА" : osc_stoch_bear ? "ПРОДАЖА" : "НЕЙТРАЛЬ",
+        osc_stoch_bull ? color.lime : osc_stoch_bear ? color.red : color.gray)
+    f_cell(dash, 2, 10, str.tostring(math.round(smoothed_scaled,2)), dash_text_col)
+
+    f_cell(dash, 0, 11, "MACD Deluxe", dash_text_col)
+    f_cell(dash, 1, 11, osc_macd_dlx_bull ? "ПОКУПКА" : osc_macd_dlx_bear ? "ПРОДАЖА" : "НЕЙТРАЛЬ",
+        osc_macd_dlx_bull ? color.lime : osc_macd_dlx_bear ? color.red : color.gray)
+    f_cell(dash, 2, 11, str.tostring(math.round(dlx_macSeries,1)), dash_text_col)
+
+    f_cell(dash, 0, 12, "Adv. CCI",   dash_text_col)
+    f_cell(dash, 1, 12, osc_cci_bull ? "ПОКУПКА" : osc_cci_bear ? "ПРОДАЖА" : "НЕЙТРАЛЬ",
+        osc_cci_bull ? color.lime : osc_cci_bear ? color.red : color.gray)
+    f_cell(dash, 2, 12, "ST / L3",    dash_text_col)
+
+    f_cell(dash, 0, 13, "Multi-Div",  dash_text_col)
+    f_cell(dash, 1, 13, osc_mdiv_bull ? "ПОКУПКА" : osc_mdiv_bear ? "ПРОДАЖА" : "НЕТ",
+        osc_mdiv_bull ? color.lime : osc_mdiv_bear ? color.red : color.gray)
+    f_cell(dash, 2, 13, "B:" + str.tostring(total_mdiv_bull) + " S:" + str.tostring(total_mdiv_bear), dash_text_col)
+
+    f_cell(dash, 0, 14, "PeterO Div", dash_text_col)
+    f_cell(dash, 1, 14, osc_peter_bull ? "ПОКУПКА" : osc_peter_bear ? "ПРОДАЖА" : "НЕТ",
+        osc_peter_bull ? color.lime : osc_peter_bear ? color.red : color.gray)
+    f_cell(dash, 2, 14, "NR Div",     dash_text_col)
+
+    f_cell(dash, 0, 15, "TF Fractal", dash_text_col)
+    f_cell(dash, 1, 15, osc_tfdiv_bull ? "ПОКУПКА" : osc_tfdiv_bear ? "ПРОДАЖА" : "НЕТ",
+        osc_tfdiv_bull ? color.lime : osc_tfdiv_bear ? color.red : color.gray)
+    f_cell(dash, 2, 15, "Fractal+" + tfdiv_type, dash_text_col)
+
+    f_cell(dash, 0, 16, "SMT Div",    dash_text_col)
+    f_cell(dash, 1, 16, osc_smt_bull ? "ПОКУПКА" : osc_smt_bear ? "ПРОДАЖА" : "НЕТ",
+        osc_smt_bull ? color.lime : osc_smt_bear ? color.red : color.gray)
+    f_cell(dash, 2, 16, "Intermarket", dash_text_col)
+
+    f_cell(dash, 0, 17, "SM Activity", dash_text_col)
+    f_cell(dash, 1, 17,
+        sm_act_bull ? "ПОКУПКА (Всплеск)" : sm_act_bear ? "ПРОДАЖА (Всплеск)" : "ШТИЛЬ",
+        sm_act_bull ? color.lime : sm_act_bear ? color.red : color.gray)
+    f_cell(dash, 2, 17, "Z-Score Thr", dash_text_col)
+
+    f_cell(dash, 0, 18, "SM Index",   dash_text_col)
+    f_cell(dash, 1, 18,
+        sm_idx_bull ? "БЫКИ ДОМИН." : sm_idx_bear ? "МЕДВЕДИ ДОМИН." : "НЕЙТРАЛЬ",
+        sm_idx_bull ? color.lime : sm_idx_bear ? color.red : color.gray)
+    f_cell(dash, 2, 18, str.tostring(math.round(sm_net_index,2)), dash_text_col)
+
+    f_cell(dash, 0, 19, "SM Interest", dash_text_col)
+    f_cell(dash, 1, 19,
+        sm_int_bull ? "АКУМУЛЯЦИЯ" : sm_int_bear ? "ДИСТРИБУЦИЯ" : "СПЯТ",
+        sm_int_bull ? color.lime : sm_int_bear ? color.red : color.gray)
+    f_cell(dash, 2, 19, "NVI/PVI",    dash_text_col)
+
+    f_cell(dash, 0, 20, "HeatMap Swp", dash_text_col)
+    f_cell(dash, 1, 20, b_hm_bull ? "СНЯЛИ НИЗ" : b_hm_bear ? "СНЯЛИ ВЕРХ" : "НЕТ",
+        b_hm_bull ? color.lime : b_hm_bear ? color.red : color.gray)
+    f_cell(dash, 2, 20, str.tostring(p1_hm_vol, format.volume), dash_text_col)
+
+    f_cell(dash, 0, 21, "Order Block", dash_text_col)
+    f_cell(dash, 1, 21, b_ob_bull ? "В ЗОНЕ BUY" : b_ob_bear ? "В ЗОНЕ SELL" : "ВНЕ ЗОН",
+        b_ob_bull ? color.lime : b_ob_bear ? color.red : color.gray)
+    f_cell(dash, 2, 21, b_ob_fresh_bull or b_ob_fresh_bear ? "FRESH (≤2 бар)" : "Mitigated", dash_text_col)
+
+    f_cell(dash, 0, 22, "S&D Zone",   dash_text_col)
+    f_cell(dash, 1, 22, b_sd_bull ? "DEMAND" : b_sd_bear ? "SUPPLY" : "ВНЕ ЗОН",
+        b_sd_bull ? color.lime : b_sd_bear ? color.red : color.gray)
+    f_cell(dash, 2, 22, b_sdinv_bull or b_sdinv_bear ? "Break ≤3 бар" : "Hold", dash_text_col)
+
+    f_cell(dash, 0, 23, "FVG POC",    dash_text_col)
+    f_cell(dash, 1, 23, b_fvg_bull ? "В БЫЧЬЕМ" : b_fvg_bear ? "В МЕДВЕЖЬЕМ" : "ВНЕ GAP",
+        b_fvg_bull ? color.lime : b_fvg_bear ? color.red : color.gray)
+    f_cell(dash, 2, 23, b_fvg_precise_bull or b_fvg_precise_bear ? "Precise In" : "Near", dash_text_col)
+
+    f_cell(dash, 0, 24, "True OTE",   dash_text_col)
+    f_cell(dash, 1, 24,
+        ote_score_bull == 2 ? "OTE LONG"  : ote_score_bear == 2 ? "OTE SHORT" :
+        ote_score_bull == 1 ? "DISCOUNT"  : ote_score_bear == 1 ? "PREMIUM"   : "EQUATOR",
+        ote_score_bull >= 1 or ote_score_bear >= 1 ? color.lime : color.gray)
+    f_cell(dash, 2, 24,
+        "SH:" + str.tostring(ote_swing_h, format.mintick) + " SL:" + str.tostring(ote_swing_l, format.mintick),
+        dash_text_col)
+
+    f_cell(dash, 0, 25, "AVWAP (Fast)", dash_text_col)
+    f_cell(dash, 1, 25, b_avwap_bull ? "ЦЕНА ВЫШЕ" : b_avwap_bear ? "ЦЕНА НИЖЕ" : "НЕТ ДАННЫХ",
+        b_avwap_bull ? color.lime : b_avwap_bear ? color.red : color.gray)
+    f_cell(dash, 2, 25, str.tostring(avwap_fast_conn ? p1_avwap_fast : p1_avwap, format.mintick), dash_text_col)
+
+    f_cell(dash, 0, 26, "Candle Pat", dash_text_col)
+    f_cell(dash, 1, 26, cndl_bull ? "БЫЧИЙ" : cndl_bear ? "МЕДВЕЖИЙ" : "НЕТ",
+        cndl_bull ? color.lime : cndl_bear ? color.red : color.gray)
+    f_cell(dash, 2, 26, cndl_name,    dash_text_col)
+
+    f_cell(dash, 0, 27, "Volume CVD", dash_text_col)
+    f_cell(dash, 1, 27,
+        sm_absorption ? "ABSORPTION" : cvd_bull_div ? "BULL DIV" : cvd_bear_div ? "BEAR DIV" : "NORMAL",
+        sm_absorption ? color.yellow : cvd_bull_div ? color.lime : cvd_bear_div ? color.red : color.gray)
+    f_cell(dash, 2, 27, "CVD Delta",  dash_text_col)
+
+    f_cell(dash, 0, 28, "SMC Sweep",  dash_text_col)
+    f_cell(dash, 1, 28, b_sweep_bull ? "СВЕЙП НИЗ" : b_sweep_bear ? "СВЕЙП ВЕРХ" : "НЕТ",
+        b_sweep_bull ? color.lime : b_sweep_bear ? color.red : color.gray)
+    f_cell(dash, 2, 28, "Sweep x",   dash_text_col)
+
+    f_cell(dash, 0, 29, "SMC CHoCH",  dash_text_col)
+    f_cell(dash, 1, 29, b_choch_bull ? "CHoCH BULL" : b_choch_bear ? "CHoCH BEAR" : "НЕТ",
+        b_choch_bull ? color.lime : b_choch_bear ? color.red : color.gray)
+    f_cell(dash, 2, 29, "LvL: " + str.tostring(p1_choch_lvl), dash_text_col)
+
+    // ── HC ПАТТЕРН ────────────────────────────────────────────────────────────
+    string hc_dash_txt = ""
+    if hc_active_bull.size() > 0
+        hc_dash_txt := hc_active_bull.size() == 1 ? hc_active_bull.get(0) : "🔥 " + str.tostring(hc_active_bull.size()) + " паттернов"
+    else if hc_active_bear.size() > 0
+        hc_dash_txt := hc_active_bear.size() == 1 ? hc_active_bear.get(0) : "🔥 " + str.tostring(hc_active_bear.size()) + " паттернов"
+    else
+        hc_dash_txt := "Сбор данных..."
+    if warn_F1_shift_bull or warn_F1_shift_bear
+        hc_dash_txt := "⚠️ F1: REGIME SHIFT"
+    color hc_col = hc_active_bull.size() > 0 ? color.lime : hc_active_bear.size() > 0 ? color.red : color.gray
+
+    f_cell(dash, 0, 30, "HC Паттерн", dash_text_col)
+    f_cell(dash, 1, 30, hc_dash_txt,  hc_col)
+    f_cell(dash, 2, 30, str.tostring(hc_active_bull.size() + hc_active_bear.size()) + " активных", dash_text_col)
+
+    // ── СТАТУС СИСТЕМЫ ────────────────────────────────────────────────────────
+    f_cell(dash, 0, 31, "LTF Gate",   dash_text_col)
+    f_cell(dash, 1, 31,
+        ltf_bull_conf >= ltf_gate_min and ltf_gate_min > 0 ? "BULL READY ✅"
+        : ltf_bear_conf >= ltf_gate_min and ltf_gate_min > 0 ? "BEAR READY ✅" : "ОЖИДАНИЕ",
+        ltf_bull_conf >= ltf_gate_min and ltf_gate_min > 0 ? color.lime
+        : ltf_bear_conf >= ltf_gate_min and ltf_gate_min > 0 ? color.red : color.orange)
+    f_cell(dash, 2, 31, "B:" + str.tostring(ltf_bull_conf) + "/3 S:" + str.tostring(ltf_bear_conf) + "/3", dash_text_col)
+
+    f_cell(dash, 0, 32, "HC Pending", dash_text_col)
+    f_cell(dash, 1, 32,
+        pending_buy_hc  ? "⏳ BUY ("  + str.tostring(pending_buy_bars)  + "/3 бар)"
+        : pending_sell_hc ? "⏳ SELL (" + str.tostring(pending_sell_bars) + "/3 бар)" : "—",
+        pending_buy_hc or pending_sell_hc ? color.yellow : color.gray)
+    f_cell(dash, 2, 32, "Ждём LTF",  dash_text_col)
+
+    f_cell(dash, 0, 33, "E3 Блок",   dash_text_col)
+    f_cell(dash, 1, 33,
+        block_E3_bull ? "🛑 BUY ЗАБЛОК." : block_E3_bear ? "🛑 SELL ЗАБЛОК." : "ОК",
+        block_E3_bull or block_E3_bear ? color.red : color.lime)
+    f_cell(dash, 2, 33, block_E3_bull or block_E3_bear ? "CHoCH без подтв." : "—", dash_text_col)
+
+    f_cell(dash, 0, 34, "Score B/S", dash_text_col)
+    f_cell(dash, 1, 34,
+        "B:" + str.tostring(buy_score) + " S:" + str.tostring(sell_score),
+        buy_score >= req_score ? color.lime : sell_score >= req_score ? color.red : color.gray)
+    f_cell(dash, 2, 34, "Порог: " + str.tostring(req_score), dash_text_col)
+
+    // Main Master Signal
+    f_cell(dash, 0, 35, "Main Master", dash_text_col)
+    f_cell(dash, 1, 35,
+        b_master_bull ? "БЫЧИЙ 🟢" : b_master_bear ? "МЕДВЕЖИЙ 🔴" : master_conn ? "НЕЙТРАЛЬ" : "—",
+        b_master_bull ? color.lime : b_master_bear ? color.red : color.gray)
+    f_cell(dash, 2, 35,
+        master_conn ? ("Conf B:" + str.tostring(p1_conf_bull) + " S:" + str.tostring(p1_conf_bear)) : "Нет связи",
+        dash_text_col)
+
+    f_cell(dash, 0, 36, "P2 Согласие", dash_text_col)
+    f_cell(dash, 1, 36,
+        p1_p2agrees_b ? "Main+Sniper BULL" : p1_p2agrees_s ? "Main+Sniper BEAR" : "Нет консенсуса",
+        p1_p2agrees_b ? color.lime : p1_p2agrees_s ? color.red : color.gray)
+    f_cell(dash, 2, 36, "Bidirectional", dash_text_col)
+
+    bool is_standalone_mode = en_standalone or not tf_conn
+    f_cell(dash, 0, 37, "Режим",     dash_text_col)
+    f_cell(dash, 1, 37,
+        is_standalone_mode ? "АВТО (без Main)" : "ПОЛНЫЙ (с Main)",
+        is_standalone_mode ? color.orange : color.lime)
+    f_cell(dash, 2, 37,
+        is_standalone_mode ? "Только внутр." : "SMC + LTF + P2 активны",
+        dash_text_col)
+
+// ====================================================================================================================
+// [P2] ОБРАТНАЯ СВЯЗЬ В MAIN (Bidirectional Feedback)
+// Main читает эти значения через input.source → p2_* переменные
+// ====================================================================================================================
+plot(9999.0,                     title="[P2] ALIVE_SIGNAL",     display=display.none)
+plot(is_buy ? 1 : is_sell ? -1 : 0, title="[P2] Final Signal",  display=display.none)
+plot(buy_score,                  title="[P2] Buy Score",         display=display.none)
+plot(sell_score,                 title="[P2] Sell Score",        display=display.none)
+plot(mtf_state_bull,             title="[P2] MTF State Bull",    display=display.none)
+plot(mtf_state_bear,             title="[P2] MTF State Bear",    display=display.none)
+plot(hc_active_bull.size(),      title="[P2] HC Count Bull",     display=display.none)
+plot(hc_active_bear.size(),      title="[P2] HC Count Bear",     display=display.none)
+plot((osc_kde_bull    ?1:0) + (osc_stoch_bull   ?1:0) + (osc_macd_dlx_bull?1:0) + (osc_cci_bull?1:0)
+   + (sm_act_bull     ?1:0) + (sm_int_bull       ?1:0) + (sm_idx_bull       ?1:0),
+     title="[P2] OSC+SM Bull",   display=display.none)
+plot((osc_kde_bear    ?1:0) + (osc_stoch_bear   ?1:0) + (osc_macd_dlx_bear?1:0) + (osc_cci_bear?1:0)
+   + (sm_act_bear     ?1:0) + (sm_int_bear       ?1:0) + (sm_idx_bear       ?1:0),
+     title="[P2] OSC+SM Bear",   display=display.none)
+plot((osc_mdiv_bull   ?1:0) + (osc_peter_bull   ?1:0) + (osc_tfdiv_bull?1:0) + (osc_smt_bull?1:0),
+     title="[P2] Div Bull",      display=display.none)
+plot((osc_mdiv_bear   ?1:0) + (osc_peter_bear   ?1:0) + (osc_tfdiv_bear?1:0) + (osc_smt_bear?1:0),
+     title="[P2] Div Bear",      display=display.none)
+plot(regime_trending ? 1 : regime_compression ? -1 : 0,
+     title="[P2] Market Regime", display=display.none)
+plot(cndl_bull ? 1 : 0,          title="[P2] Candle Bull",       display=display.none)
+plot(cndl_bear ? 1 : 0,          title="[P2] Candle Bear",       display=display.none)
+// Дополнительные P2 — для Master Synthesis в Main
+plot(ltf_bull_conf,              title="[P2] LTF Cascade Bull",  display=display.none)
+plot(ltf_bear_conf,              title="[P2] LTF Cascade Bear",  display=display.none)
+plot(in_poi_bull ? 1 : 0,        title="[P2] In POI Bull",       display=display.none)
+plot(in_poi_bear ? 1 : 0,        title="[P2] In POI Bear",       display=display.none)
+plot(buy_score >= req_score ? 1 : 0, title="[P2] Score OK Bull", display=display.none)
+plot(sell_score >= req_score ? 1 : 0,title="[P2] Score OK Bear", display=display.none)
