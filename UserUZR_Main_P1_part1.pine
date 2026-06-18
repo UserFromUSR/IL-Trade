@@ -1,0 +1,983 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
+// © UserUZR, Trade Code
+//@version=6
+indicator("UserUZR Main - All-in-One Optimized (FVG, VP, S&D, SMC, OB/BB, HeatMap)", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000, max_polylines_count=100)
+
+// ====================================================================================================================
+// НАСТРОЙКИ МОДУЛЕЙ
+// ====================================================================================================================
+
+// ── 1. Clusters Volume Profile ───────────────────────────────────────────────
+grp_1      = "1. Clusters Volume Profile"
+en_1       = input.bool(true,  "Включить Clusters VP",          group=grp_1)
+lookback_1 = input.int(200,    "Период (Lookback)",  minval=10,  group=grp_1)
+k_1        = input.int(5,      "Количество кластеров", minval=2, maxval=10, group=grp_1)
+iters_1    = input.int(50,     "Итерации K-Means",  minval=5,   maxval=50,  group=grp_1)
+rows_1     = input.int(20,     "Строк на кластер (Bins)", minval=3, group=grp_1)
+vpWidth    = input.int(40,     "Ширина гистограммы (бары)", minval=5, group=grp_1)
+vpOffset   = input.int(10,     "Отступ гистограммы",          group=grp_1)
+showDots   = input.bool(true,  "Точки прайса (Price Dots)",     group=grp_1)
+
+// ── 2. FVG Volume Profile ────────────────────────────────────────────────────
+grp_2          = "2. FVG Volume Profile [ChartPrime]"
+en_2           = input.bool(true,   "Включить FVG VP",                   group=grp_2)
+fvg_autoTf     = input.bool(true,   "Auto",          inline="1",          group=grp_2)
+fvg_tf1        = input.timeframe("10", "",            inline="1",          group=grp_2, tooltip="Custom timeframe for detecting volume of Fair Value Gaps.")
+fvg_hideVP     = input.bool(true,   "Display",                            group=grp_2)
+fvg_bins       = input.int(10,      "Resolution",                         group=grp_2)
+fvg_gap_filter = input.float(0.3,   "Filter Gaps",   step=0.01,           group=grp_2)
+fvg_bull_color = input.color(#1da370, "Bullish Color",                    group=grp_2)
+fvg_bear_color = input.color(#bc25d6, "Bearish Color",                    group=grp_2)
+
+// ── 3. Supply & Demand ───────────────────────────────────────────────────────
+grp_3      = "3. Supply & Demand (Flux)"
+en_3       = input.bool(true,  "Включить S&D",                            group=grp_3)
+sd_retests = input.bool(true,  "Скрытая логика ретеста (On)",             group=grp_3, tooltip="Метки скрыты визуально, но логика работает для сигналов.")
+sd_d_col   = input.color(color.new(#089981, 70), "Цвет Demand",           group=grp_3)
+sd_s_col   = input.color(color.new(#f23645, 70), "Цвет Supply",           group=grp_3)
+sd_text_col= input.color(color.new(#ffffff, 30), "Цвет текста S&D",       group=grp_3)
+
+// ── 4. SMC & Order Blocks ────────────────────────────────────────────────────
+grp_4          = "4. SMC & Order Blocks"
+en_smc         = input.bool(true,   "Включить SMC & OB",                  group=grp_4)
+bb_swingLimit  = input.int(100,     "Swing Limit",  minval=10, maxval=200, group=grp_4)
+bb_smc_up_col  = input.color(#089981, "Цвет бычьей SMC",                  group=grp_4)
+bb_smc_dn_col  = input.color(#f23645, "Цвет медвежьей SMC",               group=grp_4)
+bb_showMapping = input.bool(true,   "Show Mapping Structure",              group=grp_4)
+bb_mappingStyle= input.string("----","Mapping Style", options=["⎯⎯⎯⎯","----"], group=grp_4)
+bb_mappingcss  = input.color(color.silver, "Mapping Color",               group=grp_4)
+bb_msmode      = input.string("Adjusted Points","Algorithmic Logic", options=["Extreme Points","Adjusted Points"], group=grp_4)
+bb_mslen       = input.int(5,       "Swing Length", minval=2,              group=grp_4)
+bb_buildsweep  = input.bool(true,   "Build Sweep (x)",                    group=grp_4)
+bb_msbubble    = input.bool(true,   "Bubbles on Structure",               group=grp_4)
+bb_mstext      = input.string("Tiny","SMC Text Size", options=["Tiny","Small","Normal","Large","Huge","Auto"], group=grp_4)
+bb_obshow      = input.bool(true,   "Show Order Blocks",                  group=grp_4)
+bb_obupcs      = input.color(color.new(#089981, 90), "OB Bull Color",     group=grp_4)
+bb_obdncs      = input.color(color.new(#f23645, 90), "OB Bear Color",     group=grp_4)
+bb_obshowactivity = input.bool(true,"Show OB Buy/Sell Activity",          group=grp_4)
+bb_obactup     = input.color(color.new(#089981, 50), "OB Activity Bull",  group=grp_4)
+bb_obactdn     = input.color(color.new(#f23645, 50), "OB Activity Bear",  group=grp_4)
+bb_obshowbb    = input.bool(true,   "Show Breakers",                      group=grp_4)
+bb_bbup        = input.color(color.new(#089981, 90), "Breaker Bull",      group=grp_4)
+bb_bbdn        = input.color(color.new(#f23645, 90), "Breaker Bear",      group=grp_4)
+bb_obmode      = input.string("Length","OB Construction", options=["Length","Full"], group=grp_4)
+bb_len         = input.int(3,       "OB ATR Length", minval=1,            group=grp_4)
+bb_obmiti      = input.string("Close","Mitigation Method", options=["Close","Wick","Avg"], group=grp_4)
+bb_obtxt       = input.string("Normal","OB Metric Text Size", options=["Tiny","Small","Normal","Large","Huge","Auto"], group=grp_4)
+bb_showmetric  = input.bool(true,   "Show OB Metrics",                    group=grp_4)
+bb_showline    = input.bool(true,   "Show OB Mid-Line",                   group=grp_4)
+bb_overlap     = input.bool(true,   "Hide OB Overlap",                    group=grp_4)
+bb_wichlap     = input.string("Recent","Which Overlap to Hide", options=["Recent","Old"], group=grp_4)
+
+// ── 5. Dynamic HeatMap ───────────────────────────────────────────────────────
+grp_5      = "5. Dynamic HeatMap (BigBeluga)"
+en_hm      = input.bool(true,  "Включить HeatMap",                        group=grp_5)
+hm_lookBack= input.int(150,    "Calculated Bars", minval=50, maxval=1000,  group=grp_5)
+hm_displPf = input.bool(true,  "Profile",                                 group=grp_5)
+hm_bins    = input.int(35,     "Resolution",                              group=grp_5)
+hm_sellColor = input.color(color.blue,  "Sell Liquidity",                 group=grp_5)
+hm_buyColor  = input.color(color.lime,  "Buy Liquidity",                  group=grp_5)
+hm_poc     = input.bool(true,  "Max Point Liquidity",                     group=grp_5)
+hm_maxColor= input.color(color.orange,  "Max Color",                      group=grp_5)
+hm_resolution = 100
+
+// ====================================================================================================================
+// ЕДИНЫЕ ТАЙМФРЕЙМЫ
+// ====================================================================================================================
+
+grp_tf_common = "TF — Таймфреймы (общие для всех модулей)"
+g_ltf1 = input.timeframe("1",   "LTF1 ТФ", group=grp_tf_common, tooltip="Должен совпадать с LTF1 в Sniper P2")
+g_ltf2 = input.timeframe("3",   "LTF2 ТФ", group=grp_tf_common, tooltip="Должен совпадать с LTF2 в Sniper P2")
+g_ltf3 = input.timeframe("5",   "LTF3 ТФ", group=grp_tf_common, tooltip="Должен совпадать с LTF3 в Sniper P2")
+g_htf1 = input.timeframe("60",  "HTF1 ТФ", group=grp_tf_common, tooltip="Должен совпадать с HTF1 в Sniper P2")
+g_htf2 = input.timeframe("240", "HTF2 ТФ", group=grp_tf_common, tooltip="Должен совпадать с HTF2 в Sniper P2")
+g_htf3 = input.timeframe("D",   "HTF3 ТФ", group=grp_tf_common, tooltip="Должен совпадать с HTF3 в Sniper P2")
+
+grp_tf_weights = "TF — Веса в синтезе модулей"
+g_w_ltf = input.int(1, "Вес каждого LTF в модуле", minval=1, maxval=4, group=grp_tf_weights, tooltip="Совпадает с весом LTF в Sniper P2 скоринге")
+g_w_htf = input.int(2, "Вес каждого HTF в модуле", minval=1, maxval=4, group=grp_tf_weights, tooltip="Совпадает с весом HTF в Sniper P2 скоринге")
+
+// ====================================================================================================================
+// ENGINE LTF1 (1m)
+// ====================================================================================================================
+grp_e1 = "Engine LTF1 (1m) — RSI"
+e1_use_rsi      = input.bool(true,  "Включить RSI",                    group=grp_e1)
+e1_rsi_len      = input.int(7,      "RSI Length",        minval=2,      group=grp_e1)
+e1_rsi_bull_th  = input.int(58,     "Бык: RSI <",        minval=1, maxval=99, group=grp_e1)
+e1_rsi_bear_th  = input.int(42,     "Медведь: RSI >",   minval=1, maxval=99, group=grp_e1)
+
+grp_e1b = "Engine LTF1 (1m) — Свечи"
+e1_use_candles  = input.bool(true,  "Включить паттерны свечей",         group=grp_e1b)
+e1_candle_cnt   = input.int(3,      "Мин. свечей из 5 (накопление)",    group=grp_e1b, minval=1, maxval=5)
+e1_use_engulf   = input.bool(true,  "Включить Engulfing",               group=grp_e1b)
+e1_use_strong   = input.bool(true,  "Включить Strong Body (ratio>X)",   group=grp_e1b)
+e1_strong_ratio = input.float(0.65, "Strong Body порог", step=0.05,     group=grp_e1b)
+
+grp_e1c = "Engine LTF1 (1m) — Объём"
+e1_use_vol      = input.bool(true,  "Включить объём",                   group=grp_e1c)
+e1_vol_sma_len  = input.int(20,     "SMA объёма Length",    minval=5,   group=grp_e1c)
+e1_vol_mult     = input.float(2.2,  "Объём > SMA × X",      step=0.1,   group=grp_e1c)
+e1_vol_must     = input.bool(false, "Объём ОБЯЗАТЕЛЕН",                 group=grp_e1c)
+
+grp_e1d = "Engine LTF1 (1m) — OB прокси"
+e1_use_ob       = input.bool(true,  "Включить OB прокси",               group=grp_e1d)
+e1_ob_atr_len   = input.int(14,     "ATR Length для OB",    minval=5,   group=grp_e1d)
+e1_ob_atr_mult  = input.float(0.8,  "Мин. дислокация ATR×", step=0.1,  group=grp_e1d)
+e1_ob_vol_mult  = input.float(1.5,  "OB объём > SMA ×",     step=0.1,  group=grp_e1d)
+
+grp_e1e = "Engine LTF1 (1m) — FVG прокси"
+e1_use_fvg      = input.bool(true,  "Включить FVG прокси",              group=grp_e1e)
+e1_fvg_thr      = input.float(0.25, "FVG gap threshold",    step=0.05,  group=grp_e1e)
+e1_fvg_with_htf = input.bool(false, "Только по HTF тренду",             group=grp_e1e)
+
+grp_e1f = "Engine LTF1 (1m) — HeatMap прокси"
+e1_use_hm       = input.bool(true,  "Включить HeatMap прокси",          group=grp_e1f)
+e1_hm_lookback  = input.int(30,     "HM Lookback (баров)",  minval=10,  group=grp_e1f)
+e1_hm_vol_mult  = input.float(1.8,  "HM объём > SMA ×",     step=0.1,  group=grp_e1f)
+
+grp_e1g = "Engine LTF1 (1m) — S&D прокси"
+e1_use_sd       = input.bool(true,  "Включить S&D прокси",              group=grp_e1g)
+e1_sd_body_mult = input.float(1.5,  "S&D тело дислокации > ATR×", step=0.1, group=grp_e1g)
+e1_sd_base_mult = input.float(0.7,  "S&D база < ATR×",        step=0.1, group=grp_e1g)
+
+grp_e1h = "Engine LTF1 (1m) — SMC прокси"
+e1_use_smc      = input.bool(true,  "Включить SMC прокси",              group=grp_e1h)
+e1_smc_swing    = input.int(3,      "Swing Length (пивоты)", minval=2,  group=grp_e1h)
+e1_smc_hh_cnt   = input.int(2,      "Мин. HH/HL или LH/LL из 3",       group=grp_e1h, minval=1, maxval=3)
+e1_smc_must     = input.bool(false, "SMC тренд ОБЯЗАТЕЛЕН",             group=grp_e1h)
+
+grp_e1i = "Engine LTF1 (1m) — Веса и порог"
+e1_w_struct     = input.int(2,  "Вес структурных (SMC,OB)",  minval=1, maxval=4, group=grp_e1i)
+e1_w_volume     = input.int(2,  "Вес объёмных (Vol,HM,FVG)", minval=1, maxval=4, group=grp_e1i)
+e1_w_pattern    = input.int(1,  "Вес паттернных (RSI,свечи,S&D)", minval=1, maxval=4, group=grp_e1i)
+e1_min_score    = input.int(6,  "Мин. сумма для OK",         minval=1, maxval=40, group=grp_e1i)
+
+// ====================================================================================================================
+// ENGINE LTF2 (3m)
+// ====================================================================================================================
+grp_e2 = "Engine LTF2 (3m) — RSI"
+e2_use_rsi      = input.bool(true,  "Включить RSI",                    group=grp_e2)
+e2_rsi_len      = input.int(7,      "RSI Length",        minval=2,      group=grp_e2)
+e2_rsi_bull_th  = input.int(60,     "Бык: RSI <",        minval=1, maxval=99, group=grp_e2)
+e2_rsi_bear_th  = input.int(40,     "Медведь: RSI >",   minval=1, maxval=99, group=grp_e2)
+
+grp_e2b = "Engine LTF2 (3m) — Свечи"
+e2_use_candles  = input.bool(true,  "Включить паттерны свечей",         group=grp_e2b)
+e2_candle_cnt   = input.int(3,      "Мин. свечей из 5",                 group=grp_e2b, minval=1, maxval=5)
+e2_use_engulf   = input.bool(true,  "Включить Engulfing",               group=grp_e2b)
+e2_use_strong   = input.bool(true,  "Включить Strong Body",             group=grp_e2b)
+e2_strong_ratio = input.float(0.65, "Strong Body порог", step=0.05,     group=grp_e2b)
+
+grp_e2c = "Engine LTF2 (3m) — Объём"
+e2_use_vol      = input.bool(true,  "Включить объём",                   group=grp_e2c)
+e2_vol_sma_len  = input.int(20,     "SMA объёма Length",    minval=5,   group=grp_e2c)
+e2_vol_mult     = input.float(2.0,  "Объём > SMA × X",      step=0.1,   group=grp_e2c)
+e2_vol_must     = input.bool(false, "Объём ОБЯЗАТЕЛЕН",                 group=grp_e2c)
+
+grp_e2d = "Engine LTF2 (3m) — OB прокси"
+e2_use_ob       = input.bool(true,  "Включить OB прокси",               group=grp_e2d)
+e2_ob_atr_len   = input.int(14,     "ATR Length для OB",    minval=5,   group=grp_e2d)
+e2_ob_atr_mult  = input.float(0.9,  "Мин. дислокация ATR×", step=0.1,  group=grp_e2d)
+e2_ob_vol_mult  = input.float(1.5,  "OB объём > SMA ×",     step=0.1,  group=grp_e2d)
+
+grp_e2e = "Engine LTF2 (3m) — FVG прокси"
+e2_use_fvg      = input.bool(true,  "Включить FVG прокси",              group=grp_e2e)
+e2_fvg_thr      = input.float(0.28, "FVG gap threshold",    step=0.05,  group=grp_e2e)
+e2_fvg_with_htf = input.bool(false, "Только по HTF тренду",             group=grp_e2e)
+
+grp_e2f = "Engine LTF2 (3m) — HeatMap прокси"
+e2_use_hm       = input.bool(true,  "Включить HeatMap прокси",          group=grp_e2f)
+e2_hm_lookback  = input.int(40,     "HM Lookback (баров)",  minval=10,  group=grp_e2f)
+e2_hm_vol_mult  = input.float(1.8,  "HM объём > SMA ×",     step=0.1,  group=grp_e2f)
+
+grp_e2g = "Engine LTF2 (3m) — S&D прокси"
+e2_use_sd       = input.bool(true,  "Включить S&D прокси",              group=grp_e2g)
+e2_sd_body_mult = input.float(1.5,  "S&D тело > ATR×",      step=0.1,  group=grp_e2g)
+e2_sd_base_mult = input.float(0.7,  "S&D база < ATR×",       step=0.1,  group=grp_e2g)
+
+grp_e2h = "Engine LTF2 (3m) — SMC прокси"
+e2_use_smc      = input.bool(true,  "Включить SMC прокси",              group=grp_e2h)
+e2_smc_swing    = input.int(3,      "Swing Length",          minval=2,  group=grp_e2h)
+e2_smc_hh_cnt   = input.int(2,      "Мин. HH/HL или LH/LL", minval=1, maxval=3, group=grp_e2h)
+e2_smc_must     = input.bool(false, "SMC тренд ОБЯЗАТЕЛЕН",             group=grp_e2h)
+
+grp_e2i = "Engine LTF2 (3m) — Веса и порог"
+e2_w_struct     = input.int(2,  "Вес структурных",  minval=1, maxval=4, group=grp_e2i)
+e2_w_volume     = input.int(2,  "Вес объёмных",     minval=1, maxval=4, group=grp_e2i)
+e2_w_pattern    = input.int(1,  "Вес паттернных",   minval=1, maxval=4, group=grp_e2i)
+e2_min_score    = input.int(6,  "Мин. сумма для OK", minval=1, maxval=40, group=grp_e2i)
+
+// ====================================================================================================================
+// ENGINE LTF3 (5m)
+// ====================================================================================================================
+grp_e3 = "Engine LTF3 (5m) — RSI"
+e3_use_rsi      = input.bool(true,  "Включить RSI",                    group=grp_e3)
+e3_rsi_len      = input.int(9,      "RSI Length",        minval=2,      group=grp_e3)
+e3_rsi_bull_th  = input.int(60,     "Бык: RSI <",        minval=1, maxval=99, group=grp_e3)
+e3_rsi_bear_th  = input.int(40,     "Медведь: RSI >",   minval=1, maxval=99, group=grp_e3)
+
+grp_e3b = "Engine LTF3 (5m) — Свечи"
+e3_use_candles  = input.bool(true,  "Включить паттерны свечей",         group=grp_e3b)
+e3_candle_cnt   = input.int(3,      "Мин. свечей из 5",                 group=grp_e3b, minval=1, maxval=5)
+e3_use_engulf   = input.bool(true,  "Включить Engulfing",               group=grp_e3b)
+e3_use_strong   = input.bool(true,  "Включить Strong Body",             group=grp_e3b)
+e3_strong_ratio = input.float(0.60, "Strong Body порог", step=0.05,     group=grp_e3b)
+
+grp_e3c = "Engine LTF3 (5m) — Объём"
+e3_use_vol      = input.bool(true,  "Включить объём",                   group=grp_e3c)
+e3_vol_sma_len  = input.int(20,     "SMA объёма Length",    minval=5,   group=grp_e3c)
+e3_vol_mult     = input.float(1.8,  "Объём > SMA × X",      step=0.1,   group=grp_e3c)
+e3_vol_must     = input.bool(false, "Объём ОБЯЗАТЕЛЕН",                 group=grp_e3c)
+
+grp_e3d = "Engine LTF3 (5m) — OB прокси"
+e3_use_ob       = input.bool(true,  "Включить OB прокси",               group=grp_e3d)
+e3_ob_atr_len   = input.int(14,     "ATR Length для OB",    minval=5,   group=grp_e3d)
+e3_ob_atr_mult  = input.float(1.0,  "Мин. дислокация ATR×", step=0.1,  group=grp_e3d)
+e3_ob_vol_mult  = input.float(1.6,  "OB объём > SMA ×",     step=0.1,  group=grp_e3d)
+
+grp_e3e = "Engine LTF3 (5m) — FVG прокси"
+e3_use_fvg      = input.bool(true,  "Включить FVG прокси",              group=grp_e3e)
+e3_fvg_thr      = input.float(0.30, "FVG gap threshold",    step=0.05,  group=grp_e3e)
+e3_fvg_with_htf = input.bool(true,  "Только по HTF тренду",             group=grp_e3e)
+
+grp_e3f = "Engine LTF3 (5m) — HeatMap прокси"
+e3_use_hm       = input.bool(true,  "Включить HeatMap прокси",          group=grp_e3f)
+e3_hm_lookback  = input.int(50,     "HM Lookback (баров)",  minval=10,  group=grp_e3f)
+e3_hm_vol_mult  = input.float(1.8,  "HM объём > SMA ×",     step=0.1,  group=grp_e3f)
+
+grp_e3g = "Engine LTF3 (5m) — S&D прокси"
+e3_use_sd       = input.bool(true,  "Включить S&D прокси",              group=grp_e3g)
+e3_sd_body_mult = input.float(1.5,  "S&D тело > ATR×",      step=0.1,  group=grp_e3g)
+e3_sd_base_mult = input.float(0.7,  "S&D база < ATR×",       step=0.1,  group=grp_e3g)
+
+grp_e3h = "Engine LTF3 (5m) — SMC прокси"
+e3_use_smc      = input.bool(true,  "Включить SMC прокси",              group=grp_e3h)
+e3_smc_swing    = input.int(4,      "Swing Length",          minval=2,  group=grp_e3h)
+e3_smc_hh_cnt   = input.int(2,      "Мин. HH/HL или LH/LL", minval=1, maxval=3, group=grp_e3h)
+e3_smc_must     = input.bool(false, "SMC тренд ОБЯЗАТЕЛЕН",             group=grp_e3h)
+
+grp_e3i = "Engine LTF3 (5m) — Веса и порог"
+e3_w_struct     = input.int(2,  "Вес структурных",  minval=1, maxval=4, group=grp_e3i)
+e3_w_volume     = input.int(2,  "Вес объёмных",     minval=1, maxval=4, group=grp_e3i)
+e3_w_pattern    = input.int(1,  "Вес паттернных",   minval=1, maxval=4, group=grp_e3i)
+e3_min_score    = input.int(7,  "Мин. сумма для OK", minval=1, maxval=40, group=grp_e3i)
+
+// ====================================================================================================================
+// ENGINE HTF1 (1h)
+// ====================================================================================================================
+grp_e4 = "Engine HTF1 (1h) — RSI"
+e4_use_rsi      = input.bool(true,  "Включить RSI",                    group=grp_e4)
+e4_rsi_len      = input.int(14,     "RSI Length",        minval=2,      group=grp_e4)
+e4_rsi_bull_th  = input.int(62,     "Бык: RSI <",        minval=1, maxval=99, group=grp_e4)
+e4_rsi_bear_th  = input.int(38,     "Медведь: RSI >",   minval=1, maxval=99, group=grp_e4)
+
+grp_e4b = "Engine HTF1 (1h) — Свечи"
+e4_use_candles  = input.bool(true,  "Включить паттерны свечей",         group=grp_e4b)
+e4_candle_cnt   = input.int(3,      "Мин. свечей из 5",                 group=grp_e4b, minval=1, maxval=5)
+e4_use_engulf   = input.bool(true,  "Включить Engulfing",               group=grp_e4b)
+e4_use_strong   = input.bool(true,  "Включить Strong Body",             group=grp_e4b)
+e4_strong_ratio = input.float(0.60, "Strong Body порог", step=0.05,     group=grp_e4b)
+
+grp_e4c = "Engine HTF1 (1h) — Объём"
+e4_use_vol      = input.bool(true,  "Включить объём",                   group=grp_e4c)
+e4_vol_sma_len  = input.int(20,     "SMA объёма Length",    minval=5,   group=grp_e4c)
+e4_vol_mult     = input.float(1.6,  "Объём > SMA × X",      step=0.1,   group=grp_e4c)
+e4_vol_must     = input.bool(true,  "Объём ОБЯЗАТЕЛЕН",                 group=grp_e4c)
+
+grp_e4d = "Engine HTF1 (1h) — OB прокси"
+e4_use_ob       = input.bool(true,  "Включить OB прокси",               group=grp_e4d)
+e4_ob_atr_len   = input.int(14,     "ATR Length для OB",    minval=5,   group=grp_e4d)
+e4_ob_atr_mult  = input.float(1.2,  "Мин. дислокация ATR×", step=0.1,  group=grp_e4d)
+e4_ob_vol_mult  = input.float(1.8,  "OB объём > SMA ×",     step=0.1,  group=grp_e4d)
+
+grp_e4e = "Engine HTF1 (1h) — FVG прокси"
+e4_use_fvg      = input.bool(true,  "Включить FVG прокси",              group=grp_e4e)
+e4_fvg_thr      = input.float(0.35, "FVG gap threshold",    step=0.05,  group=grp_e4e)
+e4_fvg_with_htf = input.bool(true,  "Только по HTF тренду",             group=grp_e4e)
+
+grp_e4f = "Engine HTF1 (1h) — HeatMap прокси"
+e4_use_hm       = input.bool(true,  "Включить HeatMap прокси",          group=grp_e4f)
+e4_hm_lookback  = input.int(60,     "HM Lookback (баров)",  minval=10,  group=grp_e4f)
+e4_hm_vol_mult  = input.float(2.0,  "HM объём > SMA ×",     step=0.1,  group=grp_e4f)
+
+grp_e4g = "Engine HTF1 (1h) — S&D прокси"
+e4_use_sd       = input.bool(true,  "Включить S&D прокси",              group=grp_e4g)
+e4_sd_body_mult = input.float(1.6,  "S&D тело > ATR×",      step=0.1,  group=grp_e4g)
+e4_sd_base_mult = input.float(0.65, "S&D база < ATR×",       step=0.1,  group=grp_e4g)
+
+grp_e4h = "Engine HTF1 (1h) — SMC прокси"
+e4_use_smc      = input.bool(true,  "Включить SMC прокси",              group=grp_e4h)
+e4_smc_swing    = input.int(5,      "Swing Length",          minval=2,  group=grp_e4h)
+e4_smc_hh_cnt   = input.int(2,      "Мин. HH/HL или LH/LL", minval=1, maxval=3, group=grp_e4h)
+e4_smc_must     = input.bool(true,  "SMC тренд ОБЯЗАТЕЛЕН",             group=grp_e4h)
+
+grp_e4i = "Engine HTF1 (1h) — Веса и порог"
+e4_w_struct     = input.int(3,  "Вес структурных",  minval=1, maxval=4, group=grp_e4i)
+e4_w_volume     = input.int(2,  "Вес объёмных",     minval=1, maxval=4, group=grp_e4i)
+e4_w_pattern    = input.int(1,  "Вес паттернных",   minval=1, maxval=4, group=grp_e4i)
+e4_min_score    = input.int(8,  "Мин. сумма для OK", minval=1, maxval=40, group=grp_e4i)
+
+// ====================================================================================================================
+// ENGINE HTF2 (4h)
+// ====================================================================================================================
+grp_e5 = "Engine HTF2 (4h) — RSI"
+e5_use_rsi      = input.bool(true,  "Включить RSI",                    group=grp_e5)
+e5_rsi_len      = input.int(14,     "RSI Length",        minval=2,      group=grp_e5)
+e5_rsi_bull_th  = input.int(65,     "Бык: RSI <",        minval=1, maxval=99, group=grp_e5)
+e5_rsi_bear_th  = input.int(35,     "Медведь: RSI >",   minval=1, maxval=99, group=grp_e5)
+
+grp_e5b = "Engine HTF2 (4h) — Свечи"
+e5_use_candles  = input.bool(true,  "Включить паттерны свечей",         group=grp_e5b)
+e5_candle_cnt   = input.int(3,      "Мин. свечей из 5",                 group=grp_e5b, minval=1, maxval=5)
+e5_use_engulf   = input.bool(true,  "Включить Engulfing",               group=grp_e5b)
+e5_use_strong   = input.bool(true,  "Включить Strong Body",             group=grp_e5b)
+e5_strong_ratio = input.float(0.55, "Strong Body порог", step=0.05,     group=grp_e5b)
+
+grp_e5c = "Engine HTF2 (4h) — Объём"
+e5_use_vol      = input.bool(true,  "Включить объём",                   group=grp_e5c)
+e5_vol_sma_len  = input.int(20,     "SMA объёма Length",    minval=5,   group=grp_e5c)
+e5_vol_mult     = input.float(1.5,  "Объём > SMA × X",      step=0.1,   group=grp_e5c)
+e5_vol_must     = input.bool(true,  "Объём ОБЯЗАТЕЛЕН",                 group=grp_e5c)
+
+grp_e5d = "Engine HTF2 (4h) — OB прокси"
+e5_use_ob       = input.bool(true,  "Включить OB прокси",               group=grp_e5d)
+e5_ob_atr_len   = input.int(14,     "ATR Length для OB",    minval=5,   group=grp_e5d)
+e5_ob_atr_mult  = input.float(1.4,  "Мин. дислокация ATR×", step=0.1,  group=grp_e5d)
+e5_ob_vol_mult  = input.float(2.0,  "OB объём > SMA ×",     step=0.1,  group=grp_e5d)
+
+grp_e5e = "Engine HTF2 (4h) — FVG прокси"
+e5_use_fvg      = input.bool(true,  "Включить FVG прокси",              group=grp_e5e)
+e5_fvg_thr      = input.float(0.40, "FVG gap threshold",    step=0.05,  group=grp_e5e)
+e5_fvg_with_htf = input.bool(true,  "Только по HTF тренду",             group=grp_e5e)
+
+grp_e5f = "Engine HTF2 (4h) — HeatMap прокси"
+e5_use_hm       = input.bool(true,  "Включить HeatMap прокси",          group=grp_e5f)
+e5_hm_lookback  = input.int(80,     "HM Lookback (баров)",  minval=10,  group=grp_e5f)
+e5_hm_vol_mult  = input.float(2.0,  "HM объём > SMA ×",     step=0.1,  group=grp_e5f)
+
+grp_e5g = "Engine HTF2 (4h) — S&D прокси"
+e5_use_sd       = input.bool(true,  "Включить S&D прокси",              group=grp_e5g)
+e5_sd_body_mult = input.float(1.7,  "S&D тело > ATR×",      step=0.1,  group=grp_e5g)
+e5_sd_base_mult = input.float(0.65, "S&D база < ATR×",       step=0.1,  group=grp_e5g)
+
+grp_e5h = "Engine HTF2 (4h) — SMC прокси"
+e5_use_smc      = input.bool(true,  "Включить SMC прокси",              group=grp_e5h)
+e5_smc_swing    = input.int(5,      "Swing Length",          minval=2,  group=grp_e5h)
+e5_smc_hh_cnt   = input.int(2,      "Мин. HH/HL или LH/LL", minval=1, maxval=3, group=grp_e5h)
+e5_smc_must     = input.bool(true,  "SMC тренд ОБЯЗАТЕЛЕН",             group=grp_e5h)
+
+grp_e5i = "Engine HTF2 (4h) — Веса и порог"
+e5_w_struct     = input.int(3,  "Вес структурных",  minval=1, maxval=4, group=grp_e5i)
+e5_w_volume     = input.int(2,  "Вес объёмных",     minval=1, maxval=4, group=grp_e5i)
+e5_w_pattern    = input.int(1,  "Вес паттернных",   minval=1, maxval=4, group=grp_e5i)
+e5_min_score    = input.int(9,  "Мин. сумма для OK", minval=1, maxval=40, group=grp_e5i)
+
+// ====================================================================================================================
+// ENGINE HTF3 (1D)
+// ====================================================================================================================
+grp_e6 = "Engine HTF3 (1D) — RSI"
+e6_use_rsi      = input.bool(true,  "Включить RSI",                    group=grp_e6)
+e6_rsi_len      = input.int(14,     "RSI Length",        minval=2,      group=grp_e6)
+e6_rsi_bull_th  = input.int(68,     "Бык: RSI <",        minval=1, maxval=99, group=grp_e6)
+e6_rsi_bear_th  = input.int(32,     "Медведь: RSI >",   minval=1, maxval=99, group=grp_e6)
+
+grp_e6b = "Engine HTF3 (1D) — Свечи"
+e6_use_candles  = input.bool(true,  "Включить паттерны свечей",         group=grp_e6b)
+e6_candle_cnt   = input.int(3,      "Мин. свечей из 5",                 group=grp_e6b, minval=1, maxval=5)
+e6_use_engulf   = input.bool(true,  "Включить Engulfing",               group=grp_e6b)
+e6_use_strong   = input.bool(true,  "Включить Strong Body",             group=grp_e6b)
+e6_strong_ratio = input.float(0.55, "Strong Body порог", step=0.05,     group=grp_e6b)
+
+grp_e6c = "Engine HTF3 (1D) — Объём"
+e6_use_vol      = input.bool(true,  "Включить объём",                   group=grp_e6c)
+e6_vol_sma_len  = input.int(20,     "SMA объёма Length",    minval=5,   group=grp_e6c)
+e6_vol_mult     = input.float(1.4,  "Объём > SMA × X",      step=0.1,   group=grp_e6c)
+e6_vol_must     = input.bool(true,  "Объём ОБЯЗАТЕЛЕН",                 group=grp_e6c)
+
+grp_e6d = "Engine HTF3 (1D) — OB прокси"
+e6_use_ob       = input.bool(true,  "Включить OB прокси",               group=grp_e6d)
+e6_ob_atr_len   = input.int(14,     "ATR Length для OB",    minval=5,   group=grp_e6d)
+e6_ob_atr_mult  = input.float(1.5,  "Мин. дислокация ATR×", step=0.1,  group=grp_e6d)
+e6_ob_vol_mult  = input.float(2.2,  "OB объём > SMA ×",     step=0.1,  group=grp_e6d)
+
+grp_e6e = "Engine HTF3 (1D) — FVG прокси"
+e6_use_fvg      = input.bool(true,  "Включить FVG прокси",              group=grp_e6e)
+e6_fvg_thr      = input.float(0.45, "FVG gap threshold",    step=0.05,  group=grp_e6e)
+e6_fvg_with_htf = input.bool(true,  "Только по HTF тренду",             group=grp_e6e)
+
+grp_e6f = "Engine HTF3 (1D) — HeatMap прокси"
+e6_use_hm       = input.bool(true,  "Включить HeatMap прокси",          group=grp_e6f)
+e6_hm_lookback  = input.int(100,    "HM Lookback (баров)",  minval=10,  group=grp_e6f)
+e6_hm_vol_mult  = input.float(2.2,  "HM объём > SMA ×",     step=0.1,  group=grp_e6f)
+
+grp_e6g = "Engine HTF3 (1D) — S&D прокси"
+e6_use_sd       = input.bool(true,  "Включить S&D прокси",              group=grp_e6g)
+e6_sd_body_mult = input.float(1.8,  "S&D тело > ATR×",      step=0.1,  group=grp_e6g)
+e6_sd_base_mult = input.float(0.60, "S&D база < ATR×",       step=0.1,  group=grp_e6g)
+
+grp_e6h = "Engine HTF3 (1D) — SMC прокси"
+e6_use_smc      = input.bool(true,  "Включить SMC прокси",              group=grp_e6h)
+e6_smc_swing    = input.int(5,      "Swing Length",          minval=2,  group=grp_e6h)
+e6_smc_hh_cnt   = input.int(2,      "Мин. HH/HL или LH/LL", minval=1, maxval=3, group=grp_e6h)
+e6_smc_must     = input.bool(true,  "SMC тренд ОБЯЗАТЕЛЕН",             group=grp_e6h)
+
+grp_e6i = "Engine HTF3 (1D) — Веса и порог"
+e6_w_struct     = input.int(3,  "Вес структурных",  minval=1, maxval=4, group=grp_e6i)
+e6_w_volume     = input.int(2,  "Вес объёмных",     minval=1, maxval=4, group=grp_e6i)
+e6_w_pattern    = input.int(1,  "Вес паттернных",   minval=1, maxval=4, group=grp_e6i)
+e6_min_score    = input.int(10, "Мин. сумма для OK", minval=1, maxval=40, group=grp_e6i)
+
+// ====================================================================================================================
+// ОБЩИЕ ПЕРЕМЕННЫЕ И ТИПЫ
+// ====================================================================================================================
+
+var color[] PALETTE = array.from(#2196f3, #f44336, #4caf50, #ff9800, #9c27b0, #00bcd4, #ffeb3b, #e91e63, #795548, #607d8b)
+color invcol  = #ffffff00
+float bb_atr  = ta.atr(200) / (5 / bb_len)
+
+type fvg_obj
+    box             FVG
+    bool            isBull
+    array<float>    volumeProfile
+    array<box>      volumeBoxes
+    line            poc
+    label           pocLbl
+    int             age
+
+type sd_info
+    float  top
+    float  bottom
+    string type
+    int    startTime
+    int    breakTime
+    bool   disabled
+
+type store
+    line    [] ln
+    label   [] lb
+    box     [] bx
+    linefill[] lf
+
+type entered
+    bool normal  = false
+    bool breaker = false
+
+type timer
+    bool start = false
+    int  count = 0
+
+type structure
+    int    zn
+    float  zz
+    float  bos
+    float  choch
+    int    loc
+    int    temp
+    int    trend
+    int    start
+    float  main
+    int    xloc
+    bool   upsweep
+    bool   dnsweep
+    string txt = na
+
+type drawms
+    int    x1
+    int    x2
+    float  y
+    string txt
+    color  css
+    string style
+
+type ob
+    bool  bull
+    float top
+    float btm
+    float avg
+    int   loc
+    color css
+    float vol
+    int   dir
+    int   move
+    int   blPOS
+    int   brPOS
+    int   xlocbl
+    int   xlocbr
+    bool  isbb   = false
+    int   bbloc
+    int   touches = 0
+
+type hm_pivot
+    float value
+    int   index
+    float volume_
+    float vol
+    bool  isLower
+
+var store   bin       = store.new(array.new<line>(), array.new<label>(), array.new<box>(), array.new<linefill>())
+var entered blobenter = entered.new()
+var entered brobenter = entered.new()
+var entered blarea    = entered.new()
+var entered brarea    = entered.new()
+var timer   lc        = timer.new()
+
+if barstate.islast
+    for obj in bin.ln
+        obj.delete()
+    for obj in bin.lb
+        obj.delete()
+    for obj in bin.bx
+        obj.delete()
+    for obj in bin.lf
+        obj.delete()
+    bin.ln.clear()
+    bin.lb.clear()
+    bin.bx.clear()
+    bin.lf.clear()
+
+// ====================================================================================================================
+// tf_engine_v2 — stateless, без var внутри функции
+// ====================================================================================================================
+
+tf_engine_v2(
+  bool  p_use_rsi,     int   p_rsi_len,      int   p_rsi_bull_th, int   p_rsi_bear_th,
+  bool  p_use_candles, int   p_candle_cnt,
+  bool  p_use_engulf,
+  bool  p_use_strong,  float p_strong_ratio,
+  bool  p_use_vol,     int   p_vol_sma_len,  float p_vol_mult,    bool  p_vol_must,
+  bool  p_use_ob,      int   p_ob_atr_len,   float p_ob_atr_mult, float p_ob_vol_mult,
+  bool  p_use_fvg,     float p_fvg_thr,      bool  p_fvg_with_htf,
+  bool  p_use_hm,      int   p_hm_lookback,  float p_hm_vol_mult,
+  bool  p_use_sd,      float p_sd_body_mult, float p_sd_base_mult,
+  bool  p_use_smc,     int   p_smc_swing,    int   p_smc_hh_cnt,  bool  p_smc_must,
+  int   p_w_struct,    int   p_w_volume,      int   p_w_pattern
+  ) =>
+
+    // ── RSI ──────────────────────────────────────────────────────────────────
+    float rsi_val   = ta.rsi(close, p_rsi_len)
+    bool  rsi_b     = p_use_rsi ? rsi_val < p_rsi_bull_th : false
+    bool  rsi_s     = p_use_rsi ? rsi_val > p_rsi_bear_th : false
+
+    // ── Свечные паттерны ─────────────────────────────────────────────────────
+    int bull_cnt    = (close    > open    ? 1 : 0) + (close[1] > open[1] ? 1 : 0) +
+                      (close[2] > open[2] ? 1 : 0) + (close[3] > open[3] ? 1 : 0) +
+                      (close[4] > open[4] ? 1 : 0)
+    int bear_cnt    = (close    < open    ? 1 : 0) + (close[1] < open[1] ? 1 : 0) +
+                      (close[2] < open[2] ? 1 : 0) + (close[3] < open[3] ? 1 : 0) +
+                      (close[4] < open[4] ? 1 : 0)
+    bool candle_b   = p_use_candles ? bull_cnt >= p_candle_cnt : false
+    bool candle_s   = p_use_candles ? bear_cnt >= p_candle_cnt : false
+
+    bool eng_b      = p_use_engulf ? (close > open and close > high[1] and open < close[1]) : false
+    bool eng_s      = p_use_engulf ? (close < open and close < low[1]  and open > close[1]) : false
+
+    float body_r    = math.abs(close - open) / math.max(high - low, syminfo.mintick)
+    bool  strong_b  = p_use_strong ? (body_r > p_strong_ratio and close > open) : false
+    bool  strong_s  = p_use_strong ? (body_r > p_strong_ratio and close < open) : false
+
+    // ── Объём ────────────────────────────────────────────────────────────────
+    float vol_sma   = ta.sma(volume, p_vol_sma_len)
+    bool  vol_b     = p_use_vol ? (volume > vol_sma * p_vol_mult and close > open) : false
+    bool  vol_s     = p_use_vol ? (volume > vol_sma * p_vol_mult and close < open) : false
+
+    // ── Микроструктура ───────────────────────────────────────────────────────
+    float h5        = ta.highest(high, 5)[1]
+    float l5        = ta.lowest (low,  5)[1]
+    bool  micro_b   = ta.crossover (close, h5)
+    bool  micro_s   = ta.crossunder(close, l5)
+
+    // ── OB прокси ────────────────────────────────────────────────────────────
+    float ob_atr    = ta.atr(p_ob_atr_len)
+    float ob_vol_sm = ta.sma(volume, p_vol_sma_len)
+    bool ob_disl_b  = (close[1] < open[1]) and
+                      (math.abs(close[1] - open[1]) > ob_atr * p_ob_atr_mult) and
+                      (volume[1] > ob_vol_sm * p_ob_vol_mult) and
+                      (close > open) and (close > high[1])
+    bool ob_disl_s  = (close[1] > open[1]) and
+                      (math.abs(close[1] - open[1]) > ob_atr * p_ob_atr_mult) and
+                      (volume[1] > ob_vol_sm * p_ob_vol_mult) and
+                      (close < open) and (close < low[1])
+    bool ob_b       = p_use_ob ? ob_disl_b : false
+    bool ob_s       = p_use_ob ? ob_disl_s : false
+
+    // ── FVG прокси ───────────────────────────────────────────────────────────
+    float ema_htf_fast = ta.ema(close, 8)
+    float ema_htf_slow = ta.ema(close, 21)
+    bool  htf_ema_bull = ema_htf_fast > ema_htf_slow
+    bool  htf_ema_bear = ema_htf_fast < ema_htf_slow
+    float fvg_bull_gap = (low  - high[2]) / math.max(ta.stdev(low  - high[2], 50), 1e-10)
+    float fvg_bear_gap = (low[2] - high)  / math.max(ta.stdev(low[2] - high,  50), 1e-10)
+    bool  fvg_raw_b    = low > high[2] and fvg_bull_gap > p_fvg_thr
+    bool  fvg_raw_s    = high < low[2] and fvg_bear_gap > p_fvg_thr
+    bool  fvg_b        = p_use_fvg ? (p_fvg_with_htf ? (fvg_raw_b and htf_ema_bull) : fvg_raw_b) : false
+    bool  fvg_s        = p_use_fvg ? (p_fvg_with_htf ? (fvg_raw_s and htf_ema_bear) : fvg_raw_s) : false
+
+    // ── HeatMap прокси ───────────────────────────────────────────────────────
+    float hm_vol_sma   = ta.sma(volume, p_vol_sma_len)
+    float hm_highest   = ta.highest(high, p_hm_lookback)
+    float hm_lowest    = ta.lowest (low,  p_hm_lookback)
+    bool  hm_b         = p_use_hm ? (low == hm_lowest  and volume > hm_vol_sma * p_hm_vol_mult) : false
+    bool  hm_s         = p_use_hm ? (high == hm_highest and volume > hm_vol_sma * p_hm_vol_mult) : false
+
+    // ── S&D прокси ───────────────────────────────────────────────────────────
+    float sd_atr_loc   = ta.atr(20)
+    bool  sd_disl_b    = close[1] > open[1] and (math.abs(close[1] - open[1]) > sd_atr_loc[1] * p_sd_body_mult)
+    bool  sd_disl_s    = open[1]  > close[1] and (math.abs(close[1] - open[1]) > sd_atr_loc[1] * p_sd_body_mult)
+    bool  sd_base_cond = math.max(math.abs(close[2] - open[2]), nz(math.abs(close[3] - open[3]), math.abs(close[2] - open[2]))) < sd_atr_loc[2] * p_sd_base_mult
+    bool  sd_b         = p_use_sd ? (sd_disl_b and sd_base_cond) : false
+    bool  sd_s         = p_use_sd ? (sd_disl_s and sd_base_cond) : false
+
+    // ── SMC прокси — stateless через индексированные пивоты ─────────────────
+    int   sw           = p_smc_swing
+    float ph_0         = nz(ta.pivothigh(high, sw, sw),         high[sw])
+    float ph_1         = nz(ta.pivothigh(high, sw * 3, sw * 3), high[sw * 3])
+    float ph_2         = nz(ta.pivothigh(high, sw * 5, sw * 5), high[sw * 5])
+    float pl_0         = nz(ta.pivotlow (low,  sw, sw),         low[sw])
+    float pl_1         = nz(ta.pivotlow (low,  sw * 3, sw * 3), low[sw * 3])
+    float pl_2         = nz(ta.pivotlow (low,  sw * 5, sw * 5), low[sw * 5])
+
+    bool hh1 = ph_0 > ph_1
+    bool hl1 = pl_0 > pl_1
+    bool hh2 = ph_1 > ph_2
+    bool hl2 = pl_1 > pl_2
+    bool lh1 = ph_0 < ph_1
+    bool ll1 = pl_0 < pl_1
+    bool lh2 = ph_1 < ph_2
+    bool ll2 = pl_1 < pl_2
+
+    int smc_bull_cnt   = (hh1 ? 1 : 0) + (hl1 ? 1 : 0) + (hh2 ? 1 : 0) + (hl2 ? 1 : 0)
+    int smc_bear_cnt   = (lh1 ? 1 : 0) + (ll1 ? 1 : 0) + (lh2 ? 1 : 0) + (ll2 ? 1 : 0)
+    bool smc_b         = p_use_smc ? (smc_bull_cnt >= p_smc_hh_cnt) : false
+    bool smc_s         = p_use_smc ? (smc_bear_cnt >= p_smc_hh_cnt) : false
+
+    // ── Обязательные условия ─────────────────────────────────────────────────
+    bool must_bull_ok  = (p_vol_must ? vol_b : true) and (p_smc_must ? smc_b : true)
+    bool must_bear_ok  = (p_vol_must ? vol_s : true) and (p_smc_must ? smc_s : true)
+
+    // ── Взвешенный скоринг ───────────────────────────────────────────────────
+    int struct_bull    = (smc_b   ? p_w_struct  : 0) +
+                         (ob_b    ? p_w_struct  : 0) +
+                         (micro_b ? p_w_struct  : 0)
+
+    int volume_bull    = (vol_b   ? p_w_volume  : 0) +
+                         (hm_b    ? p_w_volume  : 0) +
+                         (fvg_b   ? p_w_volume  : 0)
+
+    int pattern_bull   = (rsi_b    ? p_w_pattern : 0) +
+                         (candle_b ? p_w_pattern : 0) +
+                         (eng_b    ? p_w_pattern : 0) +
+                         (strong_b ? p_w_pattern : 0) +
+                         (sd_b     ? p_w_pattern : 0)
+
+    int struct_bear    = (smc_s   ? p_w_struct  : 0) +
+                         (ob_s    ? p_w_struct  : 0) +
+                         (micro_s ? p_w_struct  : 0)
+
+    int volume_bear    = (vol_s   ? p_w_volume  : 0) +
+                         (hm_s    ? p_w_volume  : 0) +
+                         (fvg_s   ? p_w_volume  : 0)
+
+    int pattern_bear   = (rsi_s    ? p_w_pattern : 0) +
+                         (candle_s ? p_w_pattern : 0) +
+                         (eng_s    ? p_w_pattern : 0) +
+                         (strong_s ? p_w_pattern : 0) +
+                         (sd_s     ? p_w_pattern : 0)
+
+    int score_bull     = must_bull_ok ? (struct_bull + volume_bull + pattern_bull) : 0
+    int score_bear     = must_bear_ok ? (struct_bear + volume_bear + pattern_bear) : 0
+
+    [score_bull, score_bear]
+
+// ====================================================================================================================
+// ЗАПРОСЫ request.security — 6 TF
+// ====================================================================================================================
+
+[g_ltf1_sb, g_ltf1_ss] = request.security(syminfo.tickerid, g_ltf1,
+  tf_engine_v2(
+    e1_use_rsi, e1_rsi_len, e1_rsi_bull_th, e1_rsi_bear_th,
+    e1_use_candles, e1_candle_cnt, e1_use_engulf, e1_use_strong, e1_strong_ratio,
+    e1_use_vol, e1_vol_sma_len, e1_vol_mult, e1_vol_must,
+    e1_use_ob,  e1_ob_atr_len,  e1_ob_atr_mult, e1_ob_vol_mult,
+    e1_use_fvg, e1_fvg_thr, e1_fvg_with_htf,
+    e1_use_hm,  e1_hm_lookback, e1_hm_vol_mult,
+    e1_use_sd,  e1_sd_body_mult, e1_sd_base_mult,
+    e1_use_smc, e1_smc_swing, e1_smc_hh_cnt, e1_smc_must,
+    e1_w_struct, e1_w_volume, e1_w_pattern),
+  lookahead=barmerge.lookahead_off)
+
+[g_ltf2_sb, g_ltf2_ss] = request.security(syminfo.tickerid, g_ltf2,
+  tf_engine_v2(
+    e2_use_rsi, e2_rsi_len, e2_rsi_bull_th, e2_rsi_bear_th,
+    e2_use_candles, e2_candle_cnt, e2_use_engulf, e2_use_strong, e2_strong_ratio,
+    e2_use_vol, e2_vol_sma_len, e2_vol_mult, e2_vol_must,
+    e2_use_ob,  e2_ob_atr_len,  e2_ob_atr_mult, e2_ob_vol_mult,
+    e2_use_fvg, e2_fvg_thr, e2_fvg_with_htf,
+    e2_use_hm,  e2_hm_lookback, e2_hm_vol_mult,
+    e2_use_sd,  e2_sd_body_mult, e2_sd_base_mult,
+    e2_use_smc, e2_smc_swing, e2_smc_hh_cnt, e2_smc_must,
+    e2_w_struct, e2_w_volume, e2_w_pattern),
+  lookahead=barmerge.lookahead_off)
+
+[g_ltf3_sb, g_ltf3_ss] = request.security(syminfo.tickerid, g_ltf3,
+  tf_engine_v2(
+    e3_use_rsi, e3_rsi_len, e3_rsi_bull_th, e3_rsi_bear_th,
+    e3_use_candles, e3_candle_cnt, e3_use_engulf, e3_use_strong, e3_strong_ratio,
+    e3_use_vol, e3_vol_sma_len, e3_vol_mult, e3_vol_must,
+    e3_use_ob,  e3_ob_atr_len,  e3_ob_atr_mult, e3_ob_vol_mult,
+    e3_use_fvg, e3_fvg_thr, e3_fvg_with_htf,
+    e3_use_hm,  e3_hm_lookback, e3_hm_vol_mult,
+    e3_use_sd,  e3_sd_body_mult, e3_sd_base_mult,
+    e3_use_smc, e3_smc_swing, e3_smc_hh_cnt, e3_smc_must,
+    e3_w_struct, e3_w_volume, e3_w_pattern),
+  lookahead=barmerge.lookahead_off)
+
+[g_htf1_sb, g_htf1_ss] = request.security(syminfo.tickerid, g_htf1,
+  tf_engine_v2(
+    e4_use_rsi, e4_rsi_len, e4_rsi_bull_th, e4_rsi_bear_th,
+    e4_use_candles, e4_candle_cnt, e4_use_engulf, e4_use_strong, e4_strong_ratio,
+    e4_use_vol, e4_vol_sma_len, e4_vol_mult, e4_vol_must,
+    e4_use_ob,  e4_ob_atr_len,  e4_ob_atr_mult, e4_ob_vol_mult,
+    e4_use_fvg, e4_fvg_thr, e4_fvg_with_htf,
+    e4_use_hm,  e4_hm_lookback, e4_hm_vol_mult,
+    e4_use_sd,  e4_sd_body_mult, e4_sd_base_mult,
+    e4_use_smc, e4_smc_swing, e4_smc_hh_cnt, e4_smc_must,
+    e4_w_struct, e4_w_volume, e4_w_pattern),
+  lookahead=barmerge.lookahead_off)
+
+[g_htf2_sb, g_htf2_ss] = request.security(syminfo.tickerid, g_htf2,
+  tf_engine_v2(
+    e5_use_rsi, e5_rsi_len, e5_rsi_bull_th, e5_rsi_bear_th,
+    e5_use_candles, e5_candle_cnt, e5_use_engulf, e5_use_strong, e5_strong_ratio,
+    e5_use_vol, e5_vol_sma_len, e5_vol_mult, e5_vol_must,
+    e5_use_ob,  e5_ob_atr_len,  e5_ob_atr_mult, e5_ob_vol_mult,
+    e5_use_fvg, e5_fvg_thr, e5_fvg_with_htf,
+    e5_use_hm,  e5_hm_lookback, e5_hm_vol_mult,
+    e5_use_sd,  e5_sd_body_mult, e5_sd_base_mult,
+    e5_use_smc, e5_smc_swing, e5_smc_hh_cnt, e5_smc_must,
+    e5_w_struct, e5_w_volume, e5_w_pattern),
+  lookahead=barmerge.lookahead_off)
+
+[g_htf3_sb, g_htf3_ss] = request.security(syminfo.tickerid, g_htf3,
+  tf_engine_v2(
+    e6_use_rsi, e6_rsi_len, e6_rsi_bull_th, e6_rsi_bear_th,
+    e6_use_candles, e6_candle_cnt, e6_use_engulf, e6_use_strong, e6_strong_ratio,
+    e6_use_vol, e6_vol_sma_len, e6_vol_mult, e6_vol_must,
+    e6_use_ob,  e6_ob_atr_len,  e6_ob_atr_mult, e6_ob_vol_mult,
+    e6_use_fvg, e6_fvg_thr, e6_fvg_with_htf,
+    e6_use_hm,  e6_hm_lookback, e6_hm_vol_mult,
+    e6_use_sd,  e6_sd_body_mult, e6_sd_base_mult,
+    e6_use_smc, e6_smc_swing, e6_smc_hh_cnt, e6_smc_must,
+    e6_w_struct, e6_w_volume, e6_w_pattern),
+  lookahead=barmerge.lookahead_off)
+
+// ====================================================================================================================
+// ГЛОБАЛЬНЫЕ СЧЁТЧИКИ И ВКЛАДЫ TF
+// ПРИМЕЧАНИЕ: Готовые булевы LTF/HTF Bull/Bear OK убраны — P2 пересчитывает
+// их самостоятельно через сырые скоры + пороги для максимальной синхронности.
+// ====================================================================================================================
+
+int g_ltf_bull_cnt = (g_ltf1_sb >= e1_min_score ? 1 : 0) + (g_ltf2_sb >= e2_min_score ? 1 : 0) + (g_ltf3_sb >= e3_min_score ? 1 : 0)
+int g_ltf_bear_cnt = (g_ltf1_ss >= e1_min_score ? 1 : 0) + (g_ltf2_ss >= e2_min_score ? 1 : 0) + (g_ltf3_ss >= e3_min_score ? 1 : 0)
+int g_htf_bull_cnt = (g_htf1_sb >= e4_min_score ? 1 : 0) + (g_htf2_sb >= e5_min_score ? 1 : 0) + (g_htf3_sb >= e6_min_score ? 1 : 0)
+int g_htf_bear_cnt = (g_htf1_ss >= e4_min_score ? 1 : 0) + (g_htf2_ss >= e5_min_score ? 1 : 0) + (g_htf3_ss >= e6_min_score ? 1 : 0)
+
+int g_tf_bull_contrib = (g_ltf1_sb >= e1_min_score ? g_w_ltf : 0) + (g_ltf2_sb >= e2_min_score ? g_w_ltf : 0) + (g_ltf3_sb >= e3_min_score ? g_w_ltf : 0) +
+                        (g_htf1_sb >= e4_min_score ? g_w_htf : 0) + (g_htf2_sb >= e5_min_score ? g_w_htf : 0) + (g_htf3_sb >= e6_min_score ? g_w_htf : 0)
+int g_tf_bear_contrib = (g_ltf1_ss >= e1_min_score ? g_w_ltf : 0) + (g_ltf2_ss >= e2_min_score ? g_w_ltf : 0) + (g_ltf3_ss >= e3_min_score ? g_w_ltf : 0) +
+                        (g_htf1_ss >= e4_min_score ? g_w_htf : 0) + (g_htf2_ss >= e5_min_score ? g_w_htf : 0) + (g_htf3_ss >= e6_min_score ? g_w_htf : 0)
+
+int htf_bull_conf = g_htf_bull_cnt
+int htf_bear_conf = g_htf_bear_cnt
+
+// ====================================================================================================================
+// FVG GLOBAL DATA REQUESTS (CHARTPRIME)
+// ====================================================================================================================
+
+float fvg_time_       = timeframe.in_seconds(fvg_tf1) / 60
+float fvg_currentTime = timeframe.in_seconds("") / 60
+string fvg_req_tf     = fvg_time_ >= fvg_currentTime and not fvg_autoTf ? "" : (fvg_autoTf ? str.tostring(int(fvg_currentTime / 10)) : fvg_tf1)
+array<float> fvg_c = request.security_lower_tf(syminfo.tickerid, fvg_req_tf, close)
+array<float> fvg_v = request.security_lower_tf(syminfo.tickerid, fvg_req_tf, volume)
+
+float fvg_bearish_gap_size = (low[2] - high)  / math.max(ta.stdev(low[2] - high,  200), 1e-10)
+float fvg_bullish_gap_size = (low  - high[2]) / math.max(ta.stdev(low  - high[2], 200), 1e-10)
+
+// ====================================================================================================================
+// МЕТОДЫ И ФУНКЦИИ SMC & OB
+// ====================================================================================================================
+
+method txSz(string s) =>
+    switch s
+        "Tiny"   => size.tiny
+        "Small"  => size.small
+        "Normal" => size.normal
+        "Large"  => size.large
+        "Huge"   => size.huge
+        "Auto"   => size.auto
+        => size.auto
+
+method lstyle(string style) => style == "----" ? line.style_dashed : line.style_solid
+
+f_IDMIDX(bool use_max, int loc) =>
+    float min = 99999999.
+    float max = 0.
+    int   idx = 0
+    int limit = math.min(bar_index - loc, 200)
+    if use_max
+        for i = 0 to limit
+            max := math.max(high[i], max)
+            min := max == high[i] ? low[i]  : min
+            idx := max == high[i] ? i       : idx
+    else
+        for i = 0 to limit
+            min := math.min(low[i], min)
+            max := min == low[i]  ? high[i] : max
+            idx := min == low[i]  ? i       : idx
+    idx
+
+f_mapping() =>
+    var float         up      = na
+    var float         dn      = na
+    var float         point   = na
+    var int           trend   = 0
+    var int           idx     = na
+    var int           sum     = na
+    var int           project = na
+    var chart.point[] charts  = array.new<chart.point>()
+    if na(up)
+        up := high, idx := bar_index
+    if na(dn)
+        dn := low,  idx := bar_index
+    if high > up
+        if trend == -1
+            int id = f_IDMIDX(false, idx)
+            charts.unshift(chart.point.from_time(time[id], low[id]))
+            idx := bar_index, point := low[id], sum := time[id]
+        up := high, dn := low, project := time, trend := 1
+    if low < dn
+        if trend == 1
+            int id = f_IDMIDX(true, idx)
+            charts.unshift(chart.point.from_time(time[id], high[id]))
+            idx := bar_index, point := high[id], sum := time[id]
+        up := high, dn := low, project := time, trend := -1
+    if barstate.islast
+        var line     ln = na
+        var polyline pl = na
+        ln.delete(), pl.delete()
+        ln := line.new(x1=sum, x2=project, y1=point, y2=trend == 1 ? up : dn, xloc=xloc.bar_time, color=color.red)
+        pl := polyline.new(charts, line_color=bb_mappingcss, xloc=xloc.bar_time, line_style=bb_mappingStyle.lstyle())
+
+method find(structure ms, bool use_max, bool sweep, bool useob) =>
+    float min    = 99999999.
+    float max    = 0.
+    int   idx    = 0
+    int   limit  = math.min(bar_index - ms.xloc, 200)
+    int   loop_e = (limit - 1) > 0 ? limit - 1 : limit
+    if use_max
+        for i = 0 to loop_e
+            max := math.max(high[i], max)
+            min := max == high[i] ? low[i]  : min
+            idx := max == high[i] ? i       : idx
+        if useob and high[idx + 1] > high[idx]
+            max := high[idx + 1], min := low[idx + 1], idx := idx + 1
+    else
+        for i = 0 to loop_e
+            min := math.min(low[i], min)
+            max := min == low[i]  ? high[i] : max
+            idx := min == low[i]  ? i       : idx
+        if useob and low[idx + 1] < low[idx]
+            max := high[idx + 1], min := low[idx + 1], idx := idx + 1
+    idx
+
+method fnOB(ob[] block, bool bull, float cords, int idx) =>
+    switch bull
+        true =>
+            blobenter.normal  := false
+            blobenter.breaker := false
+            block.unshift(ob.new(true, cords, low[idx], math.avg(cords, low[idx]), time[idx], bb_obupcs, volume[idx], close[idx] > open[idx] ? 1 : -1, 1, 1, 1, time[idx], time[idx], false, time[idx], 0))
+        false =>
+            brobenter.normal  := false
+            brobenter.breaker := false
+            block.unshift(ob.new(false, high[idx], cords, math.avg(cords, high[idx]), time[idx], bb_obdncs, volume[idx], close[idx] > open[idx] ? 1 : -1, 1, 1, 1, time[idx], time[idx], false, time[idx], 0))
+
+method mitigated(ob[] block) =>
+    if barstate.isconfirmed and block.size() > 0
+        for i = block.size() - 1 to 0
+            stuff = block.get(i)
+            if not stuff.isbb
+                switch stuff.bull
+                    true =>
+                        if bb_obmiti == "Close" ? math.min(close, open) < stuff.btm : bb_obmiti == "Wick" ? low < stuff.btm : bb_obmiti == "Avg" ? low < stuff.avg : false
+                            stuff.isbb := true, stuff.bbloc := time
+                            if not bb_obshowbb
+                                block.remove(i)
+                    false =>
+                        if bb_obmiti == "Close" ? math.max(close, open) > stuff.top : bb_obmiti == "Wick" ? high > stuff.top : bb_obmiti == "Avg" ? high > stuff.avg : false
+                            stuff.isbb := true, stuff.bbloc := time
+                            if not bb_obshowbb
+                                block.remove(i)
+            else
+                switch stuff.bull
+                    true =>
+                        if bb_obmiti == "Close" ? math.max(close, open) > stuff.top : bb_obmiti == "Wick" ? high > stuff.top : bb_obmiti == "Avg" ? high > stuff.avg : false
+                            block.remove(i)
+                    false =>
+                        if bb_obmiti == "Close" ? math.min(close, open) < stuff.btm : bb_obmiti == "Wick" ? low < stuff.btm : bb_obmiti == "Avg" ? low < stuff.avg : false
+                            block.remove(i)
+
+f_zones_overlap(float t1, float b1, float t2, float b2) =>
+    (b1 > b2 and b1 < t2) or (t1 < t2 and b1 > b2) or (t1 > t2 and b1 < b2) or (t1 < t2 and t1 > b2)
+
+f_overlap(ob[] bull, ob[] bear) =>
+    if bull.size() > 1
+        for i = bull.size() - 1 to 1
+            stuff = bull.get(i), current = bull.get(0)
+            if f_zones_overlap(stuff.top, stuff.btm, current.top, current.btm)
+                bull.remove(bb_wichlap == "Recent" ? i : 0)
+    if bear.size() > 1
+        for i = bear.size() - 1 to 1
+            stuff = bear.get(i), current = bear.get(0)
+            if f_zones_overlap(stuff.top, stuff.btm, current.top, current.btm)
+                bear.remove(bb_wichlap == "Recent" ? i : 0)
+    if bull.size() > 0 and bear.size() > 0
+        for i = bull.size() - 1 to 0
+            stuff = bull.get(i), current = bear.get(0)
+            if f_zones_overlap(stuff.top, stuff.btm, current.top, current.btm)
+                bull.remove(bb_wichlap == "Recent" ? 0 : i)
+    if bull.size() > 0 and bear.size() > 0
+        for i = bear.size() - 1 to 0
+            stuff = bear.get(i), current = bull.get(0)
+            if f_zones_overlap(stuff.top, stuff.btm, current.top, current.btm)
+                bear.remove(bb_wichlap == "Recent" ? 0 : i)
+
+method umt(ob metric) =>
+    switch metric.dir
+        1 =>
+            switch metric.move
+                1 => metric.blPOS += 1, metric.move := 2
+                2 => metric.blPOS += 1, metric.move := 3
+                3 => metric.brPOS += 1, metric.move := 1
+        -1 =>
+            switch metric.move
+                1 => metric.brPOS += 1, metric.move := 2
+                2 => metric.brPOS += 1, metric.move := 3
+                3 => metric.blPOS += 1, metric.move := 1
+    if (time - time[1]) == (time[1] - time[2])
+        metric.xlocbl := metric.loc + (time - time[1]) * metric.blPOS
+        metric.xlocbr := metric.loc + (time - time[1]) * metric.brPOS
+
+f_display(ob id, ob[] full, int i, float dV_val) =>
+    if not id.isbb
+        bin.bx.unshift(box.new(top=id.top, bottom=id.btm, left=id.loc, right=time, border_color=na, bgcolor=id.css, xloc=xloc.bar_time))
+        bin.bx.unshift(box.new(top=id.top, bottom=id.btm, left=time, right=time + 1, border_color=na, bgcolor=id.css, xloc=xloc.bar_time, extend=extend.right))
+    else
+        bin.bx.unshift(box.new(top=id.top, bottom=id.btm, left=id.loc, right=id.bbloc, border_color=na, bgcolor=id.css, xloc=xloc.bar_time))
+        bin.bx.unshift(box.new(top=id.top, bottom=id.btm, left=id.bbloc, right=time, border_color=id.css, bgcolor=id.bull ? bb_bbup : bb_bbdn, xloc=xloc.bar_time, border_width=2))
+        bin.bx.unshift(box.new(top=id.top, bottom=id.btm, left=time, right=time + 1, border_color=id.css, bgcolor=id.bull ? bb_bbup : bb_bbdn, xloc=xloc.bar_time, extend=extend.right))
+    if bb_obshowactivity
+        bin.bx.unshift(box.new(top=id.top, bottom=id.avg, left=id.loc, right=id.xlocbl, border_color=na, bgcolor=bb_obactup, xloc=xloc.bar_time))
+        bin.bx.unshift(box.new(top=id.avg, bottom=id.btm, left=id.loc, right=id.xlocbr, border_color=na, bgcolor=bb_obactdn, xloc=xloc.bar_time))
+    if bb_showline
+        bin.ln.unshift(line.new(x1=id.loc, x2=time, y1=id.avg, y2=id.avg, color=color.new(id.css, 0), xloc=xloc.bar_time, style=line.style_dashed))
+    if bb_showmetric
+        bin.lb.unshift(label.new(bar_index - 1, id.avg, textcolor=color.new(id.css, 0), style=label.style_label_left, size=bb_obtxt.txSz(), color=#ffffff00, text=str.tostring(math.round(id.vol, 3), format=format.volume) + " (" + str.tostring(dV_val) + "%)"))
