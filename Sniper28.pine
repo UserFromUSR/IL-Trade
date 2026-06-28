@@ -120,6 +120,12 @@ f_pr_in_poi_required(bool manual_raw) =>
         result := PR_IN_POI_REQUIRED.get(preset_idx_p2)
     result
 
+f_pr_get(int factor_idx, bool raw_inc, int raw_w, bool raw_must) =>
+    preset_factor result = preset_factor.new(raw_inc, raw_w, raw_must)
+    if preset_idx_p2 >= 0
+        result := PR_FACTORS.get(preset_idx_p2 * 64 + factor_idx)
+    result
+
 // ====================================================================================================================
 // 0.1 БЫСТРЫЙ ДОСТУП — req_score, P2 OSC10 пороги по TF, LTF/HTF гейты каскада, требование POI
 // ====================================================================================================================
@@ -1789,8 +1795,9 @@ side_detail pack_bull = side_detail.new()
 side_detail pack_bear = side_detail.new()
 
 // ====================================================================================================================
-// СКОРИНГ — ВЗВЕШЕННЫЙ, С УЧЁТОМ ПРЕСЕТА (64 ФАКТОРА). ОПТИМИЗИРОВАНО: f_pr_include/weight/must считаются
-// ОДИН РАЗ на фактор (а не дважды для buy/sell) — экономия токенов компиляции без изменения логики/результата.
+// СКОРИНГ — ВЗВЕШЕННЫЙ, С УЧЁТОМ ПРЕСЕТА (64 ФАКТОРА). ИСПРАВЛЕНО: вместо 3 отдельных переменных (include/
+// weight/must) на фактор используется ОДНА переменная типа preset_factor через f_pr_get — экономит и токены
+// (один вызов функции), и количество локальных переменных (1 вместо 3 на фактор). Логика идентична.
 // ====================================================================================================================
 int buy_score = 0
 int sell_score = 0
@@ -1799,406 +1806,425 @@ bool sell_valid = true
 if not p1_connected
     buy_valid := false, sell_valid := false
 
-bool inc0 = f_pr_include(0, s_rsi_kde), int w0 = f_pr_weight(0,1), bool mu0 = f_pr_must(0, m_rsi_kde)
-buy_score += inc0 ? (osc_kde_bull ? w0 : 0) : 0
-sell_score += inc0 ? (osc_kde_bear ? w0 : 0) : 0
-buy_valid := buy_valid and (mu0 ? osc_kde_bull : true)
-sell_valid := sell_valid and (mu0 ? osc_kde_bear : true)
+preset_factor pf0 = f_pr_get(0, s_rsi_kde, 1, m_rsi_kde)
+buy_score += pf0.include ? (osc_kde_bull ? pf0.weight : 0) : 0
+sell_score += pf0.include ? (osc_kde_bear ? pf0.weight : 0) : 0
+buy_valid := buy_valid and (pf0.must ? osc_kde_bull : true)
+sell_valid := sell_valid and (pf0.must ? osc_kde_bear : true)
 
-bool inc1 = f_pr_include(1, s_stoch), int w1 = f_pr_weight(1,1), bool mu1 = f_pr_must(1, m_stoch)
-buy_score += inc1 ? (osc_stoch_bull ? w1 : 0) : 0
-sell_score += inc1 ? (osc_stoch_bear ? w1 : 0) : 0
-buy_valid := buy_valid and (mu1 ? osc_stoch_bull : true)
-sell_valid := sell_valid and (mu1 ? osc_stoch_bear : true)
+preset_factor pf1 = f_pr_get(1, s_stoch, 1, m_stoch)
+buy_score += pf1.include ? (osc_stoch_bull ? pf1.weight : 0) : 0
+sell_score += pf1.include ? (osc_stoch_bear ? pf1.weight : 0) : 0
+buy_valid := buy_valid and (pf1.must ? osc_stoch_bull : true)
+sell_valid := sell_valid and (pf1.must ? osc_stoch_bear : true)
 
-bool inc2 = f_pr_include(2, s_macd_dlx), int w2 = f_pr_weight(2,1), bool mu2 = f_pr_must(2, m_macd_dlx)
-buy_score += inc2 ? (osc_macd_dlx_bull ? w2 : 0) : 0
-sell_score += inc2 ? (osc_macd_dlx_bear ? w2 : 0) : 0
-buy_valid := buy_valid and (mu2 ? osc_macd_dlx_bull : true)
-sell_valid := sell_valid and (mu2 ? osc_macd_dlx_bear : true)
+preset_factor pf2 = f_pr_get(2, s_macd_dlx, 1, m_macd_dlx)
+buy_score += pf2.include ? (osc_macd_dlx_bull ? pf2.weight : 0) : 0
+sell_score += pf2.include ? (osc_macd_dlx_bear ? pf2.weight : 0) : 0
+buy_valid := buy_valid and (pf2.must ? osc_macd_dlx_bull : true)
+sell_valid := sell_valid and (pf2.must ? osc_macd_dlx_bear : true)
 
-bool inc3 = f_pr_include(3, s_cci), int w3 = f_pr_weight(3,1), bool mu3 = f_pr_must(3, m_cci)
-buy_score += inc3 ? (osc_cci_bull ? w3 : 0) : 0
-sell_score += inc3 ? (osc_cci_bear ? w3 : 0) : 0
-buy_valid := buy_valid and (mu3 ? osc_cci_bull : true)
-sell_valid := sell_valid and (mu3 ? osc_cci_bear : true)
+preset_factor pf3 = f_pr_get(3, s_cci, 1, m_cci)
+buy_score += pf3.include ? (osc_cci_bull ? pf3.weight : 0) : 0
+sell_score += pf3.include ? (osc_cci_bear ? pf3.weight : 0) : 0
+buy_valid := buy_valid and (pf3.must ? osc_cci_bull : true)
+sell_valid := sell_valid and (pf3.must ? osc_cci_bear : true)
 
-bool inc4 = f_pr_include(4, s_mdiv), int w4 = f_pr_weight(4,1), bool mu4 = f_pr_must(4, m_mdiv)
-buy_score += inc4 ? (osc_mdiv_bull ? w4 : 0) : 0
-sell_score += inc4 ? (osc_mdiv_bear ? w4 : 0) : 0
-buy_valid := buy_valid and (mu4 ? osc_mdiv_bull : true)
-sell_valid := sell_valid and (mu4 ? osc_mdiv_bear : true)
+preset_factor pf4 = f_pr_get(4, s_mdiv, 1, m_mdiv)
+buy_score += pf4.include ? (osc_mdiv_bull ? pf4.weight : 0) : 0
+sell_score += pf4.include ? (osc_mdiv_bear ? pf4.weight : 0) : 0
+buy_valid := buy_valid and (pf4.must ? osc_mdiv_bull : true)
+sell_valid := sell_valid and (pf4.must ? osc_mdiv_bear : true)
 
-bool inc5 = f_pr_include(5, s_peter), int w5 = f_pr_weight(5,1), bool mu5 = f_pr_must(5, m_peter)
-buy_score += inc5 ? (osc_peter_bull ? w5 : 0) : 0
-sell_score += inc5 ? (osc_peter_bear ? w5 : 0) : 0
-buy_valid := buy_valid and (mu5 ? osc_peter_bull : true)
-sell_valid := sell_valid and (mu5 ? osc_peter_bear : true)
+preset_factor pf5 = f_pr_get(5, s_peter, 1, m_peter)
+buy_score += pf5.include ? (osc_peter_bull ? pf5.weight : 0) : 0
+sell_score += pf5.include ? (osc_peter_bear ? pf5.weight : 0) : 0
+buy_valid := buy_valid and (pf5.must ? osc_peter_bull : true)
+sell_valid := sell_valid and (pf5.must ? osc_peter_bear : true)
 
-bool inc6 = f_pr_include(6, s_tfdiv), int w6 = f_pr_weight(6,1), bool mu6 = f_pr_must(6, m_tfdiv)
-buy_score += inc6 ? (osc_tfdiv_bull ? w6 : 0) : 0
-sell_score += inc6 ? (osc_tfdiv_bear ? w6 : 0) : 0
-buy_valid := buy_valid and (mu6 ? osc_tfdiv_bull : true)
-sell_valid := sell_valid and (mu6 ? osc_tfdiv_bear : true)
+preset_factor pf6 = f_pr_get(6, s_tfdiv, 1, m_tfdiv)
+buy_score += pf6.include ? (osc_tfdiv_bull ? pf6.weight : 0) : 0
+sell_score += pf6.include ? (osc_tfdiv_bear ? pf6.weight : 0) : 0
+buy_valid := buy_valid and (pf6.must ? osc_tfdiv_bull : true)
+sell_valid := sell_valid and (pf6.must ? osc_tfdiv_bear : true)
 
-bool inc7 = f_pr_include(7, s_smt), int w7 = f_pr_weight(7,1), bool mu7 = f_pr_must(7, m_smt)
-buy_score += inc7 ? (osc_smt_bull ? w7 : 0) : 0
-sell_score += inc7 ? (osc_smt_bear ? w7 : 0) : 0
-buy_valid := buy_valid and (mu7 ? osc_smt_bull : true)
-sell_valid := sell_valid and (mu7 ? osc_smt_bear : true)
+preset_factor pf7 = f_pr_get(7, s_smt, 1, m_smt)
+buy_score += pf7.include ? (osc_smt_bull ? pf7.weight : 0) : 0
+sell_score += pf7.include ? (osc_smt_bear ? pf7.weight : 0) : 0
+buy_valid := buy_valid and (pf7.must ? osc_smt_bull : true)
+sell_valid := sell_valid and (pf7.must ? osc_smt_bear : true)
 
-bool inc8 = f_pr_include(8, s_sm_act), int w8 = f_pr_weight(8,1), bool mu8 = f_pr_must(8, m_sm_act)
-buy_score += inc8 ? (sm_act_bull ? w8 : 0) : 0
-sell_score += inc8 ? (sm_act_bear ? w8 : 0) : 0
-buy_valid := buy_valid and (mu8 ? sm_act_bull : true)
-sell_valid := sell_valid and (mu8 ? sm_act_bear : true)
+preset_factor pf8 = f_pr_get(8, s_sm_act, 1, m_sm_act)
+buy_score += pf8.include ? (sm_act_bull ? pf8.weight : 0) : 0
+sell_score += pf8.include ? (sm_act_bear ? pf8.weight : 0) : 0
+buy_valid := buy_valid and (pf8.must ? sm_act_bull : true)
+sell_valid := sell_valid and (pf8.must ? sm_act_bear : true)
 
-bool inc9 = f_pr_include(9, s_sm_idx), int w9 = f_pr_weight(9,1), bool mu9 = f_pr_must(9, m_sm_idx)
-buy_score += inc9 ? (sm_idx_bull ? w9 : 0) : 0
-sell_score += inc9 ? (sm_idx_bear ? w9 : 0) : 0
-buy_valid := buy_valid and (mu9 ? sm_idx_bull : true)
-sell_valid := sell_valid and (mu9 ? sm_idx_bear : true)
+preset_factor pf9 = f_pr_get(9, s_sm_idx, 1, m_sm_idx)
+buy_score += pf9.include ? (sm_idx_bull ? pf9.weight : 0) : 0
+sell_score += pf9.include ? (sm_idx_bear ? pf9.weight : 0) : 0
+buy_valid := buy_valid and (pf9.must ? sm_idx_bull : true)
+sell_valid := sell_valid and (pf9.must ? sm_idx_bear : true)
 
-bool inc10 = f_pr_include(10, s_sm_int), int w10 = f_pr_weight(10,1), bool mu10 = f_pr_must(10, m_sm_int)
-buy_score += inc10 ? (sm_int_bull ? w10 : 0) : 0
-sell_score += inc10 ? (sm_int_bear ? w10 : 0) : 0
-buy_valid := buy_valid and (mu10 ? sm_int_bull : true)
-sell_valid := sell_valid and (mu10 ? sm_int_bear : true)
+preset_factor pf10 = f_pr_get(10, s_sm_int, 1, m_sm_int)
+buy_score += pf10.include ? (sm_int_bull ? pf10.weight : 0) : 0
+sell_score += pf10.include ? (sm_int_bear ? pf10.weight : 0) : 0
+buy_valid := buy_valid and (pf10.must ? sm_int_bull : true)
+sell_valid := sell_valid and (pf10.must ? sm_int_bear : true)
 
-bool inc11 = f_pr_include(11, s_cndl), int w11 = f_pr_weight(11,1), bool mu11 = f_pr_must(11, m_cndl)
-buy_score += inc11 ? (cndl_bull ? w11 : 0) : 0
-sell_score += inc11 ? (cndl_bear ? w11 : 0) : 0
-buy_valid := buy_valid and (mu11 ? cndl_bull : true)
-sell_valid := sell_valid and (mu11 ? cndl_bear : true)
+preset_factor pf11 = f_pr_get(11, s_cndl, 1, m_cndl)
+buy_score += pf11.include ? (cndl_bull ? pf11.weight : 0) : 0
+sell_score += pf11.include ? (cndl_bear ? pf11.weight : 0) : 0
+buy_valid := buy_valid and (pf11.must ? cndl_bull : true)
+sell_valid := sell_valid and (pf11.must ? cndl_bear : true)
 
-bool inc12 = f_pr_include(12, s_ma_cross), int w12 = f_pr_weight(12,1), bool mu12 = f_pr_must(12, m_ma_cross)
-buy_score += inc12 ? (x_ma_bull ? w12 : 0) : 0
-sell_score += inc12 ? (x_ma_bear ? w12 : 0) : 0
-buy_valid := buy_valid and (mu12 ? x_ma_bull : true)
-sell_valid := sell_valid and (mu12 ? x_ma_bear : true)
+preset_factor pf12 = f_pr_get(12, s_ma_cross, 1, m_ma_cross)
+buy_score += pf12.include ? (x_ma_bull ? pf12.weight : 0) : 0
+sell_score += pf12.include ? (x_ma_bear ? pf12.weight : 0) : 0
+buy_valid := buy_valid and (pf12.must ? x_ma_bull : true)
+sell_valid := sell_valid and (pf12.must ? x_ma_bear : true)
 
-bool inc13 = f_pr_include(13, s_ma_trend), int w13 = f_pr_weight(13,1), bool mu13 = f_pr_must(13, m_ma_trend)
-buy_score += inc13 ? (ma_trend_bull ? w13 : 0) : 0
-sell_score += inc13 ? (ma_trend_bear ? w13 : 0) : 0
-buy_valid := buy_valid and (mu13 ? ma_trend_bull : true)
-sell_valid := sell_valid and (mu13 ? ma_trend_bear : true)
+preset_factor pf13 = f_pr_get(13, s_ma_trend, 1, m_ma_trend)
+buy_score += pf13.include ? (ma_trend_bull ? pf13.weight : 0) : 0
+sell_score += pf13.include ? (ma_trend_bear ? pf13.weight : 0) : 0
+buy_valid := buy_valid and (pf13.must ? ma_trend_bull : true)
+sell_valid := sell_valid and (pf13.must ? ma_trend_bear : true)
 
-bool inc14 = f_pr_include(14, s_smc), int w14 = f_pr_weight(14,1), bool mu14 = f_pr_must(14, m_smc)
-buy_score += inc14 ? (b_smc_bull ? w14 : 0) : 0
-sell_score += inc14 ? (b_smc_bear ? w14 : 0) : 0
-buy_valid := buy_valid and (mu14 ? b_smc_bull : true)
-sell_valid := sell_valid and (mu14 ? b_smc_bear : true)
+preset_factor pf14 = f_pr_get(14, s_smc, 1, m_smc)
+buy_score += pf14.include ? (b_smc_bull ? pf14.weight : 0) : 0
+sell_score += pf14.include ? (b_smc_bear ? pf14.weight : 0) : 0
+buy_valid := buy_valid and (pf14.must ? b_smc_bull : true)
+sell_valid := sell_valid and (pf14.must ? b_smc_bear : true)
 
-bool inc15 = f_pr_include(15, s_ob), int w15 = f_pr_weight(15,1), bool mu15 = f_pr_must(15, m_ob)
-buy_score += inc15 ? (b_ob_bull ? w15 : 0) : 0
-sell_score += inc15 ? (b_ob_bear ? w15 : 0) : 0
-buy_valid := buy_valid and (mu15 ? b_ob_bull : true)
-sell_valid := sell_valid and (mu15 ? b_ob_bear : true)
+preset_factor pf15 = f_pr_get(15, s_ob, 1, m_ob)
+buy_score += pf15.include ? (b_ob_bull ? pf15.weight : 0) : 0
+sell_score += pf15.include ? (b_ob_bear ? pf15.weight : 0) : 0
+buy_valid := buy_valid and (pf15.must ? b_ob_bull : true)
+sell_valid := sell_valid and (pf15.must ? b_ob_bear : true)
 
-bool inc16 = f_pr_include(16, s_sd), int w16 = f_pr_weight(16,1), bool mu16 = f_pr_must(16, m_sd)
-buy_score += inc16 ? (b_sd_bull ? w16 : 0) : 0
-sell_score += inc16 ? (b_sd_bear ? w16 : 0) : 0
-buy_valid := buy_valid and (mu16 ? b_sd_bull : true)
-sell_valid := sell_valid and (mu16 ? b_sd_bear : true)
+preset_factor pf16 = f_pr_get(16, s_sd, 1, m_sd)
+buy_score += pf16.include ? (b_sd_bull ? pf16.weight : 0) : 0
+sell_score += pf16.include ? (b_sd_bear ? pf16.weight : 0) : 0
+buy_valid := buy_valid and (pf16.must ? b_sd_bull : true)
+sell_valid := sell_valid and (pf16.must ? b_sd_bear : true)
 
-bool inc17 = f_pr_include(17, s_fvg), int w17 = f_pr_weight(17,1), bool mu17 = f_pr_must(17, m_fvg)
-buy_score += inc17 ? ((b_fvg_bull or b_fvg_precise_bull) ? w17 : 0) : 0
-sell_score += inc17 ? ((b_fvg_bear or b_fvg_precise_bear) ? w17 : 0) : 0
-buy_valid := buy_valid and (mu17 ? (b_fvg_bull or b_fvg_precise_bull) : true)
-sell_valid := sell_valid and (mu17 ? (b_fvg_bear or b_fvg_precise_bear) : true)
+preset_factor pf17 = f_pr_get(17, s_fvg, 1, m_fvg)
+buy_score += pf17.include ? ((b_fvg_bull or b_fvg_precise_bull) ? pf17.weight : 0) : 0
+sell_score += pf17.include ? ((b_fvg_bear or b_fvg_precise_bear) ? pf17.weight : 0) : 0
+buy_valid := buy_valid and (pf17.must ? (b_fvg_bull or b_fvg_precise_bull) : true)
+sell_valid := sell_valid and (pf17.must ? (b_fvg_bear or b_fvg_precise_bear) : true)
 
-bool inc18 = f_pr_include(18, s_bos), int w18 = f_pr_weight(18,1), bool mu18 = f_pr_must(18, m_bos)
-buy_score += inc18 ? (b_bos_bull ? w18 : 0) : 0
-sell_score += inc18 ? (b_bos_bear ? w18 : 0) : 0
-buy_valid := buy_valid and (mu18 ? b_bos_bull : true)
-sell_valid := sell_valid and (mu18 ? b_bos_bear : true)
+preset_factor pf18 = f_pr_get(18, s_bos, 1, m_bos)
+buy_score += pf18.include ? (b_bos_bull ? pf18.weight : 0) : 0
+sell_score += pf18.include ? (b_bos_bear ? pf18.weight : 0) : 0
+buy_valid := buy_valid and (pf18.must ? b_bos_bull : true)
+sell_valid := sell_valid and (pf18.must ? b_bos_bear : true)
 
-bool inc19 = f_pr_include(19, s_bb), int w19 = f_pr_weight(19,1), bool mu19 = f_pr_must(19, m_bb)
-buy_score += inc19 ? (b_bb_bull ? w19 : 0) : 0
-sell_score += inc19 ? (b_bb_bear ? w19 : 0) : 0
-buy_valid := buy_valid and (mu19 ? b_bb_bull : true)
-sell_valid := sell_valid and (mu19 ? b_bb_bear : true)
+preset_factor pf19 = f_pr_get(19, s_bb, 1, m_bb)
+buy_score += pf19.include ? (b_bb_bull ? pf19.weight : 0) : 0
+sell_score += pf19.include ? (b_bb_bear ? pf19.weight : 0) : 0
+buy_valid := buy_valid and (pf19.must ? b_bb_bull : true)
+sell_valid := sell_valid and (pf19.must ? b_bb_bear : true)
 
-bool inc20 = f_pr_include(20, s_hm), int w20 = f_pr_weight(20,1), bool mu20 = f_pr_must(20, m_hm)
-buy_score += inc20 ? (b_hm_bull ? w20 : 0) : 0
-sell_score += inc20 ? (b_hm_bear ? w20 : 0) : 0
-buy_valid := buy_valid and (mu20 ? b_hm_bull : true)
-sell_valid := sell_valid and (mu20 ? b_hm_bear : true)
+preset_factor pf20 = f_pr_get(20, s_hm, 1, m_hm)
+buy_score += pf20.include ? (b_hm_bull ? pf20.weight : 0) : 0
+sell_score += pf20.include ? (b_hm_bear ? pf20.weight : 0) : 0
+buy_valid := buy_valid and (pf20.must ? b_hm_bull : true)
+sell_valid := sell_valid and (pf20.must ? b_hm_bear : true)
 
-bool inc21 = f_pr_include(21, s_sdinv), int w21 = f_pr_weight(21,1), bool mu21 = f_pr_must(21, m_sdinv)
-buy_score += inc21 ? (b_sdinv_bull ? w21 : 0) : 0
-sell_score += inc21 ? (b_sdinv_bear ? w21 : 0) : 0
-buy_valid := buy_valid and (mu21 ? b_sdinv_bull : true)
-sell_valid := sell_valid and (mu21 ? b_sdinv_bear : true)
+preset_factor pf21 = f_pr_get(21, s_sdinv, 1, m_sdinv)
+buy_score += pf21.include ? (b_sdinv_bull ? pf21.weight : 0) : 0
+sell_score += pf21.include ? (b_sdinv_bear ? pf21.weight : 0) : 0
+buy_valid := buy_valid and (pf21.must ? b_sdinv_bull : true)
+sell_valid := sell_valid and (pf21.must ? b_sdinv_bear : true)
 
-bool inc22 = f_pr_include(22, s_sweep), int w22 = f_pr_weight(22,1), bool mu22 = f_pr_must(22, m_sweep)
-buy_score += inc22 ? (b_sweep_bull ? w22 : 0) : 0
-sell_score += inc22 ? (b_sweep_bear ? w22 : 0) : 0
-buy_valid := buy_valid and (mu22 ? b_sweep_bull : true)
-sell_valid := sell_valid and (mu22 ? b_sweep_bear : true)
+preset_factor pf22 = f_pr_get(22, s_sweep, 1, m_sweep)
+buy_score += pf22.include ? (b_sweep_bull ? pf22.weight : 0) : 0
+sell_score += pf22.include ? (b_sweep_bear ? pf22.weight : 0) : 0
+buy_valid := buy_valid and (pf22.must ? b_sweep_bull : true)
+sell_valid := sell_valid and (pf22.must ? b_sweep_bear : true)
 
-bool inc23 = f_pr_include(23, s_choch), int w23 = f_pr_weight(23,1), bool mu23 = f_pr_must(23, m_choch)
-buy_score += inc23 ? (b_choch_bull ? w23 : 0) : 0
-sell_score += inc23 ? (b_choch_bear ? w23 : 0) : 0
-buy_valid := buy_valid and (mu23 ? b_choch_bull : true)
-sell_valid := sell_valid and (mu23 ? b_choch_bear : true)
+preset_factor pf23 = f_pr_get(23, s_choch, 1, m_choch)
+buy_score += pf23.include ? (b_choch_bull ? pf23.weight : 0) : 0
+sell_score += pf23.include ? (b_choch_bear ? pf23.weight : 0) : 0
+buy_valid := buy_valid and (pf23.must ? b_choch_bull : true)
+sell_valid := sell_valid and (pf23.must ? b_choch_bear : true)
 
-bool inc24 = f_pr_include(24, s_pd), int w24 = f_pr_weight(24,1), bool mu24 = f_pr_must(24, m_pd)
-buy_score += inc24 ? (b_pd_bull ? w24 : 0) : 0
-sell_score += inc24 ? (b_pd_bear ? w24 : 0) : 0
-buy_valid := buy_valid and (mu24 ? b_pd_bull : true)
-sell_valid := sell_valid and (mu24 ? b_pd_bear : true)
+preset_factor pf24 = f_pr_get(24, s_pd, 1, m_pd)
+buy_score += pf24.include ? (b_pd_bull ? pf24.weight : 0) : 0
+sell_score += pf24.include ? (b_pd_bear ? pf24.weight : 0) : 0
+buy_valid := buy_valid and (pf24.must ? b_pd_bull : true)
+sell_valid := sell_valid and (pf24.must ? b_pd_bear : true)
 
-bool inc25 = f_pr_include(25, s_avwap), int w25 = f_pr_weight(25,1), bool mu25 = f_pr_must(25, m_avwap)
-buy_score += inc25 ? (b_avwap_bull ? w25 : 0) : 0
-sell_score += inc25 ? (b_avwap_bear ? w25 : 0) : 0
-buy_valid := buy_valid and (mu25 ? b_avwap_bull : true)
-sell_valid := sell_valid and (mu25 ? b_avwap_bear : true)
+preset_factor pf25 = f_pr_get(25, s_avwap, 1, m_avwap)
+buy_score += pf25.include ? (b_avwap_bull ? pf25.weight : 0) : 0
+sell_score += pf25.include ? (b_avwap_bear ? pf25.weight : 0) : 0
+buy_valid := buy_valid and (pf25.must ? b_avwap_bull : true)
+sell_valid := sell_valid and (pf25.must ? b_avwap_bear : true)
 
-bool inc26 = f_pr_include(26, s_avwap_x), int w26 = f_pr_weight(26,1), bool mu26 = f_pr_must(26, m_avwap_x)
-buy_score += inc26 ? (b_avwap_cross_bull ? w26 : 0) : 0
-sell_score += inc26 ? (b_avwap_cross_bear ? w26 : 0) : 0
-buy_valid := buy_valid and (mu26 ? b_avwap_cross_bull : true)
-sell_valid := sell_valid and (mu26 ? b_avwap_cross_bear : true)
+preset_factor pf26 = f_pr_get(26, s_avwap_x, 1, m_avwap_x)
+buy_score += pf26.include ? (b_avwap_cross_bull ? pf26.weight : 0) : 0
+sell_score += pf26.include ? (b_avwap_cross_bear ? pf26.weight : 0) : 0
+buy_valid := buy_valid and (pf26.must ? b_avwap_cross_bull : true)
+sell_valid := sell_valid and (pf26.must ? b_avwap_cross_bear : true)
 
-bool inc27 = f_pr_include(27, s_disp), int w27 = f_pr_weight(27,1), bool mu27 = f_pr_must(27, m_disp)
-buy_score += inc27 ? (b_disp_bull ? w27 : 0) : 0
-sell_score += inc27 ? (b_disp_bear ? w27 : 0) : 0
-buy_valid := buy_valid and (mu27 ? b_disp_bull : true)
-sell_valid := sell_valid and (mu27 ? b_disp_bear : true)
+preset_factor pf27 = f_pr_get(27, s_disp, 1, m_disp)
+buy_score += pf27.include ? (b_disp_bull ? pf27.weight : 0) : 0
+sell_score += pf27.include ? (b_disp_bear ? pf27.weight : 0) : 0
+buy_valid := buy_valid and (pf27.must ? b_disp_bull : true)
+sell_valid := sell_valid and (pf27.must ? b_disp_bear : true)
 
-bool inc28 = f_pr_include(28, s_ob_frsh), int w28 = f_pr_weight(28,1), bool mu28 = f_pr_must(28, m_ob_frsh)
-buy_score += inc28 ? (b_ob_fresh_bull ? w28 : 0) : 0
-sell_score += inc28 ? (b_ob_fresh_bear ? w28 : 0) : 0
-buy_valid := buy_valid and (mu28 ? b_ob_fresh_bull : true)
-sell_valid := sell_valid and (mu28 ? b_ob_fresh_bear : true)
+preset_factor pf28 = f_pr_get(28, s_ob_frsh, 1, m_ob_frsh)
+buy_score += pf28.include ? (b_ob_fresh_bull ? pf28.weight : 0) : 0
+sell_score += pf28.include ? (b_ob_fresh_bear ? pf28.weight : 0) : 0
+buy_valid := buy_valid and (pf28.must ? b_ob_fresh_bull : true)
+sell_valid := sell_valid and (pf28.must ? b_ob_fresh_bear : true)
 
-bool inc29 = f_pr_include(29, s_htf_bull), int w29 = f_pr_weight(29,1), bool mu29 = f_pr_must(29, m_htf_bull)
-bool inc30 = f_pr_include(30, s_htf_bear), int w30 = f_pr_weight(30,1), bool mu30 = f_pr_must(30, m_htf_bear)
-buy_score += inc29 ? (htf_gate_bull ? w29 : 0) : 0
-sell_score += inc30 ? (htf_gate_bear ? w30 : 0) : 0
-buy_valid := buy_valid and (mu29 ? htf_gate_bull : true)
-sell_valid := sell_valid and (mu30 ? htf_gate_bear : true)
+preset_factor pf29 = f_pr_get(29, s_htf_bull, 1, m_htf_bull)
+preset_factor pf30 = f_pr_get(30, s_htf_bear, 1, m_htf_bear)
+buy_score += pf29.include ? (htf_gate_bull ? pf29.weight : 0) : 0
+sell_score += pf30.include ? (htf_gate_bear ? pf30.weight : 0) : 0
+buy_valid := buy_valid and (pf29.must ? htf_gate_bull : true)
+sell_valid := sell_valid and (pf30.must ? htf_gate_bear : true)
 
-bool inc31 = f_pr_include(31, s_zone_conf), int w31 = f_pr_weight(31,2), bool mu31 = f_pr_must(31, m_zone_conf)
-int zone_w_bull = p1_zone_layers_bull >= 3 ? w31 : p1_zone_layers_bull == 2 ? math.max(1, w31-1) : 0
-int zone_w_bear = p1_zone_layers_bear >= 3 ? w31 : p1_zone_layers_bear == 2 ? math.max(1, w31-1) : 0
-buy_score += inc31 ? zone_w_bull : 0
-sell_score += inc31 ? zone_w_bear : 0
-buy_valid := buy_valid and (mu31 ? b_zone_conf_bull : true)
-sell_valid := sell_valid and (mu31 ? b_zone_conf_bear : true)
+preset_factor pf31 = f_pr_get(31, s_zone_conf, 2, m_zone_conf)
+int zone_w_bull = p1_zone_layers_bull >= 3 ? pf31.weight : p1_zone_layers_bull == 2 ? math.max(1, pf31.weight-1) : 0
+int zone_w_bear = p1_zone_layers_bear >= 3 ? pf31.weight : p1_zone_layers_bear == 2 ? math.max(1, pf31.weight-1) : 0
+buy_score += pf31.include ? zone_w_bull : 0
+sell_score += pf31.include ? zone_w_bear : 0
+buy_valid := buy_valid and (pf31.must ? b_zone_conf_bull : true)
+sell_valid := sell_valid and (pf31.must ? b_zone_conf_bear : true)
 
-bool inc32 = f_pr_include(32, s_choch_sw), int w32 = f_pr_weight(32,2), bool mu32 = f_pr_must(32, m_choch_sw)
-buy_score += inc32 ? (b_choch_sw_bull ? w32 : 0) : 0
-sell_score += inc32 ? (b_choch_sw_bear ? w32 : 0) : 0
-buy_valid := buy_valid and (mu32 ? b_choch_sw_bull : true)
-sell_valid := sell_valid and (mu32 ? b_choch_sw_bear : true)
+preset_factor pf32 = f_pr_get(32, s_choch_sw, 2, m_choch_sw)
+buy_score += pf32.include ? (b_choch_sw_bull ? pf32.weight : 0) : 0
+sell_score += pf32.include ? (b_choch_sw_bear ? pf32.weight : 0) : 0
+buy_valid := buy_valid and (pf32.must ? b_choch_sw_bull : true)
+sell_valid := sell_valid and (pf32.must ? b_choch_sw_bear : true)
 
-bool inc33 = f_pr_include(33, s_ob_sd), int w33 = f_pr_weight(33,2), bool mu33 = f_pr_must(33, m_ob_sd)
-buy_score += inc33 ? (b_ob_sd_bull ? w33 : 0) : 0
-sell_score += inc33 ? (b_ob_sd_bear ? w33 : 0) : 0
-buy_valid := buy_valid and (mu33 ? b_ob_sd_bull : true)
-sell_valid := sell_valid and (mu33 ? b_ob_sd_bear : true)
+preset_factor pf33 = f_pr_get(33, s_ob_sd, 2, m_ob_sd)
+buy_score += pf33.include ? (b_ob_sd_bull ? pf33.weight : 0) : 0
+sell_score += pf33.include ? (b_ob_sd_bear ? pf33.weight : 0) : 0
+buy_valid := buy_valid and (pf33.must ? b_ob_sd_bull : true)
+sell_valid := sell_valid and (pf33.must ? b_ob_sd_bear : true)
 
-bool inc34 = f_pr_include(34, s_osc6), int w34 = f_pr_weight(34,1), bool mu34 = f_pr_must(34, m_osc6)
-buy_score += inc34 ? (p2_osc6_strong_bull ? w34 : 0) : 0
-sell_score += inc34 ? (p2_osc6_strong_bear ? w34 : 0) : 0
-buy_valid := buy_valid and (mu34 ? p2_osc6_strong_bull : true)
-sell_valid := sell_valid and (mu34 ? p2_osc6_strong_bear : true)
+preset_factor pf34 = f_pr_get(34, s_osc6, 1, m_osc6)
+buy_score += pf34.include ? (p2_osc6_strong_bull ? pf34.weight : 0) : 0
+sell_score += pf34.include ? (p2_osc6_strong_bear ? pf34.weight : 0) : 0
+buy_valid := buy_valid and (pf34.must ? p2_osc6_strong_bull : true)
+sell_valid := sell_valid and (pf34.must ? p2_osc6_strong_bear : true)
 
-bool inc35 = f_pr_include(35, s_regime), int w35 = f_pr_weight(35,1), bool mu35 = f_pr_must(35, m_regime)
-buy_score += inc35 ? (final_regime_bull ? w35 : 0) : 0
-sell_score += inc35 ? (final_regime_bear ? w35 : 0) : 0
-buy_valid := buy_valid and (mu35 ? final_regime_bull : true)
-sell_valid := sell_valid and (mu35 ? final_regime_bear : true)
+preset_factor pf35 = f_pr_get(35, s_regime, 1, m_regime)
+buy_score += pf35.include ? (final_regime_bull ? pf35.weight : 0) : 0
+sell_score += pf35.include ? (final_regime_bear ? pf35.weight : 0) : 0
+buy_valid := buy_valid and (pf35.must ? final_regime_bull : true)
+sell_valid := sell_valid and (pf35.must ? final_regime_bear : true)
 
-bool inc36 = f_pr_include(36, s_bos_retest), int w36 = f_pr_weight(36,1), bool mu36 = f_pr_must(36, m_bos_retest)
-buy_score += inc36 ? (b_bos_retest_bull ? w36 : 0) : 0
-sell_score += inc36 ? (b_bos_retest_bear ? w36 : 0) : 0
-buy_valid := buy_valid and (mu36 ? b_bos_retest_bull : true)
-sell_valid := sell_valid and (mu36 ? b_bos_retest_bear : true)
+preset_factor pf36 = f_pr_get(36, s_bos_retest, 1, m_bos_retest)
+buy_score += pf36.include ? (b_bos_retest_bull ? pf36.weight : 0) : 0
+sell_score += pf36.include ? (b_bos_retest_bear ? pf36.weight : 0) : 0
+buy_valid := buy_valid and (pf36.must ? b_bos_retest_bull : true)
+sell_valid := sell_valid and (pf36.must ? b_bos_retest_bear : true)
 
-bool inc37 = f_pr_include(37, s_choch_retest), int w37 = f_pr_weight(37,1), bool mu37 = f_pr_must(37, m_choch_retest)
-buy_score += inc37 ? (b_choch_retest_bull ? w37 : 0) : 0
-sell_score += inc37 ? (b_choch_retest_bear ? w37 : 0) : 0
-buy_valid := buy_valid and (mu37 ? b_choch_retest_bull : true)
-sell_valid := sell_valid and (mu37 ? b_choch_retest_bear : true)
+preset_factor pf37 = f_pr_get(37, s_choch_retest, 1, m_choch_retest)
+buy_score += pf37.include ? (b_choch_retest_bull ? pf37.weight : 0) : 0
+sell_score += pf37.include ? (b_choch_retest_bear ? pf37.weight : 0) : 0
+buy_valid := buy_valid and (pf37.must ? b_choch_retest_bull : true)
+sell_valid := sell_valid and (pf37.must ? b_choch_retest_bear : true)
 
-bool inc38 = f_pr_include(38, s_cvd), int w38 = f_pr_weight(38,1), bool mu38 = f_pr_must(38, m_cvd)
-buy_score += inc38 ? (cvd_bull_div ? w38 : 0) : 0
-sell_score += inc38 ? (cvd_bear_div ? w38 : 0) : 0
-buy_valid := buy_valid and (mu38 ? cvd_bull_div : true)
-sell_valid := sell_valid and (mu38 ? cvd_bear_div : true)
+preset_factor pf38 = f_pr_get(38, s_cvd, 1, m_cvd)
+buy_score += pf38.include ? (cvd_bull_div ? pf38.weight : 0) : 0
+sell_score += pf38.include ? (cvd_bear_div ? pf38.weight : 0) : 0
+buy_valid := buy_valid and (pf38.must ? cvd_bull_div : true)
+sell_valid := sell_valid and (pf38.must ? cvd_bear_div : true)
 
-bool inc39 = f_pr_include(39, s_absorption), int w39 = f_pr_weight(39,1), bool mu39 = f_pr_must(39, m_absorption)
-buy_score += inc39 ? (sm_absorption ? w39 : 0) : 0
-sell_score += inc39 ? (sm_absorption ? w39 : 0) : 0
-buy_valid := buy_valid and (mu39 ? sm_absorption : true)
-sell_valid := sell_valid and (mu39 ? sm_absorption : true)
+preset_factor pf39 = f_pr_get(39, s_absorption, 1, m_absorption)
+buy_score += pf39.include ? (sm_absorption ? pf39.weight : 0) : 0
+sell_score += pf39.include ? (sm_absorption ? pf39.weight : 0) : 0
+buy_valid := buy_valid and (pf39.must ? sm_absorption : true)
+sell_valid := sell_valid and (pf39.must ? sm_absorption : true)
 
-bool inc40 = f_pr_include(40, s_hm_vol_sig), int w40 = f_pr_weight(40,1), bool mu40 = f_pr_must(40, m_hm_vol_sig)
-bool hmv_b = b_hm_bull and hm_vol_significant, bool hmv_s = b_hm_bear and hm_vol_significant
-buy_score += inc40 ? (hmv_b ? w40 : 0) : 0
-sell_score += inc40 ? (hmv_s ? w40 : 0) : 0
-buy_valid := buy_valid and (mu40 ? hmv_b : true)
-sell_valid := sell_valid and (mu40 ? hmv_s : true)
+preset_factor pf40 = f_pr_get(40, s_hm_vol_sig, 1, m_hm_vol_sig)
+bool hmv_b = b_hm_bull and hm_vol_significant
+bool hmv_s = b_hm_bear and hm_vol_significant
+buy_score += pf40.include ? (hmv_b ? pf40.weight : 0) : 0
+sell_score += pf40.include ? (hmv_s ? pf40.weight : 0) : 0
+buy_valid := buy_valid and (pf40.must ? hmv_b : true)
+sell_valid := sell_valid and (pf40.must ? hmv_s : true)
 
-bool inc41 = f_pr_include(41, s_fvg_poc), int w41 = f_pr_weight(41,1), bool mu41 = f_pr_must(41, m_fvg_poc)
-buy_score += inc41 ? (b_fvg_poc_bull ? w41 : 0) : 0
-sell_score += inc41 ? (b_fvg_poc_bear ? w41 : 0) : 0
-buy_valid := buy_valid and (mu41 ? b_fvg_poc_bull : true)
-sell_valid := sell_valid and (mu41 ? b_fvg_poc_bear : true)
+preset_factor pf41 = f_pr_get(41, s_fvg_poc, 1, m_fvg_poc)
+buy_score += pf41.include ? (b_fvg_poc_bull ? pf41.weight : 0) : 0
+sell_score += pf41.include ? (b_fvg_poc_bear ? pf41.weight : 0) : 0
+buy_valid := buy_valid and (pf41.must ? b_fvg_poc_bull : true)
+sell_valid := sell_valid and (pf41.must ? b_fvg_poc_bear : true)
 
-bool inc42 = f_pr_include(42, s_ob_touch_fresh1), int w42 = f_pr_weight(42,1), bool mu42 = f_pr_must(42, m_ob_touch_fresh1)
-buy_score += inc42 ? (b_ob_touch_fresh1_bull ? w42 : 0) : 0
-sell_score += inc42 ? (b_ob_touch_fresh1_bear ? w42 : 0) : 0
-buy_valid := buy_valid and (mu42 ? b_ob_touch_fresh1_bull : true)
-sell_valid := sell_valid and (mu42 ? b_ob_touch_fresh1_bear : true)
+preset_factor pf42 = f_pr_get(42, s_ob_touch_fresh1, 1, m_ob_touch_fresh1)
+buy_score += pf42.include ? (b_ob_touch_fresh1_bull ? pf42.weight : 0) : 0
+sell_score += pf42.include ? (b_ob_touch_fresh1_bear ? pf42.weight : 0) : 0
+buy_valid := buy_valid and (pf42.must ? b_ob_touch_fresh1_bull : true)
+sell_valid := sell_valid and (pf42.must ? b_ob_touch_fresh1_bear : true)
 
-bool inc43 = f_pr_include(43, s_sm_all3), int w43 = f_pr_weight(43,2), bool mu43 = f_pr_must(43, m_sm_all3)
-buy_score += inc43 ? (sm_all3_bull ? w43 : 0) : 0
-sell_score += inc43 ? (sm_all3_bear ? w43 : 0) : 0
-buy_valid := buy_valid and (mu43 ? sm_all3_bull : true)
-sell_valid := sell_valid and (mu43 ? sm_all3_bear : true)
+preset_factor pf43 = f_pr_get(43, s_sm_all3, 2, m_sm_all3)
+buy_score += pf43.include ? (sm_all3_bull ? pf43.weight : 0) : 0
+sell_score += pf43.include ? (sm_all3_bear ? pf43.weight : 0) : 0
+buy_valid := buy_valid and (pf43.must ? sm_all3_bull : true)
+sell_valid := sell_valid and (pf43.must ? sm_all3_bear : true)
 
-bool inc44 = f_pr_include(44, s_mdiv_multi), int w44 = f_pr_weight(44,1), bool mu44 = f_pr_must(44, m_mdiv_multi)
-buy_score += inc44 ? (osc_mdiv_multi_bull ? w44 : 0) : 0
-sell_score += inc44 ? (osc_mdiv_multi_bear ? w44 : 0) : 0
-buy_valid := buy_valid and (mu44 ? osc_mdiv_multi_bull : true)
-sell_valid := sell_valid and (mu44 ? osc_mdiv_multi_bear : true)
+preset_factor pf44 = f_pr_get(44, s_mdiv_multi, 1, m_mdiv_multi)
+buy_score += pf44.include ? (osc_mdiv_multi_bull ? pf44.weight : 0) : 0
+sell_score += pf44.include ? (osc_mdiv_multi_bear ? pf44.weight : 0) : 0
+buy_valid := buy_valid and (pf44.must ? osc_mdiv_multi_bull : true)
+sell_valid := sell_valid and (pf44.must ? osc_mdiv_multi_bear : true)
 
-bool inc45 = f_pr_include(45, s_candle_in_ob), int w45 = f_pr_weight(45,1), bool mu45 = f_pr_must(45, m_candle_in_ob)
-buy_score += inc45 ? (b_candle_inside_ob_bull ? w45 : 0) : 0
-sell_score += inc45 ? (b_candle_inside_ob_bear ? w45 : 0) : 0
-buy_valid := buy_valid and (mu45 ? b_candle_inside_ob_bull : true)
-sell_valid := sell_valid and (mu45 ? b_candle_inside_ob_bear : true)
+preset_factor pf45 = f_pr_get(45, s_candle_in_ob, 1, m_candle_in_ob)
+buy_score += pf45.include ? (b_candle_inside_ob_bull ? pf45.weight : 0) : 0
+sell_score += pf45.include ? (b_candle_inside_ob_bear ? pf45.weight : 0) : 0
+buy_valid := buy_valid and (pf45.must ? b_candle_inside_ob_bull : true)
+sell_valid := sell_valid and (pf45.must ? b_candle_inside_ob_bear : true)
 
-// ── НОВЫЕ КОМПЛЕКСНЫЕ ФАКТОРЫ 46-63 (та же оптимизация: include/weight/must один раз на фактор) ──
-bool inc46 = f_pr_include(46, s_sweep_ob), int w46 = f_pr_weight(46,2), bool mu46 = f_pr_must(46, m_sweep_ob)
-bool b_sweep_ob_bull = b_sweep_bull and b_ob_bull, bool b_sweep_ob_bear = b_sweep_bear and b_ob_bear
-buy_score += inc46 ? (b_sweep_ob_bull ? w46 : 0) : 0
-sell_score += inc46 ? (b_sweep_ob_bear ? w46 : 0) : 0
-buy_valid := buy_valid and (mu46 ? b_sweep_ob_bull : true)
-sell_valid := sell_valid and (mu46 ? b_sweep_ob_bear : true)
+// ── НОВЫЕ КОМПЛЕКСНЫЕ ФАКТОРЫ 46-63 (та же схема: 1 переменная preset_factor на фактор) ──
+preset_factor pf46 = f_pr_get(46, s_sweep_ob, 2, m_sweep_ob)
+bool b_sweep_ob_bull = b_sweep_bull and b_ob_bull
+bool b_sweep_ob_bear = b_sweep_bear and b_ob_bear
+buy_score += pf46.include ? (b_sweep_ob_bull ? pf46.weight : 0) : 0
+sell_score += pf46.include ? (b_sweep_ob_bear ? pf46.weight : 0) : 0
+buy_valid := buy_valid and (pf46.must ? b_sweep_ob_bull : true)
+sell_valid := sell_valid and (pf46.must ? b_sweep_ob_bear : true)
 
-bool inc47 = f_pr_include(47, s_disp_ob), int w47 = f_pr_weight(47,2), bool mu47 = f_pr_must(47, m_disp_ob)
-bool b_disp_ob_bull = b_disp_bull and b_ob_bull, bool b_disp_ob_bear = b_disp_bear and b_ob_bear
-buy_score += inc47 ? (b_disp_ob_bull ? w47 : 0) : 0
-sell_score += inc47 ? (b_disp_ob_bear ? w47 : 0) : 0
-buy_valid := buy_valid and (mu47 ? b_disp_ob_bull : true)
-sell_valid := sell_valid and (mu47 ? b_disp_ob_bear : true)
+preset_factor pf47 = f_pr_get(47, s_disp_ob, 2, m_disp_ob)
+bool b_disp_ob_bull = b_disp_bull and b_ob_bull
+bool b_disp_ob_bear = b_disp_bear and b_ob_bear
+buy_score += pf47.include ? (b_disp_ob_bull ? pf47.weight : 0) : 0
+sell_score += pf47.include ? (b_disp_ob_bear ? pf47.weight : 0) : 0
+buy_valid := buy_valid and (pf47.must ? b_disp_ob_bull : true)
+sell_valid := sell_valid and (pf47.must ? b_disp_ob_bear : true)
 
-bool inc48 = f_pr_include(48, s_disp_fvg), int w48 = f_pr_weight(48,2), bool mu48 = f_pr_must(48, m_disp_fvg)
-bool b_disp_fvg_bull = b_disp_bull and b_fvg_precise_bull, bool b_disp_fvg_bear = b_disp_bear and b_fvg_precise_bear
-buy_score += inc48 ? (b_disp_fvg_bull ? w48 : 0) : 0
-sell_score += inc48 ? (b_disp_fvg_bear ? w48 : 0) : 0
-buy_valid := buy_valid and (mu48 ? b_disp_fvg_bull : true)
-sell_valid := sell_valid and (mu48 ? b_disp_fvg_bear : true)
+preset_factor pf48 = f_pr_get(48, s_disp_fvg, 2, m_disp_fvg)
+bool b_disp_fvg_bull = b_disp_bull and b_fvg_precise_bull
+bool b_disp_fvg_bear = b_disp_bear and b_fvg_precise_bear
+buy_score += pf48.include ? (b_disp_fvg_bull ? pf48.weight : 0) : 0
+sell_score += pf48.include ? (b_disp_fvg_bear ? pf48.weight : 0) : 0
+buy_valid := buy_valid and (pf48.must ? b_disp_fvg_bull : true)
+sell_valid := sell_valid and (pf48.must ? b_disp_fvg_bear : true)
 
-bool inc49 = f_pr_include(49, s_ob_avwap), int w49 = f_pr_weight(49,1), bool mu49 = f_pr_must(49, m_ob_avwap)
-bool b_ob_avwap_bull = b_ob_bull and b_avwap_bull, bool b_ob_avwap_bear = b_ob_bear and b_avwap_bear
-buy_score += inc49 ? (b_ob_avwap_bull ? w49 : 0) : 0
-sell_score += inc49 ? (b_ob_avwap_bear ? w49 : 0) : 0
-buy_valid := buy_valid and (mu49 ? b_ob_avwap_bull : true)
-sell_valid := sell_valid and (mu49 ? b_ob_avwap_bear : true)
+preset_factor pf49 = f_pr_get(49, s_ob_avwap, 1, m_ob_avwap)
+bool b_ob_avwap_bull = b_ob_bull and b_avwap_bull
+bool b_ob_avwap_bear = b_ob_bear and b_avwap_bear
+buy_score += pf49.include ? (b_ob_avwap_bull ? pf49.weight : 0) : 0
+sell_score += pf49.include ? (b_ob_avwap_bear ? pf49.weight : 0) : 0
+buy_valid := buy_valid and (pf49.must ? b_ob_avwap_bull : true)
+sell_valid := sell_valid and (pf49.must ? b_ob_avwap_bear : true)
 
-bool inc50 = f_pr_include(50, s_freshob_candle), int w50 = f_pr_weight(50,1), bool mu50 = f_pr_must(50, m_freshob_candle)
-bool b_freshob_candle_bull = b_ob_virgin_bull and cndl_bull, bool b_freshob_candle_bear = b_ob_virgin_bear and cndl_bear
-buy_score += inc50 ? (b_freshob_candle_bull ? w50 : 0) : 0
-sell_score += inc50 ? (b_freshob_candle_bear ? w50 : 0) : 0
-buy_valid := buy_valid and (mu50 ? b_freshob_candle_bull : true)
-sell_valid := sell_valid and (mu50 ? b_freshob_candle_bear : true)
+preset_factor pf50 = f_pr_get(50, s_freshob_candle, 1, m_freshob_candle)
+bool b_freshob_candle_bull = b_ob_virgin_bull and cndl_bull
+bool b_freshob_candle_bear = b_ob_virgin_bear and cndl_bear
+buy_score += pf50.include ? (b_freshob_candle_bull ? pf50.weight : 0) : 0
+sell_score += pf50.include ? (b_freshob_candle_bear ? pf50.weight : 0) : 0
+buy_valid := buy_valid and (pf50.must ? b_freshob_candle_bull : true)
+sell_valid := sell_valid and (pf50.must ? b_freshob_candle_bear : true)
 
-bool inc51 = f_pr_include(51, s_sd_fvg), int w51 = f_pr_weight(51,1), bool mu51 = f_pr_must(51, m_sd_fvg)
-bool b_sd_fvg_bull = b_sd_bull and b_fvg_precise_bull, bool b_sd_fvg_bear = b_sd_bear and b_fvg_precise_bear
-buy_score += inc51 ? (b_sd_fvg_bull ? w51 : 0) : 0
-sell_score += inc51 ? (b_sd_fvg_bear ? w51 : 0) : 0
-buy_valid := buy_valid and (mu51 ? b_sd_fvg_bull : true)
-sell_valid := sell_valid and (mu51 ? b_sd_fvg_bear : true)
+preset_factor pf51 = f_pr_get(51, s_sd_fvg, 1, m_sd_fvg)
+bool b_sd_fvg_bull = b_sd_bull and b_fvg_precise_bull
+bool b_sd_fvg_bear = b_sd_bear and b_fvg_precise_bear
+buy_score += pf51.include ? (b_sd_fvg_bull ? pf51.weight : 0) : 0
+sell_score += pf51.include ? (b_sd_fvg_bear ? pf51.weight : 0) : 0
+buy_valid := buy_valid and (pf51.must ? b_sd_fvg_bull : true)
+sell_valid := sell_valid and (pf51.must ? b_sd_fvg_bear : true)
 
-bool inc52 = f_pr_include(52, s_ote_ob), int w52 = f_pr_weight(52,1), bool mu52 = f_pr_must(52, m_ote_ob)
-bool b_ote_ob_bull = (ote_score_bull>=2) and b_ob_bull, bool b_ote_ob_bear = (ote_score_bear>=2) and b_ob_bear
-buy_score += inc52 ? (b_ote_ob_bull ? w52 : 0) : 0
-sell_score += inc52 ? (b_ote_ob_bear ? w52 : 0) : 0
-buy_valid := buy_valid and (mu52 ? b_ote_ob_bull : true)
-sell_valid := sell_valid and (mu52 ? b_ote_ob_bear : true)
+preset_factor pf52 = f_pr_get(52, s_ote_ob, 1, m_ote_ob)
+bool b_ote_ob_bull = (ote_score_bull>=2) and b_ob_bull
+bool b_ote_ob_bear = (ote_score_bear>=2) and b_ob_bear
+buy_score += pf52.include ? (b_ote_ob_bull ? pf52.weight : 0) : 0
+sell_score += pf52.include ? (b_ote_ob_bear ? pf52.weight : 0) : 0
+buy_valid := buy_valid and (pf52.must ? b_ote_ob_bull : true)
+sell_valid := sell_valid and (pf52.must ? b_ote_ob_bear : true)
 
-bool inc53 = f_pr_include(53, s_ote_sd), int w53 = f_pr_weight(53,1), bool mu53 = f_pr_must(53, m_ote_sd)
-bool b_ote_sd_bull = (ote_score_bull>=2) and b_sd_bull, bool b_ote_sd_bear = (ote_score_bear>=2) and b_sd_bear
-buy_score += inc53 ? (b_ote_sd_bull ? w53 : 0) : 0
-sell_score += inc53 ? (b_ote_sd_bear ? w53 : 0) : 0
-buy_valid := buy_valid and (mu53 ? b_ote_sd_bull : true)
-sell_valid := sell_valid and (mu53 ? b_ote_sd_bear : true)
+preset_factor pf53 = f_pr_get(53, s_ote_sd, 1, m_ote_sd)
+bool b_ote_sd_bull = (ote_score_bull>=2) and b_sd_bull
+bool b_ote_sd_bear = (ote_score_bear>=2) and b_sd_bear
+buy_score += pf53.include ? (b_ote_sd_bull ? pf53.weight : 0) : 0
+sell_score += pf53.include ? (b_ote_sd_bear ? pf53.weight : 0) : 0
+buy_valid := buy_valid and (pf53.must ? b_ote_sd_bull : true)
+sell_valid := sell_valid and (pf53.must ? b_ote_sd_bear : true)
 
-bool inc54 = f_pr_include(54, s_candle_sd), int w54 = f_pr_weight(54,1), bool mu54 = f_pr_must(54, m_candle_sd)
-bool b_candle_sd_bull = cndl_bull and b_sd_bull, bool b_candle_sd_bear = cndl_bear and b_sd_bear
-buy_score += inc54 ? (b_candle_sd_bull ? w54 : 0) : 0
-sell_score += inc54 ? (b_candle_sd_bear ? w54 : 0) : 0
-buy_valid := buy_valid and (mu54 ? b_candle_sd_bull : true)
-sell_valid := sell_valid and (mu54 ? b_candle_sd_bear : true)
+preset_factor pf54 = f_pr_get(54, s_candle_sd, 1, m_candle_sd)
+bool b_candle_sd_bull = cndl_bull and b_sd_bull
+bool b_candle_sd_bear = cndl_bear and b_sd_bear
+buy_score += pf54.include ? (b_candle_sd_bull ? pf54.weight : 0) : 0
+sell_score += pf54.include ? (b_candle_sd_bear ? pf54.weight : 0) : 0
+buy_valid := buy_valid and (pf54.must ? b_candle_sd_bull : true)
+sell_valid := sell_valid and (pf54.must ? b_candle_sd_bear : true)
 
-bool inc55 = f_pr_include(55, s_smact_smidx), int w55 = f_pr_weight(55,1), bool mu55 = f_pr_must(55, m_smact_smidx)
-bool b_smact_smidx_bull = sm_act_bull and sm_idx_bull, bool b_smact_smidx_bear = sm_act_bear and sm_idx_bear
-buy_score += inc55 ? (b_smact_smidx_bull ? w55 : 0) : 0
-sell_score += inc55 ? (b_smact_smidx_bear ? w55 : 0) : 0
-buy_valid := buy_valid and (mu55 ? b_smact_smidx_bull : true)
-sell_valid := sell_valid and (mu55 ? b_smact_smidx_bear : true)
+preset_factor pf55 = f_pr_get(55, s_smact_smidx, 1, m_smact_smidx)
+bool b_smact_smidx_bull = sm_act_bull and sm_idx_bull
+bool b_smact_smidx_bear = sm_act_bear and sm_idx_bear
+buy_score += pf55.include ? (b_smact_smidx_bull ? pf55.weight : 0) : 0
+sell_score += pf55.include ? (b_smact_smidx_bear ? pf55.weight : 0) : 0
+buy_valid := buy_valid and (pf55.must ? b_smact_smidx_bull : true)
+sell_valid := sell_valid and (pf55.must ? b_smact_smidx_bear : true)
 
-bool inc56 = f_pr_include(56, s_cvd_absorp), int w56 = f_pr_weight(56,1), bool mu56 = f_pr_must(56, m_cvd_absorp)
-bool b_cvd_absorp_bull = cvd_bull_div and sm_absorption, bool b_cvd_absorp_bear = cvd_bear_div and sm_absorption
-buy_score += inc56 ? (b_cvd_absorp_bull ? w56 : 0) : 0
-sell_score += inc56 ? (b_cvd_absorp_bear ? w56 : 0) : 0
-buy_valid := buy_valid and (mu56 ? b_cvd_absorp_bull : true)
-sell_valid := sell_valid and (mu56 ? b_cvd_absorp_bear : true)
+preset_factor pf56 = f_pr_get(56, s_cvd_absorp, 1, m_cvd_absorp)
+bool b_cvd_absorp_bull = cvd_bull_div and sm_absorption
+bool b_cvd_absorp_bear = cvd_bear_div and sm_absorption
+buy_score += pf56.include ? (b_cvd_absorp_bull ? pf56.weight : 0) : 0
+sell_score += pf56.include ? (b_cvd_absorp_bear ? pf56.weight : 0) : 0
+buy_valid := buy_valid and (pf56.must ? b_cvd_absorp_bull : true)
+sell_valid := sell_valid and (pf56.must ? b_cvd_absorp_bear : true)
 
-bool inc57 = f_pr_include(57, s_cvd_sm_hm), int w57 = f_pr_weight(57,2), bool mu57 = f_pr_must(57, m_cvd_sm_hm)
-bool b_cvd_sm_hm_bull = cvd_bull_div and sm_act_bull and hmv_b, bool b_cvd_sm_hm_bear = cvd_bear_div and sm_act_bear and hmv_s
-buy_score += inc57 ? (b_cvd_sm_hm_bull ? w57 : 0) : 0
-sell_score += inc57 ? (b_cvd_sm_hm_bear ? w57 : 0) : 0
-buy_valid := buy_valid and (mu57 ? b_cvd_sm_hm_bull : true)
-sell_valid := sell_valid and (mu57 ? b_cvd_sm_hm_bear : true)
+preset_factor pf57 = f_pr_get(57, s_cvd_sm_hm, 2, m_cvd_sm_hm)
+bool b_cvd_sm_hm_bull = cvd_bull_div and sm_act_bull and hmv_b
+bool b_cvd_sm_hm_bear = cvd_bear_div and sm_act_bear and hmv_s
+buy_score += pf57.include ? (b_cvd_sm_hm_bull ? pf57.weight : 0) : 0
+sell_score += pf57.include ? (b_cvd_sm_hm_bear ? pf57.weight : 0) : 0
+buy_valid := buy_valid and (pf57.must ? b_cvd_sm_hm_bull : true)
+sell_valid := sell_valid and (pf57.must ? b_cvd_sm_hm_bear : true)
 
-bool inc58 = f_pr_include(58, s_kde_stoch), int w58 = f_pr_weight(58,1), bool mu58 = f_pr_must(58, m_kde_stoch)
-bool b_kde_stoch_bull = osc_kde_bull and osc_stoch_bull, bool b_kde_stoch_bear = osc_kde_bear and osc_stoch_bear
-buy_score += inc58 ? (b_kde_stoch_bull ? w58 : 0) : 0
-sell_score += inc58 ? (b_kde_stoch_bear ? w58 : 0) : 0
-buy_valid := buy_valid and (mu58 ? b_kde_stoch_bull : true)
-sell_valid := sell_valid and (mu58 ? b_kde_stoch_bear : true)
+preset_factor pf58 = f_pr_get(58, s_kde_stoch, 1, m_kde_stoch)
+bool b_kde_stoch_bull = osc_kde_bull and osc_stoch_bull
+bool b_kde_stoch_bear = osc_kde_bear and osc_stoch_bear
+buy_score += pf58.include ? (b_kde_stoch_bull ? pf58.weight : 0) : 0
+sell_score += pf58.include ? (b_kde_stoch_bear ? pf58.weight : 0) : 0
+buy_valid := buy_valid and (pf58.must ? b_kde_stoch_bull : true)
+sell_valid := sell_valid and (pf58.must ? b_kde_stoch_bear : true)
 
-bool inc59 = f_pr_include(59, s_macd_cci), int w59 = f_pr_weight(59,1), bool mu59 = f_pr_must(59, m_macd_cci)
-bool b_macd_cci_bull = osc_macd_dlx_bull and osc_cci_bull, bool b_macd_cci_bear = osc_macd_dlx_bear and osc_cci_bear
-buy_score += inc59 ? (b_macd_cci_bull ? w59 : 0) : 0
-sell_score += inc59 ? (b_macd_cci_bear ? w59 : 0) : 0
-buy_valid := buy_valid and (mu59 ? b_macd_cci_bull : true)
-sell_valid := sell_valid and (mu59 ? b_macd_cci_bear : true)
+preset_factor pf59 = f_pr_get(59, s_macd_cci, 1, m_macd_cci)
+bool b_macd_cci_bull = osc_macd_dlx_bull and osc_cci_bull
+bool b_macd_cci_bear = osc_macd_dlx_bear and osc_cci_bear
+buy_score += pf59.include ? (b_macd_cci_bull ? pf59.weight : 0) : 0
+sell_score += pf59.include ? (b_macd_cci_bear ? pf59.weight : 0) : 0
+buy_valid := buy_valid and (pf59.must ? b_macd_cci_bull : true)
+sell_valid := sell_valid and (pf59.must ? b_macd_cci_bear : true)
 
-bool inc60 = f_pr_include(60, s_peter_tfdiv), int w60 = f_pr_weight(60,1), bool mu60 = f_pr_must(60, m_peter_tfdiv)
-bool b_peter_tfdiv_bull = osc_peter_bull and osc_tfdiv_bull, bool b_peter_tfdiv_bear = osc_peter_bear and osc_tfdiv_bear
-buy_score += inc60 ? (b_peter_tfdiv_bull ? w60 : 0) : 0
-sell_score += inc60 ? (b_peter_tfdiv_bear ? w60 : 0) : 0
-buy_valid := buy_valid and (mu60 ? b_peter_tfdiv_bull : true)
-sell_valid := sell_valid and (mu60 ? b_peter_tfdiv_bear : true)
+preset_factor pf60 = f_pr_get(60, s_peter_tfdiv, 1, m_peter_tfdiv)
+bool b_peter_tfdiv_bull = osc_peter_bull and osc_tfdiv_bull
+bool b_peter_tfdiv_bear = osc_peter_bear and osc_tfdiv_bear
+buy_score += pf60.include ? (b_peter_tfdiv_bull ? pf60.weight : 0) : 0
+sell_score += pf60.include ? (b_peter_tfdiv_bear ? pf60.weight : 0) : 0
+buy_valid := buy_valid and (pf60.must ? b_peter_tfdiv_bull : true)
+sell_valid := sell_valid and (pf60.must ? b_peter_tfdiv_bear : true)
 
-bool inc61 = f_pr_include(61, s_smt_mdiv), int w61 = f_pr_weight(61,1), bool mu61 = f_pr_must(61, m_smt_mdiv)
-bool b_smt_mdiv_bull = osc_smt_bull and osc_mdiv_bull, bool b_smt_mdiv_bear = osc_smt_bear and osc_mdiv_bear
-buy_score += inc61 ? (b_smt_mdiv_bull ? w61 : 0) : 0
-sell_score += inc61 ? (b_smt_mdiv_bear ? w61 : 0) : 0
-buy_valid := buy_valid and (mu61 ? b_smt_mdiv_bull : true)
-sell_valid := sell_valid and (mu61 ? b_smt_mdiv_bear : true)
+preset_factor pf61 = f_pr_get(61, s_smt_mdiv, 1, m_smt_mdiv)
+bool b_smt_mdiv_bull = osc_smt_bull and osc_mdiv_bull
+bool b_smt_mdiv_bear = osc_smt_bear and osc_mdiv_bear
+buy_score += pf61.include ? (b_smt_mdiv_bull ? pf61.weight : 0) : 0
+sell_score += pf61.include ? (b_smt_mdiv_bear ? pf61.weight : 0) : 0
+buy_valid := buy_valid and (pf61.must ? b_smt_mdiv_bull : true)
+sell_valid := sell_valid and (pf61.must ? b_smt_mdiv_bear : true)
 
-bool inc62 = f_pr_include(62, s_triple_div), int w62 = f_pr_weight(62,3), bool mu62 = f_pr_must(62, m_triple_div)
-bool b_triple_div_bull = osc_mdiv_bull and osc_peter_bull and osc_smt_bull, bool b_triple_div_bear = osc_mdiv_bear and osc_peter_bear and osc_smt_bear
-buy_score += inc62 ? (b_triple_div_bull ? w62 : 0) : 0
-sell_score += inc62 ? (b_triple_div_bear ? w62 : 0) : 0
-buy_valid := buy_valid and (mu62 ? b_triple_div_bull : true)
-sell_valid := sell_valid and (mu62 ? b_triple_div_bear : true)
+preset_factor pf62 = f_pr_get(62, s_triple_div, 3, m_triple_div)
+bool b_triple_div_bull = osc_mdiv_bull and osc_peter_bull and osc_smt_bull
+bool b_triple_div_bear = osc_mdiv_bear and osc_peter_bear and osc_smt_bear
+buy_score += pf62.include ? (b_triple_div_bull ? pf62.weight : 0) : 0
+sell_score += pf62.include ? (b_triple_div_bear ? pf62.weight : 0) : 0
+buy_valid := buy_valid and (pf62.must ? b_triple_div_bull : true)
+sell_valid := sell_valid and (pf62.must ? b_triple_div_bear : true)
 
-bool inc63 = f_pr_include(63, s_macross_matrend), int w63 = f_pr_weight(63,1), bool mu63 = f_pr_must(63, m_macross_matrend)
-bool b_macross_matrend_bull = x_ma_bull and ma_trend_bull, bool b_macross_matrend_bear = x_ma_bear and ma_trend_bear
-buy_score += inc63 ? (b_macross_matrend_bull ? w63 : 0) : 0
-sell_score += inc63 ? (b_macross_matrend_bear ? w63 : 0) : 0
-buy_valid := buy_valid and (mu63 ? b_macross_matrend_bull : true)
-sell_valid := sell_valid and (mu63 ? b_macross_matrend_bear : true)
+preset_factor pf63 = f_pr_get(63, s_macross_matrend, 1, m_macross_matrend)
+bool b_macross_matrend_bull = x_ma_bull and ma_trend_bull
+bool b_macross_matrend_bear = x_ma_bear and ma_trend_bear
+buy_score += pf63.include ? (b_macross_matrend_bull ? pf63.weight : 0) : 0
+sell_score += pf63.include ? (b_macross_matrend_bear ? pf63.weight : 0) : 0
+buy_valid := buy_valid and (pf63.must ? b_macross_matrend_bull : true)
+sell_valid := sell_valid and (pf63.must ? b_macross_matrend_bear : true)
 
 // ====================================================================================================================
 // ГРЕЙДАЦИЯ СИЛЫ СИГНАЛА (A+/A/B/C/D) — КОМПОЗИТНАЯ МОДЕЛЬ (логика не изменена)
