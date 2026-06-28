@@ -1,0 +1,579 @@
+//@version=6
+indicator("Ultimate Pattern Auto-Detector Pro", shorttitle="Patterns Pro",
+          overlay=true, max_lines_count=500, max_labels_count=500)
+
+// ════════════════════════════════════════════════════════════════════════════
+// 1. НАСТРОЙКИ
+// ════════════════════════════════════════════════════════════════════════════
+
+var string G_MAIN = "⚙️ Основные параметры"
+prd          = input.int   (10,   "Период пивотов (Pivot Length)",
+               minval=3, maxval=50, group=G_MAIN,
+               tooltip="Чем больше — тем крупнее паттерны. День/W: 5–8 | 1H: 10–20 | 15m: 20–40.")
+tol_perc     = input.float (1.5,  "Допуск горизонтальности (%)",
+               step=0.1, minval=0.1, maxval=10.0, group=G_MAIN,
+               tooltip="Насколько точно два уровня должны совпадать, чтобы считаться горизонтальными.") / 100
+min_bars_gap = input.int   (5,    "Мин. баров между пивотами паттерна",
+               minval=2, maxval=50, group=G_MAIN,
+               tooltip="Отсекает ложные паттерны на микродвижениях.")
+
+var string G_FILT = "🔍 Фильтры качества"
+use_atr_h    = input.bool  (true, "Фильтр высоты паттерна (ATR × N)",     group=G_FILT,
+               tooltip="Игнорирует «карликовые» паттерны, чья высота меньше N × ATR(14).")
+min_h_atr    = input.float (1.5,  "N — множитель ATR для мин. высоты",    step=0.1, minval=0.1, group=G_FILT)
+use_trend    = input.bool  (true, "Тренд-фильтр для Симм. Треугольника",  group=G_FILT,
+               tooltip="Симметричный треугольник трактуется по тренду:\nEMA-быстрая > EMA-медленная → бычий.\nEMA-быстрая < EMA-медленная → медвежий.")
+ema_f_len    = input.int   (50,   "EMA быстрая",  minval=5,               group=G_FILT)
+ema_s_len    = input.int   (200,  "EMA медленная",minval=10,              group=G_FILT)
+chan_tol     = input.float (0.35, "Допуск параллельности каналов (0–1)",
+               step=0.05, minval=0.0, maxval=1.0, group=G_FILT,
+               tooltip="0 = строго параллельные, 0.35 = рекомендуемо, 1.0 = любые.")
+dcb_drop_atr = input.float (2.5,  "Dead Cat Bounce: мин. падение (× ATR)", step=0.1, group=G_FILT)
+dcb_bounce   = input.float (0.5,  "Dead Cat Bounce: макс. отскок (доля от падения)",
+               step=0.05, minval=0.1, maxval=0.9, group=G_FILT)
+use_vol      = input.bool  (false,"Подтверждение объёма при пробое",       group=G_FILT)
+vol_mult     = input.float (1.5,  "Мин. объём × SMA(20) для пробоя",     step=0.1, group=G_FILT)
+cancel_atr   = input.float (1.5,  "Отмена паттерна при выходе (× ATR)",  step=0.1, group=G_FILT,
+               tooltip="Если цена уходит против паттерна более чем на N × ATR — паттерн сбрасывается.")
+
+var string G_PATT = "📊 Включение паттернов"
+use_asc_tri  = input.bool(true, "▲  Восходящий треугольник   (→ бычий)",  group=G_PATT)
+use_desc_tri = input.bool(true, "▽  Нисходящий треугольник   (→ медвежий)",group=G_PATT)
+use_sym_tri  = input.bool(true, "◇  Симметричный треугольник (→ по тренду)",group=G_PATT)
+use_fall_w   = input.bool(true, "⬊  Падающий клин            (→ бычий)",   group=G_PATT)
+use_rise_w   = input.bool(true, "⬈  Растущий клин            (→ медвежий)", group=G_PATT)
+use_chan_u   = input.bool(true, "↗  Восходящий канал         (→ бычий)",   group=G_PATT)
+use_chan_d   = input.bool(true, "↘  Нисходящий канал         (→ медвежий)", group=G_PATT)
+use_db       = input.bool(true, "W  Двойное дно              (→ бычий)",   group=G_PATT)
+use_dt       = input.bool(true, "M  Двойная вершина          (→ медвежий)", group=G_PATT)
+use_dcb      = input.bool(true, "☠  Dead Cat Bounce          (→ медвежий)", group=G_PATT)
+
+var string G_VIS = "🎨 Визуализация"
+c_bull   = input.color(color.new(color.teal,   30), "Линии бычьего паттерна",    group=G_VIS)
+c_bear   = input.color(color.new(color.maroon, 30), "Линии медвежьего паттерна", group=G_VIS)
+c_break  = input.color(color.new(#0076FF, 0),       "Метка бычьего пробоя",      group=G_VIS)
+c_bdown  = input.color(color.new(color.red,  0),    "Метка медвежьего пробоя",   group=G_VIS)
+c_tp     = input.color(color.new(color.green, 0),   "Линия Take Profit",          group=G_VIS)
+c_sl     = input.color(color.new(color.red,  0),    "Линия Stop Loss",            group=G_VIS)
+show_tp  = input.bool (true, "Показывать TP / SL",                               group=G_VIS)
+ext_bars = input.int  (15,   "Длина линий TP/SL (баров вправо)",
+           minval=5, maxval=100,                                                  group=G_VIS)
+show_db  = input.bool (true, "Показывать дашборд доминирования",                 group=G_VIS)
+db_pos   = input.string("Top Right", "Позиция дашборда",
+           options=["Top Right","Top Left","Bottom Right","Bottom Left"],          group=G_VIS)
+
+// ════════════════════════════════════════════════════════════════════════════
+// 2. ПОЛЬЗОВАТЕЛЬСКИЙ ТИП
+// ════════════════════════════════════════════════════════════════════════════
+
+type Point
+    int   b   // bar_index пивота
+    float p   // цена пивота
+
+// ════════════════════════════════════════════════════════════════════════════
+// 3. ИСТОРИЯ ПИВОТОВ
+// ════════════════════════════════════════════════════════════════════════════
+
+var array<Point> highs = array.new<Point>(5, Point.new(0, 0.0))
+var array<Point> lows  = array.new<Point>(5, Point.new(0, 0.0))
+
+method pushPt(array<Point> arr, Point pt) =>
+    array.unshift(arr, pt)
+    array.pop(arr)
+
+// ════════════════════════════════════════════════════════════════════════════
+// 4. СЕРИЙНЫЕ ЗНАЧЕНИЯ
+// ════════════════════════════════════════════════════════════════════════════
+
+float atr14  = ta.atr(14)
+float vol_ma = ta.sma(volume, 20)
+float ema_f  = ta.ema(close, ema_f_len)
+float ema_s  = ta.ema(close, ema_s_len)
+bool  up_tr  = ema_f > ema_s
+
+// ════════════════════════════════════════════════════════════════════════════
+// 5. УТИЛИТЫ
+// ════════════════════════════════════════════════════════════════════════════
+
+// Наклон между двумя точками (цена/бар)
+f_slope(Point a, Point b) =>
+    (b.p - a.p) / math.max(1.0, float(b.b - a.b))
+
+// Экстраполяция линии A→B на бар x
+f_y(Point a, Point b, int x) =>
+    a.p + f_slope(a, b) * float(x - a.b)
+
+// Приблизительное равенство цен (%)
+f_approx(float p1, float p2) =>
+    math.abs(p1 - p2) / math.max(math.abs(p1), math.abs(p2), 1e-9) <= tol_perc
+
+// Параллельность наклонов (с ATR-полом для малых наклонов)
+f_par(float s1, float s2) =>
+    denom = math.max(math.abs(s1), math.abs(s2), atr14 * 0.001)
+    math.abs(s1 - s2) / denom <= chan_tol
+
+// Корректная временна́я последовательность и мин. ширина паттерна
+f_seq(Point a, Point b) =>
+    a.b > 0 and b.b > 0 and (b.b - a.b) >= min_bars_gap
+
+// Мин. высота паттерна ≥ N × ATR
+f_tall(float h) =>
+    not use_atr_h or h >= atr14 * min_h_atr
+
+// Объём достаточен для подтверждения пробоя
+f_vol() =>
+    not use_vol or volume > vol_ma * vol_mult
+
+// ════════════════════════════════════════════════════════════════════════════
+// 6. ПИВОТЫ
+// ════════════════════════════════════════════════════════════════════════════
+
+float ph = ta.pivothigh(high, prd, prd)
+float pl = ta.pivotlow (low,  prd, prd)
+
+if not na(ph)
+    highs.pushPt(Point.new(bar_index[prd], ph))
+if not na(pl)
+    lows.pushPt(Point.new(bar_index[prd], pl))
+
+// ════════════════════════════════════════════════════════════════════════════
+// 7. СОСТОЯНИЕ АКТИВНОГО ПАТТЕРНА
+// ════════════════════════════════════════════════════════════════════════════
+
+Point h0 = highs.get(0)   // Последний максимум
+Point h1 = highs.get(1)   // Предпоследний максимум
+Point l0 = lows.get(0)    // Последний минимум
+Point l1 = lows.get(1)    // Предпоследний минимум
+
+// Активный паттерн
+var string act_name  = ""
+var string act_dir   = ""    // "bull" | "bear"
+var int    act_score = 0     // 1–5: сила паттерна
+
+// Линия пробоя (bnd1→bnd2) — та граница, которую должна пересечь цена
+var Point  bnd1 = Point.new(0, 0.0)
+var Point  bnd2 = Point.new(0, 0.0)
+
+// Вторая граница паттерна (для отрисовки)
+var Point  oth1 = Point.new(0, 0.0)
+var Point  oth2 = Point.new(0, 0.0)
+
+var float  patt_h = 0.0             // Высота паттерна (проецируется как TP)
+var Point  sl_pt  = Point.new(0, 0.0) // Точка Stop Loss
+
+// Счётчики для определения доминирования
+var int bull_det = 0   // Обнаружено бычьих паттернов
+var int bear_det = 0   // Обнаружено медвежьих паттернов
+var int bull_brk = 0   // Подтверждённых бычьих пробоев
+var int bear_brk = 0   // Подтверждённых медвежьих пробоев
+
+// ════════════════════════════════════════════════════════════════════════════
+// 8. АВТООТМЕНА ПАТТЕРНА
+// ════════════════════════════════════════════════════════════════════════════
+// Если цена ушла сильно против ожидаемого паттерна — сбрасываем его
+
+if act_dir == "bull" and l0.b > 0 and close < l0.p - atr14 * cancel_atr
+    act_name := ""
+    act_dir  := ""
+
+if act_dir == "bear" and h0.b > 0 and close > h0.p + atr14 * cancel_atr
+    act_name := ""
+    act_dir  := ""
+
+// ════════════════════════════════════════════════════════════════════════════
+// 9. ОПРЕДЕЛЕНИЕ ПАТТЕРНОВ
+// ════════════════════════════════════════════════════════════════════════════
+// Запускается только при появлении нового пивота — экономия ресурсов
+
+if not na(ph) or not na(pl)
+    float mH = f_slope(h1, h0)
+    float mL = f_slope(l1, l0)
+
+    // ──────────────────────────────────────────────────────────────────────
+    // БЫЧЬИ ПАТТЕРНЫ
+    // ──────────────────────────────────────────────────────────────────────
+
+    // Восходящий треугольник:
+    //   горизонтальное сопротивление (h1 ≈ h0) + восходящие минимумы (l0 > l1)
+    if use_asc_tri and
+       f_seq(h1, h0) and f_seq(l1, l0) and
+       f_approx(h1.p, h0.p) and l0.p > l1.p and mL > 0 and
+       f_tall(h0.p - l1.p)
+        act_name  := "Ascending Triangle"
+        act_dir   := "bull"
+        act_score := 4
+        bnd1 := h1, bnd2 := h0
+        oth1 := l1, oth2 := l0
+        patt_h := h0.p - l1.p
+        sl_pt  := l0
+        bull_det += 1
+
+    // Падающий клин (бычий):
+    //   оба наклона вниз, но нижняя линия падает менее круто → клин сжимается
+    else if use_fall_w and
+            f_seq(h1, h0) and f_seq(l1, l0) and
+            h0.p < h1.p and l0.p < l1.p and
+            mH < 0 and mL < 0 and mL > mH and
+            f_tall(h1.p - l0.p)
+        act_name  := "Falling Wedge"
+        act_dir   := "bull"
+        act_score := 5
+        bnd1 := h1, bnd2 := h0
+        oth1 := l1, oth2 := l0
+        patt_h := h1.p - l0.p
+        sl_pt  := l0
+        bull_det += 1
+
+    // Двойное дно (W):
+    //   l1 ≈ l0, h0 — уровень шеи между ними; l1 → h0 → l0 по времени
+    else if use_db and
+            l1.b < h0.b and h0.b < l0.b and
+            f_seq(l1, l0) and f_approx(l1.p, l0.p) and
+            f_tall(h0.p - math.min(l1.p, l0.p))
+        act_name  := "Double Bottom"
+        act_dir   := "bull"
+        act_score := 5
+        bnd1 := h0, bnd2 := Point.new(l0.b, h0.p)     // горизонтальная шея
+        oth1 := l1, oth2 := l0
+        patt_h := h0.p - math.min(l1.p, l0.p)
+        sl_pt  := Point.new(l0.b, math.min(l1.p, l0.p))
+        bull_det += 1
+
+    // Восходящий канал:
+    //   оба растут, наклоны примерно параллельны
+    else if use_chan_u and
+            f_seq(h1, h0) and f_seq(l1, l0) and
+            h0.p > h1.p and l0.p > l1.p and
+            mH > 0 and mL > 0 and f_par(mH, mL) and
+            f_tall(h0.p - l0.p)
+        act_name  := "Channel Up"
+        act_dir   := "bull"
+        act_score := 3
+        bnd1 := h1, bnd2 := h0
+        oth1 := l1, oth2 := l0
+        patt_h := h0.p - l0.p
+        sl_pt  := l0
+        bull_det += 1
+
+    // ──────────────────────────────────────────────────────────────────────
+    // МЕДВЕЖЬИ ПАТТЕРНЫ
+    // ──────────────────────────────────────────────────────────────────────
+
+    // Нисходящий треугольник:
+    //   горизонтальная поддержка (l1 ≈ l0) + падающие максимумы (h0 < h1)
+    else if use_desc_tri and
+            f_seq(h1, h0) and f_seq(l1, l0) and
+            f_approx(l1.p, l0.p) and h0.p < h1.p and mH < 0 and
+            f_tall(h1.p - l1.p)
+        act_name  := "Descending Triangle"
+        act_dir   := "bear"
+        act_score := 4
+        bnd1 := l1, bnd2 := Point.new(l0.b, l1.p)    // горизонтальная поддержка
+        oth1 := h1, oth2 := h0
+        patt_h := h1.p - l1.p
+        sl_pt  := h0
+        bear_det += 1
+
+    // Растущий клин (медвежий):
+    //   оба растут, но верхняя линия растёт менее круто → клин сжимается
+    else if use_rise_w and
+            f_seq(h1, h0) and f_seq(l1, l0) and
+            h0.p > h1.p and l0.p > l1.p and
+            mH > 0 and mL > 0 and mH < mL and
+            f_tall(h0.p - l1.p)
+        act_name  := "Rising Wedge"
+        act_dir   := "bear"
+        act_score := 5
+        bnd1 := l1, bnd2 := l0
+        oth1 := h1, oth2 := h0
+        patt_h := h0.p - l1.p
+        sl_pt  := h0
+        bear_det += 1
+
+    // Двойная вершина (M):
+    //   h1 ≈ h0, l0 — уровень шеи между ними; h1 → l0 → h0 по времени
+    else if use_dt and
+            h1.b < l0.b and l0.b < h0.b and
+            f_seq(h1, h0) and f_approx(h1.p, h0.p) and
+            f_tall(math.max(h1.p, h0.p) - l0.p)
+        act_name  := "Double Top"
+        act_dir   := "bear"
+        act_score := 5
+        bnd1 := l0, bnd2 := Point.new(h0.b, l0.p)    // горизонтальная шея
+        oth1 := h1, oth2 := h0
+        patt_h := math.max(h1.p, h0.p) - l0.p
+        sl_pt  := Point.new(h0.b, math.max(h1.p, h0.p))
+        bear_det += 1
+
+    // Нисходящий канал:
+    //   оба падают, наклоны примерно параллельны
+    else if use_chan_d and
+            f_seq(h1, h0) and f_seq(l1, l0) and
+            h0.p < h1.p and l0.p < l1.p and
+            mH < 0 and mL < 0 and f_par(mH, mL) and
+            f_tall(h1.p - l1.p)
+        act_name  := "Channel Down"
+        act_dir   := "bear"
+        act_score := 3
+        bnd1 := l1, bnd2 := l0
+        oth1 := h1, oth2 := h0
+        patt_h := h1.p - l1.p
+        sl_pt  := h0
+        bear_det += 1
+
+    // Dead Cat Bounce:
+    //   резкое падение h1→l1 (> dcb_drop_atr × ATR) + слабый отскок к h0
+    //   (отскок < dcb_bounce × падение); порядок: h1 → l1 → h0
+    else if use_dcb
+        float drop   = h1.p - l1.p
+        float bounce = h0.p - l1.p
+        if h1.b < l1.b and l1.b < h0.b and
+           drop > atr14 * dcb_drop_atr and
+           bounce > 0 and bounce < drop * dcb_bounce and
+           f_tall(drop)
+            act_name  := "Dead Cat Bounce"
+            act_dir   := "bear"
+            act_score := 4
+            bnd1 := l1, bnd2 := Point.new(h0.b, l1.p)   // горизонталь по лою
+            oth1 := h1, oth2 := h0
+            patt_h := drop
+            sl_pt  := h0
+            bear_det += 1
+
+    // Симметричный треугольник:
+    //   h0 < h1 и l0 > l1 (сжатие); направление определяется трендом EMA
+    else if use_sym_tri and
+            f_seq(h1, h0) and f_seq(l1, l0) and
+            h0.p < h1.p and l0.p > l1.p and
+            mH < 0 and mL > 0 and
+            f_tall(h1.p - l1.p)
+        if not use_trend or up_tr
+            act_name  := "Symmetrical Triangle"
+            act_dir   := "bull"
+            act_score := 3
+            bnd1 := h1, bnd2 := h0
+            oth1 := l1, oth2 := l0
+            patt_h := h1.p - l1.p
+            sl_pt  := l0
+            bull_det += 1
+        else
+            act_name  := "Symmetrical Triangle"
+            act_dir   := "bear"
+            act_score := 3
+            bnd1 := l1, bnd2 := l0
+            oth1 := h1, oth2 := h0
+            patt_h := h1.p - l1.p
+            sl_pt  := h0
+            bear_det += 1
+
+// ════════════════════════════════════════════════════════════════════════════
+// 10. ТРИГГЕР ПРОБОЯ / ПРОБИТИЯ
+// ════════════════════════════════════════════════════════════════════════════
+
+var int  last_bar  = 0
+bool     bull_trig = false
+bool     bear_trig = false
+
+if act_name != "" and bnd1.b > 0 and bar_index > last_bar and f_vol()
+    float cy = f_y(bnd1, bnd2, bar_index)
+    float py = f_y(bnd1, bnd2, bar_index - 1)
+
+    // ── БЫЧИЙ ПРОБОЙ (Breakout) ────────────────────────────────────────────
+    if act_dir == "bull" and close[1] <= py and close > cy
+        bull_trig := true
+        last_bar  := bar_index
+        bull_brk  += 1
+
+        // Рисуем обе границы паттерна
+        line.new(oth1.b, oth1.p, oth2.b, oth2.p,
+                 color=c_bull, width=2, style=line.style_dashed)
+        line.new(bnd1.b, bnd1.p, bar_index, cy,
+                 color=c_bull, width=2, style=line.style_solid)
+
+        // Метка пробоя
+        label.new(bar_index, low,
+                  "📈 " + act_name + "\n✅ BREAKOUT  ⭐" + str.tostring(act_score),
+                  style=label.style_label_up,
+                  color=c_break, textcolor=color.white, size=size.small)
+
+        // TP / SL
+        if show_tp
+            float tp = cy + patt_h
+            float sl = sl_pt.p
+            line.new(bar_index, tp, bar_index + ext_bars, tp,
+                     color=c_tp, width=2, style=line.style_solid)
+            label.new(bar_index + ext_bars, tp,
+                      "TP  " + str.tostring(math.round(tp, 2)),
+                      style=label.style_none, textcolor=c_tp, size=size.tiny)
+            line.new(bar_index, sl, bar_index + ext_bars, sl,
+                     color=c_sl, width=1, style=line.style_dashed)
+            label.new(bar_index + ext_bars, sl,
+                      "SL  " + str.tostring(math.round(sl, 2)),
+                      style=label.style_none, textcolor=c_sl, size=size.tiny)
+
+        act_name := ""
+        act_dir  := ""
+
+    // ── МЕДВЕЖИЙ ПРОБОЙ (Breakdown) ───────────────────────────────────────
+    else if act_dir == "bear" and close[1] >= py and close < cy
+        bear_trig := true
+        last_bar  := bar_index
+        bear_brk  += 1
+
+        line.new(oth1.b, oth1.p, oth2.b, oth2.p,
+                 color=c_bear, width=2, style=line.style_dashed)
+        line.new(bnd1.b, bnd1.p, bar_index, cy,
+                 color=c_bear, width=2, style=line.style_solid)
+
+        label.new(bar_index, high,
+                  "📉 " + act_name + "\n🔻 BREAKDOWN  ⭐" + str.tostring(act_score),
+                  style=label.style_label_down,
+                  color=c_bdown, textcolor=color.white, size=size.small)
+
+        if show_tp
+            float tp = cy - patt_h
+            float sl = sl_pt.p
+            line.new(bar_index, tp, bar_index + ext_bars, tp,
+                     color=c_tp, width=2, style=line.style_solid)
+            label.new(bar_index + ext_bars, tp,
+                      "TP  " + str.tostring(math.round(tp, 2)),
+                      style=label.style_none, textcolor=c_tp, size=size.tiny)
+            line.new(bar_index, sl, bar_index + ext_bars, sl,
+                     color=c_sl, width=1, style=line.style_dashed)
+            label.new(bar_index + ext_bars, sl,
+                      "SL  " + str.tostring(math.round(sl, 2)),
+                      style=label.style_none, textcolor=c_sl, size=size.tiny)
+
+        act_name := ""
+        act_dir  := ""
+
+// ════════════════════════════════════════════════════════════════════════════
+// 11. ДАШБОРД ДОМИНИРОВАНИЯ
+// ════════════════════════════════════════════════════════════════════════════
+
+_dpos = db_pos == "Top Left"     ? position.top_left     :
+        db_pos == "Bottom Right" ? position.bottom_right :
+        db_pos == "Bottom Left"  ? position.bottom_left  :
+                                   position.top_right
+
+var table dash = table.new(_dpos, 2, 9,
+                            border_width=1,
+                            border_color=color.new(color.gray, 60),
+                            frame_width=1,
+                            frame_color=color.new(color.gray, 40))
+
+if barstate.islast and show_db
+    // ── Доминирование по числу обнаруженных паттернов ─────────────────────
+    int   total   = bull_det + bear_det
+    float b_pct   = total > 0 ? bull_det / float(total) * 100.0 : 50.0
+    float br_pct  = total > 0 ? bear_det / float(total) * 100.0 : 50.0
+
+    string dom_s  = b_pct > 55 ? "🐂 BULLISH" :
+                    br_pct > 55 ? "🐻 BEARISH" : "⚖️ NEUTRAL"
+    color  dom_c  = b_pct > 55 ? color.teal   :
+                    br_pct > 55 ? color.maroon : color.gray
+
+    // ── Тренд EMA ──────────────────────────────────────────────────────────
+    string tr_s   = up_tr ?
+                    "↑ UP  (EMA" + str.tostring(ema_f_len) + ">" + str.tostring(ema_s_len) + ")" :
+                    "↓ DOWN (EMA" + str.tostring(ema_f_len) + "<" + str.tostring(ema_s_len) + ")"
+    color  tr_c   = up_tr ? color.teal : color.maroon
+
+    // ── Активный паттерн ───────────────────────────────────────────────────
+    string act_s  = act_name == "" ? "— нет —" :
+                    act_name + " [" + act_dir + "]  ⭐" + str.tostring(act_score)
+    color  act_c  = act_name == "" ? color.gray :
+                    act_dir == "bull" ? color.teal : color.maroon
+
+    // ── Строки таблицы ─────────────────────────────────────────────────────
+
+    // 0 — Заголовок
+    table.cell(dash, 0, 0, "PATTERN DOMINANCE",
+               text_size=size.small, text_color=color.white,
+               bgcolor=color.new(dom_c, 15))
+    table.cell(dash, 1, 0, dom_s,
+               text_size=size.small, text_color=color.white,
+               bgcolor=color.new(dom_c, 15))
+
+    // 1 — Тренд EMA
+    table.cell(dash, 0, 1, "Тренд EMA",
+               text_size=size.tiny, text_color=tr_c,
+               bgcolor=color.new(tr_c, 78))
+    table.cell(dash, 1, 1, tr_s,
+               text_size=size.tiny, text_color=tr_c,
+               bgcolor=color.new(tr_c, 78))
+
+    // 2 — Бычьих паттернов обнаружено
+    table.cell(dash, 0, 2, "🐂 Бычьих паттернов",
+               text_size=size.tiny, text_color=color.teal,
+               bgcolor=color.new(color.teal, 82))
+    table.cell(dash, 1, 2,
+               str.tostring(bull_det) + "  (" + str.tostring(math.round(b_pct)) + "%)",
+               text_size=size.tiny, text_color=color.teal,
+               bgcolor=color.new(color.teal, 82))
+
+    // 3 — Медвежьих паттернов обнаружено
+    table.cell(dash, 0, 3, "🐻 Медвежьих паттернов",
+               text_size=size.tiny, text_color=color.maroon,
+               bgcolor=color.new(color.maroon, 82))
+    table.cell(dash, 1, 3,
+               str.tostring(bear_det) + "  (" + str.tostring(math.round(br_pct)) + "%)",
+               text_size=size.tiny, text_color=color.maroon,
+               bgcolor=color.new(color.maroon, 82))
+
+    // 4 — Подтверждённых бычьих пробоев
+    table.cell(dash, 0, 4, "✅ Бычьих пробоев",
+               text_size=size.tiny, text_color=color.teal,
+               bgcolor=color.new(color.teal, 88))
+    table.cell(dash, 1, 4, str.tostring(bull_brk),
+               text_size=size.tiny, text_color=color.teal,
+               bgcolor=color.new(color.teal, 88))
+
+    // 5 — Подтверждённых медвежьих пробоев
+    table.cell(dash, 0, 5, "🔻 Медвежьих пробоев",
+               text_size=size.tiny, text_color=color.maroon,
+               bgcolor=color.new(color.maroon, 88))
+    table.cell(dash, 1, 5, str.tostring(bear_brk),
+               text_size=size.tiny, text_color=color.maroon,
+               bgcolor=color.new(color.maroon, 88))
+
+    // 6 — Активный паттерн
+    table.cell(dash, 0, 6, "Активный паттерн",
+               text_size=size.tiny, text_color=act_c,
+               bgcolor=color.new(act_c, 88))
+    table.cell(dash, 1, 6, act_s,
+               text_size=size.tiny, text_color=act_c,
+               bgcolor=color.new(act_c, 88))
+
+    // 7 — Параметры (Pivot / Допуск)
+    table.cell(dash, 0, 7, "Pivot / Допуск",
+               text_size=size.tiny, text_color=color.gray,
+               bgcolor=color.new(color.gray, 92))
+    table.cell(dash, 1, 7,
+               str.tostring(prd) + " / " + str.tostring(math.round(tol_perc * 100, 1)) + "%",
+               text_size=size.tiny, text_color=color.gray,
+               bgcolor=color.new(color.gray, 92))
+
+    // 8 — ATR(14) текущий
+    table.cell(dash, 0, 8, "ATR(14)",
+               text_size=size.tiny, text_color=color.gray,
+               bgcolor=color.new(color.gray, 92))
+    table.cell(dash, 1, 8, str.tostring(math.round(atr14, 4)),
+               text_size=size.tiny, text_color=color.gray,
+               bgcolor=color.new(color.gray, 92))
+
+// ════════════════════════════════════════════════════════════════════════════
+// 12. АЛЕРТЫ
+// ════════════════════════════════════════════════════════════════════════════
+
+alertcondition(bull_trig,
+    title   = "🐂 Бычий пробой (Breakout)",
+    message = "[Patterns Pro] {{ticker}} {{interval}} — Bullish BREAKOUT! Pattern confirmed.")
+
+alertcondition(bear_trig,
+    title   = "🐻 Медвежий пробой (Breakdown)",
+    message = "[Patterns Pro] {{ticker}} {{interval}} — Bearish BREAKDOWN! Pattern confirmed.")
+
+alertcondition(bull_trig or bear_trig,
+    title   = "⚡ Любой пробой",
+    message = "[Patterns Pro] {{ticker}} {{interval}} — Pattern Breakout/Breakdown detected!")
