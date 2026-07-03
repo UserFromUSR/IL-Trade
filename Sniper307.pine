@@ -1,0 +1,2999 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0
+// © UserUZR — All-In-One Sniper: Candlestick Engine, Trade Logic & Complex Patterns, Market Regime, CVD & OTE, Live MTF Cascade Светофор, Calibrated TF Engine, Trade Management, Telegram Alerts
+//@version=6
+indicator("UserUZR Sniper - All-In-One (EMA, RSI, CCI, STC, MACD, AVWAP, Cndl, MDivs, SM, Logic)", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500)
+
+get_size(str) => switch str
+    "tiny" => size.tiny
+    "small" => size.small
+    "normal" => size.normal
+    "large" => size.large
+    "huge" => size.huge
+    => size.auto
+
+// ── UDT display-данных ──
+type side_detail
+    bool   smc = false
+    bool   choch_sw = false
+    bool   bb = false
+    bool   bos = false
+    bool   choch = false
+    int    chb = 999
+    bool   sweep = false
+    int    swb = 999
+    bool   disp = false
+    int    dpb = 999
+    bool   avwap_x = false
+    bool   avwap = false
+    bool   virgin = false
+    int    touches = 0
+    bool   ob_sd = false
+    int    layers = 0
+    bool   fvg_p = false
+    bool   sd = false
+    bool   ob = false
+    bool   ob_fr = false
+    int    ote = 0
+    bool   pd = false
+    bool   sm_act = false
+    int    sm_bars = 999
+    bool   sm_idx = false
+    bool   sm_int = false
+    bool   cvd = false
+    int    hm_bars = 999
+    bool   sdinv = false
+    bool   kde = false
+    bool   stoch = false
+    bool   macd = false
+    bool   cci = false
+    bool   mdiv = false
+    int    mdiv_cnt = 0
+    bool   peter = false
+    bool   tfdiv = false
+    bool   smt = false
+    bool   osc6 = false
+    string cndl_name = ""
+    bool   cndl = false
+    bool   ma_x = false
+    bool   ma_tr = false
+    bool   regime = false
+    bool   bos_retest = false
+    string bos_retest_text = ""
+    bool   choch_retest = false
+    string choch_retest_text = ""
+    bool   hm_vol_sig = false
+    float  osc10_sum = 0.0
+    int    adx_tier = 0
+    bool   struct_fresh = false
+    bool   consensus = false
+
+type tf_detail_strings
+    string htf1 = ""
+    string htf2 = ""
+    string htf3 = ""
+    string htf_verdict = ""
+    string ltf1 = ""
+    string ltf2 = ""
+    string ltf3 = ""
+    string ltf_cascade_verdict = ""
+
+type p2_tf_params
+    int   rsi_len
+    int   rsi_bull_lo
+    int   rsi_bull_hi
+    int   rsi_bear_lo
+    int   rsi_bear_hi
+    int   macd_fast
+    int   macd_slow
+    int   macd_sig
+    int   ema_fast
+    int   ema_slow
+    int   zscore_len
+    int   bb_len
+    float bb_mult
+    float bb_bull_max
+    float bb_bear_min
+    int   srsi_len
+    int   srsi_k
+    int   srsi_d
+    float srsi_bull_max
+    float srsi_bear_min
+    int   cci_len
+    float cci_factor
+    int   cci_atr_len
+    int   mdiv_len
+    float body_ratio
+    int   vol_sma_len
+    float vol_z_th
+
+type trade_state
+    bool   active = false
+    bool   is_buy = false
+    float  entry = na
+    float  sl = na
+    float  tp1 = na
+    float  tp2 = na
+    float  tp3 = na
+    bool   tp1_hit = false
+    bool   tp2_hit = false
+    bool   tp3_hit = false
+    bool   be_active = false
+    bool   sl_hit = false
+    bool   closed = false
+    string grade = "NONE"
+    int    entry_time = na
+    int    signal_bar = na
+    float  signal_price = na
+    float  sl_pct_calc = na
+
+// ====================================================================================================================
+// 0. ПРЕСЕТ ЧУВСТВИТЕЛЬНОСТИ
+// ====================================================================================================================
+grp_0 = "0. Пресет чувствительности"
+preset_mode_p2 = input.string("Custom", "Профиль", options=["Custom", "Скальпинг", "Шумовой Максимум"], group=grp_0)
+
+f_preset_idx_p2() =>
+    int idx = -1
+    if preset_mode_p2 == "Скальпинг"
+        idx := 0
+    else if preset_mode_p2 == "Шумовой Максимум"
+        idx := 1
+    idx
+
+int preset_idx_p2 = f_preset_idx_p2()
+
+var int[] PR_REQ_SCORE_OFS = array.from(-2, -3)
+var int[] PR_GATE_OFS_LTF = array.from(-1, -2)
+var int[] PR_GATE_OFS_HTF = array.from(-2, -2)
+var bool[] PR_IN_POI_REQUIRED = array.from(false, false)
+
+f_pr_score_p2(int base) =>
+    int result = base
+    if preset_idx_p2 >= 0
+        result := math.max(1, base + PR_REQ_SCORE_OFS.get(preset_idx_p2))
+    result
+
+f_pr_gate_ltf_p2(int base) =>
+    int result = base
+    if preset_idx_p2 >= 0
+        result := math.max(0, math.min(3, base + PR_GATE_OFS_LTF.get(preset_idx_p2)))
+    result
+
+f_pr_gate_htf_p2(int base) =>
+    int result = base
+    if preset_idx_p2 >= 0
+        result := math.max(0, math.min(3, base + PR_GATE_OFS_HTF.get(preset_idx_p2)))
+    result
+
+f_pr_in_poi_required(bool manual_raw) =>
+    bool result = manual_raw
+    if preset_idx_p2 >= 0
+        result := PR_IN_POI_REQUIRED.get(preset_idx_p2)
+    result
+
+// ====================================================================================================================
+// 0.1 БЫСТРЫЙ ДОСТУП
+// ====================================================================================================================
+grp_quick_p2 = "0.1 Быстрый доступ"
+qa_req_score_raw = input.int(4, "req_score", minval=1, maxval=72, group=grp_quick_p2)
+qa_ltf1_min_ok_raw = input.int(3, "OSC10 мин LTF1", minval=1, maxval=10, inline="qosc_ltf", group=grp_quick_p2)
+qa_ltf2_min_ok_raw = input.int(4, "LTF2", minval=1, maxval=10, inline="qosc_ltf", group=grp_quick_p2)
+qa_ltf3_min_ok_raw = input.int(4, "LTF3", minval=1, maxval=10, inline="qosc_ltf", group=grp_quick_p2)
+qa_htf1_min_ok_raw = input.int(4, "OSC10 мин HTF1", minval=1, maxval=10, inline="qosc_htf", group=grp_quick_p2)
+qa_htf2_min_ok_raw = input.int(5, "HTF2", minval=1, maxval=10, inline="qosc_htf", group=grp_quick_p2)
+qa_htf3_min_ok_raw = input.int(5, "HTF3", minval=1, maxval=10, inline="qosc_htf", group=grp_quick_p2)
+qa_ltf_gate_min_raw = input.int(2, "Мин LTF тиров", minval=0, maxval=3, inline="qgate", group=grp_quick_p2)
+qa_htf_gate_min_raw = input.int(2, "Мин HTF тиров", minval=0, maxval=3, inline="qgate", group=grp_quick_p2)
+qa_in_poi_required_raw = input.bool(true, "Требовать POI (Custom)", group=grp_quick_p2)
+
+// ====================================================================================================================
+// 0.2 ГРЕЙДЫ
+// ====================================================================================================================
+grp_grade = "0.2 Грейды"
+ga_w_ltf_raw = input.float(0.30, "Вес LTF", minval=0.0, maxval=1.0, step=0.05, inline="gw1", group=grp_grade)
+ga_w_htf_raw = input.float(0.30, "Вес HTF", minval=0.0, maxval=1.0, step=0.05, inline="gw1", group=grp_grade)
+ga_w_score_raw = input.float(0.40, "Вес скора", minval=0.0, maxval=1.0, step=0.05, inline="gw2", group=grp_grade)
+ga_score_cap_raw = input.float(1.50, "Потолок доли скора", minval=1.0, maxval=3.0, step=0.1, inline="gw2", group=grp_grade)
+ga_bonus_layers_raw = input.float(0.15, "Бонус Zone Confl≥2", minval=0.0, maxval=0.5, step=0.05, inline="gb1", group=grp_grade)
+ga_bonus_regime_raw = input.float(0.10, "Бонус Regime match", minval=0.0, maxval=0.5, step=0.05, inline="gb1", group=grp_grade)
+ga_thresh_app_raw = input.float(1.25, "Порог A+", minval=0.5, maxval=2.0, step=0.05, inline="gt1", group=grp_grade)
+ga_thresh_a_raw = input.float(1.00, "Порог A", minval=0.3, maxval=2.0, step=0.05, inline="gt1", group=grp_grade)
+ga_thresh_b_raw = input.float(0.75, "Порог B", minval=0.2, maxval=2.0, step=0.05, inline="gt2", group=grp_grade)
+ga_thresh_c_raw = input.float(0.50, "Порог C", minval=0.1, maxval=2.0, step=0.05, inline="gt2", group=grp_grade)
+
+var float[] PR_GRADE_W_LTF_OFS = array.from(0.00, -0.05)
+var float[] PR_GRADE_W_HTF_OFS = array.from(0.00, -0.05)
+var float[] PR_GRADE_W_SCORE_OFS = array.from(0.00, 0.10)
+var float[] PR_GRADE_BONUS_L_OFS = array.from(0.00, 0.00)
+var float[] PR_GRADE_BONUS_R_OFS = array.from(0.00, 0.00)
+var float[] PR_GRADE_TH_APP_OFS = array.from(-0.10, -0.20)
+var float[] PR_GRADE_TH_A_OFS = array.from(-0.08, -0.15)
+var float[] PR_GRADE_TH_B_OFS = array.from(-0.05, -0.10)
+var float[] PR_GRADE_TH_C_OFS = array.from(-0.05, -0.10)
+
+f_pr_grade_f(float base, array<float> ofs_arr, float minv, float maxv) =>
+    float result = base
+    if preset_idx_p2 >= 0
+        result := math.max(minv, math.min(maxv, base + ofs_arr.get(preset_idx_p2)))
+    result
+
+float ga_w_ltf = f_pr_grade_f(ga_w_ltf_raw, PR_GRADE_W_LTF_OFS, 0.0, 1.0)
+float ga_w_htf = f_pr_grade_f(ga_w_htf_raw, PR_GRADE_W_HTF_OFS, 0.0, 1.0)
+float ga_w_score = f_pr_grade_f(ga_w_score_raw, PR_GRADE_W_SCORE_OFS, 0.0, 1.0)
+float ga_score_cap = ga_score_cap_raw
+float ga_bonus_layers = f_pr_grade_f(ga_bonus_layers_raw, PR_GRADE_BONUS_L_OFS, 0.0, 0.5)
+float ga_bonus_regime = f_pr_grade_f(ga_bonus_regime_raw, PR_GRADE_BONUS_R_OFS, 0.0, 0.5)
+float ga_thresh_app = f_pr_grade_f(ga_thresh_app_raw, PR_GRADE_TH_APP_OFS, 0.3, 2.0)
+float ga_thresh_a = f_pr_grade_f(ga_thresh_a_raw, PR_GRADE_TH_A_OFS, 0.2, 2.0)
+float ga_thresh_b = f_pr_grade_f(ga_thresh_b_raw, PR_GRADE_TH_B_OFS, 0.1, 2.0)
+float ga_thresh_c = f_pr_grade_f(ga_thresh_c_raw, PR_GRADE_TH_C_OFS, 0.05, 2.0)
+
+// ── 0.2.1 Видимость и фильтр по грейду ──
+grp_vis = "0.2.1 Видимость и фильтр по грейду"
+en_info_block = input.bool(true, "Инфоблок", group=grp_vis)
+en_live_lbl = input.bool(true, "Живой светофор", group=grp_vis)
+show_grade_app = input.bool(true, "A+", inline="grades", group=grp_vis)
+show_grade_a = input.bool(true, "A", inline="grades", group=grp_vis)
+show_grade_b = input.bool(true, "B", inline="grades", group=grp_vis)
+show_grade_c = input.bool(true, "C", inline="grades", group=grp_vis)
+show_grade_d = input.bool(true, "D", inline="grades", group=grp_vis)
+show_htf_circle_green = input.bool(true, "HTF🟢3/3", inline="htfcirc", group=grp_vis)
+show_htf_circle_yellow = input.bool(true, "🟡2/3", inline="htfcirc", group=grp_vis)
+show_htf_circle_white = input.bool(true, "⚪1/3", inline="htfcirc", group=grp_vis)
+show_ltf_circle_blue = input.bool(true, "LTF🔵3/3", inline="ltfcirc", group=grp_vis)
+show_ltf_circle_yellow = input.bool(true, "🟡2/3", inline="ltfcirc", group=grp_vis)
+show_ltf_circle_white = input.bool(true, "⚪1/3", inline="ltfcirc", group=grp_vis)
+
+f_grade_allowed(string grade) => switch grade
+    "A+" => show_grade_app
+    "A" => show_grade_a
+    "B" => show_grade_b
+    "C" => show_grade_c
+    "D" => show_grade_d
+    => false
+
+f_htf_icon(int htf_s) => htf_s == 3 ? (show_htf_circle_green ? "🟢" : "") : htf_s == 2 ? (show_htf_circle_yellow ? "🟡" : "") : htf_s == 1 ? (show_htf_circle_white ? "⚪" : "") : "❌"
+f_ltf_icon(int ltf_s) => ltf_s == 3 ? (show_ltf_circle_blue ? "🔵" : "") : ltf_s == 2 ? (show_ltf_circle_yellow ? "🟡" : "") : ltf_s == 1 ? (show_ltf_circle_white ? "⚪" : "") : "❌"
+
+// ====================================================================================================================
+// МАТРИЦА СКОРИНГА — 68 факторов (64 базовых + 4 новых: 64 osc10_sum, 65 adx_tier, 66 struct_fresh, 67 consensus)
+// ====================================================================================================================
+type preset_factor
+    bool include
+    int weight
+    bool must
+
+var array<preset_factor> PR_FACTORS = array.from(
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(false,1,false),
+  preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(true,2,false), preset_factor.new(true,1,false),
+  preset_factor.new(false,1,false), preset_factor.new(true,3,true), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,2,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,2,false), preset_factor.new(true,2,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(false,1,false), preset_factor.new(true,1,false), preset_factor.new(false,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(true,1,false), preset_factor.new(false,1,false),
+  preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false),
+  preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false))
+
+f_pr_get(int factor_idx, bool raw_inc, int raw_w, bool raw_must) =>
+    preset_factor result = preset_factor.new(raw_inc, raw_w, raw_must)
+    if preset_idx_p2 >= 0
+        preset_factor pf = PR_FACTORS.get(preset_idx_p2 * 68 + factor_idx)
+        result := preset_factor.new(pf.include, pf.weight, raw_must or pf.must)
+    result
+
+// ====================================================================================================================
+// 0.3 КОНСТРУКТОР СИГНАЛОВ (СКОРИНГ) — 68 факторов, tooltip убраны
+// ====================================================================================================================
+grp_score = "0.3 Конструктор сигналов (Скоринг)"
+req_score_raw = qa_req_score_raw
+req_score = f_pr_score_p2(req_score_raw)
+
+s_rsi_kde = input.bool(true,"📐 KDE RSI",inline="f0",group=grp_score), m_rsi_kde = input.bool(false,"Обяз.",inline="f0",group=grp_score)
+s_stoch = input.bool(true,"🌀 Stoch Z",inline="f1",group=grp_score), m_stoch = input.bool(false,"Обяз.",inline="f1",group=grp_score)
+s_macd_dlx = input.bool(true,"⚙️ MACD Dlx",inline="f2",group=grp_score), m_macd_dlx = input.bool(false,"Обяз.",inline="f2",group=grp_score)
+s_cci = input.bool(true,"🎢 Advanced CCI",inline="f3",group=grp_score), m_cci = input.bool(false,"Обяз.",inline="f3",group=grp_score)
+s_mdiv = input.bool(true,"🔍 Multi-Div",inline="f4",group=grp_score), m_mdiv = input.bool(false,"Обяз.",inline="f4",group=grp_score)
+s_peter = input.bool(true,"🔎 Div-Engine B",inline="f5",group=grp_score), m_peter = input.bool(false,"Обяз.",inline="f5",group=grp_score)
+s_tfdiv = input.bool(true,"🧩 Div-Engine C",inline="f6",group=grp_score), m_tfdiv = input.bool(false,"Обяз.",inline="f6",group=grp_score)
+s_smt = input.bool(true,"🌐 SMT Div",inline="f7",group=grp_score), m_smt = input.bool(false,"Обяз.",inline="f7",group=grp_score)
+s_sm_act = input.bool(true,"🐋 SM Act",inline="f8",group=grp_score), m_sm_act = input.bool(false,"Обяз.",inline="f8",group=grp_score)
+s_sm_idx = input.bool(true,"💰 SM Index",inline="f9",group=grp_score), m_sm_idx = input.bool(false,"Обяз.",inline="f9",group=grp_score)
+s_sm_int = input.bool(true,"💡 SM Interest",inline="f10",group=grp_score), m_sm_int = input.bool(false,"Обяз.",inline="f10",group=grp_score)
+s_cndl = input.bool(true,"🕯️ Candles",inline="f11",group=grp_score), m_cndl = input.bool(false,"Обяз.",inline="f11",group=grp_score)
+s_ma_cross = input.bool(true,"✕ MA Cross",inline="f12",group=grp_score), m_ma_cross = input.bool(false,"Обяз.",inline="f12",group=grp_score)
+s_ma_trend = input.bool(true,"📈 MA Trend",inline="f13",group=grp_score), m_ma_trend = input.bool(false,"Обяз.",inline="f13",group=grp_score)
+s_smc = input.bool(true,"📍 SMC Trend",inline="f14",group=grp_score), m_smc = input.bool(false,"Обяз.",inline="f14",group=grp_score)
+s_ob = input.bool(true,"📦 OB Activity",inline="f15",group=grp_score), m_ob = input.bool(false,"Обяз.",inline="f15",group=grp_score)
+s_sd = input.bool(true,"📦 S&D Zones",inline="f16",group=grp_score), m_sd = input.bool(false,"Обяз.",inline="f16",group=grp_score)
+s_fvg = input.bool(true,"📦 FVG",inline="f17",group=grp_score), m_fvg = input.bool(false,"Обяз.",inline="f17",group=grp_score)
+s_bos = input.bool(false,"🔄 BOS Level",inline="f18",group=grp_score), m_bos = input.bool(false,"Обяз.",inline="f18",group=grp_score)
+s_bb = input.bool(true,"🔗 Breaker",inline="f19",group=grp_score), m_bb = input.bool(false,"Обяз.",inline="f19",group=grp_score)
+s_hm = input.bool(true,"🔊 HeatMap Sweep",inline="f20",group=grp_score), m_hm = input.bool(false,"Обяз.",inline="f20",group=grp_score)
+s_sdinv = input.bool(true,"💥 S&D Break",inline="f21",group=grp_score), m_sdinv = input.bool(false,"Обяз.",inline="f21",group=grp_score)
+s_sweep = input.bool(true,"🌊 SMC Sweep",inline="f22",group=grp_score), m_sweep = input.bool(false,"Обяз.",inline="f22",group=grp_score)
+s_choch = input.bool(true,"⚡ CHoCH",inline="f23",group=grp_score), m_choch = input.bool(false,"Обяз.",inline="f23",group=grp_score)
+s_pd = input.bool(true,"📉 Prem/Discount",inline="f24",group=grp_score), m_pd = input.bool(false,"Обяз.",inline="f24",group=grp_score)
+s_avwap = input.bool(true,"📌 AVWAP Align",inline="f25",group=grp_score), m_avwap = input.bool(false,"Обяз.",inline="f25",group=grp_score)
+s_avwap_x = input.bool(true,"🎯 AVWAP Cross",inline="f26",group=grp_score), m_avwap_x = input.bool(false,"Обяз.",inline="f26",group=grp_score)
+s_disp = input.bool(true,"💥 Displacement",inline="f27",group=grp_score), m_disp = input.bool(false,"Обяз.",inline="f27",group=grp_score)
+s_ob_frsh = input.bool(true,"✨ Fresh OB",inline="f28",group=grp_score), m_ob_frsh = input.bool(false,"Обяз.",inline="f28",group=grp_score)
+s_htf_bull = input.bool(true,"🟢 HTF Gate Bull",inline="f29",group=grp_score), m_htf_bull = input.bool(false,"Обяз.",inline="f29",group=grp_score)
+s_htf_bear = input.bool(true,"🔴 HTF Gate Bear",inline="f30",group=grp_score), m_htf_bear = input.bool(false,"Обяз.",inline="f30",group=grp_score)
+s_zone_conf = input.bool(true,"🔥 Zone Confluence",inline="f31",group=grp_score), m_zone_conf = input.bool(false,"Обяз.",inline="f31",group=grp_score)
+s_choch_sw = input.bool(true,"⚡ CHoCH After Sweep",inline="f32",group=grp_score), m_choch_sw = input.bool(false,"Обяз.",inline="f32",group=grp_score)
+s_ob_sd = input.bool(true,"🎯 OB in S&D",inline="f33",group=grp_score), m_ob_sd = input.bool(false,"Обяз.",inline="f33",group=grp_score)
+s_osc6 = input.bool(true,"💪 OSC10 Сила 6+",inline="f34",group=grp_score), m_osc6 = input.bool(false,"Обяз.",inline="f34",group=grp_score)
+s_regime = input.bool(true,"🌡️ Market Regime",inline="f35",group=grp_score), m_regime = input.bool(false,"Обяз.",inline="f35",group=grp_score)
+s_bos_retest = input.bool(true,"🎯 BOS Retest",inline="f36",group=grp_score), m_bos_retest = input.bool(false,"Обяз.",inline="f36",group=grp_score)
+s_choch_retest = input.bool(true,"🎯 CHoCH Retest",inline="f37",group=grp_score), m_choch_retest = input.bool(false,"Обяз.",inline="f37",group=grp_score)
+s_cvd = input.bool(true,"🌊 CVD Divergence",inline="f38",group=grp_score), m_cvd = input.bool(false,"Обяз.",inline="f38",group=grp_score)
+s_absorption = input.bool(true,"🧽 Volume Absorption",inline="f39",group=grp_score), m_absorption = input.bool(false,"Обяз.",inline="f39",group=grp_score)
+s_hm_vol_sig = input.bool(true,"📦 HM Sweep Vol",inline="f40",group=grp_score), m_hm_vol_sig = input.bool(false,"Обяз.",inline="f40",group=grp_score)
+s_fvg_poc = input.bool(true,"🎯 FVG POC",inline="f41",group=grp_score), m_fvg_poc = input.bool(false,"Обяз.",inline="f41",group=grp_score)
+s_ob_touch_fresh1 = input.bool(true,"⚠️ OB 1-е повт.каса.",inline="f42",group=grp_score), m_ob_touch_fresh1 = input.bool(false,"Обяз.",inline="f42",group=grp_score)
+s_sm_all3 = input.bool(true,"🐋💰💡 SM Триплет",inline="f43",group=grp_score), m_sm_all3 = input.bool(false,"Обяз.",inline="f43",group=grp_score)
+s_mdiv_multi = input.bool(true,"🔍🔍 Multi-Div 3+",inline="f44",group=grp_score), m_mdiv_multi = input.bool(false,"Обяз.",inline="f44",group=grp_score)
+s_candle_in_ob = input.bool(true,"🕯️📦 Свеча в OB",inline="f45",group=grp_score), m_candle_in_ob = input.bool(false,"Обяз.",inline="f45",group=grp_score)
+s_sweep_ob = input.bool(true,"🌊📦 Sweep+OB",inline="f46",group=grp_score), m_sweep_ob = input.bool(false,"Обяз.",inline="f46",group=grp_score)
+s_disp_ob = input.bool(true,"💥📦 Disp+OB",inline="f47",group=grp_score), m_disp_ob = input.bool(false,"Обяз.",inline="f47",group=grp_score)
+s_disp_fvg = input.bool(true,"💥📦 Disp+FVG",inline="f48",group=grp_score), m_disp_fvg = input.bool(false,"Обяз.",inline="f48",group=grp_score)
+s_ob_avwap = input.bool(true,"📦📌 OB+AVWAP",inline="f49",group=grp_score), m_ob_avwap = input.bool(false,"Обяз.",inline="f49",group=grp_score)
+s_freshob_candle = input.bool(true,"✨🕯️ FreshOB+Candle",inline="f50",group=grp_score), m_freshob_candle = input.bool(false,"Обяз.",inline="f50",group=grp_score)
+s_sd_fvg = input.bool(true,"📦📦 S&D+FVG",inline="f51",group=grp_score), m_sd_fvg = input.bool(false,"Обяз.",inline="f51",group=grp_score)
+s_ote_ob = input.bool(true,"⚖️📦 OTE+OB",inline="f52",group=grp_score), m_ote_ob = input.bool(false,"Обяз.",inline="f52",group=grp_score)
+s_ote_sd = input.bool(true,"⚖️📦 OTE+S&D",inline="f53",group=grp_score), m_ote_sd = input.bool(false,"Обяз.",inline="f53",group=grp_score)
+s_candle_sd = input.bool(true,"🕯️📦 Candle+S&D",inline="f54",group=grp_score), m_candle_sd = input.bool(false,"Обяз.",inline="f54",group=grp_score)
+s_smact_smidx = input.bool(true,"🐋💰 SMAct+SMIdx",inline="f55",group=grp_score), m_smact_smidx = input.bool(false,"Обяз.",inline="f55",group=grp_score)
+s_cvd_absorp = input.bool(true,"🌊🧽 CVD+Absorption",inline="f56",group=grp_score), m_cvd_absorp = input.bool(false,"Обяз.",inline="f56",group=grp_score)
+s_cvd_sm_hm = input.bool(true,"🐋🔊 CVD+SM+HM",inline="f57",group=grp_score), m_cvd_sm_hm = input.bool(false,"Обяз.",inline="f57",group=grp_score)
+s_kde_stoch = input.bool(true,"📐🌀 KDE+StochZ",inline="f58",group=grp_score), m_kde_stoch = input.bool(false,"Обяз.",inline="f58",group=grp_score)
+s_macd_cci = input.bool(true,"⚙️🎢 MACD+CCI",inline="f59",group=grp_score), m_macd_cci = input.bool(false,"Обяз.",inline="f59",group=grp_score)
+s_peter_tfdiv = input.bool(true,"🔎🧩 DivB+DivC",inline="f60",group=grp_score), m_peter_tfdiv = input.bool(false,"Обяз.",inline="f60",group=grp_score)
+s_smt_mdiv = input.bool(true,"🌐🔍 SMT+MDiv",inline="f61",group=grp_score), m_smt_mdiv = input.bool(false,"Обяз.",inline="f61",group=grp_score)
+s_triple_div = input.bool(true,"🔍🔎🌐 Triple Div",inline="f62",group=grp_score), m_triple_div = input.bool(false,"Обяз.",inline="f62",group=grp_score)
+s_macross_matrend = input.bool(true,"✕📈 MACross+MATrend",inline="f63",group=grp_score), m_macross_matrend = input.bool(false,"Обяз.",inline="f63",group=grp_score)
+s_osc10_sum = input.bool(true,"📊 OSC10 Суммарная сила LTF",inline="f64",group=grp_score), m_osc10_sum = input.bool(false,"Обяз.",inline="f64",group=grp_score)
+s_adx_tier = input.bool(true,"🌡️ ADX Сила (тир)",inline="f65",group=grp_score), m_adx_tier = input.bool(false,"Обяз.",inline="f65",group=grp_score)
+s_struct_fresh = input.bool(true,"🏗️ Структ.свежесть-комбо",inline="f66",group=grp_score), m_struct_fresh = input.bool(false,"Обяз.",inline="f66",group=grp_score)
+s_consensus = input.bool(true,"🚦 Консенсус светофора",inline="f67",group=grp_score), m_consensus = input.bool(false,"Обяз.",inline="f67",group=grp_score)
+
+adx_tier_th1 = input.float(20.0, "ADX тир 1 (мин)", minval=5.0, step=1.0, inline="adxtier", group=grp_score)
+adx_tier_th2 = input.float(30.0, "ADX тир 2 (мин)", minval=5.0, step=1.0, inline="adxtier", group=grp_score)
+adx_tier_th3 = input.float(40.0, "ADX тир 3 (мин)", minval=5.0, step=1.0, inline="adxtier", group=grp_score)
+osc10_sum_min = input.float(15.0, "OSC10 сумма LTF мин (0..30)", minval=0.0, maxval=30.0, step=1.0, group=grp_score)
+struct_fresh_bars = input.int(4, "Структ.свежесть окно (баров)", minval=1, maxval=20, group=grp_score)
+
+// ====================================================================================================================
+// 1. СКОЛЬЗЯЩИЕ СРЕДНИЕ
+// ====================================================================================================================
+grp_trend = "1. Скользящие Средние (MA) и Тренд"
+en_mod_ma = input.bool(true, "🟢 Модуль MA", group=grp_trend)
+sync_len = input.int(5, "Swing Период", minval=2, group=grp_trend)
+ma_sig_logic = input.string("Fast > Slow", "Логика Тренда MA", options=["Fast > Slow", "Price > Global MA", "Both"], group=grp_trend)
+ma_fast_type = input.string("EMA", "Тип Fast MA", options=["EMA", "WMA", "HMA", "ALMA", "SMA"], group=grp_trend)
+ma_fast_len = input.int(20, "Длина Fast MA", minval=1, group=grp_trend)
+ma_slow_type = input.string("EMA", "Тип Slow MA", options=["EMA", "WMA", "HMA", "ALMA", "SMA"], group=grp_trend)
+ma_slow_len = input.int(50, "Длина Slow MA", minval=1, group=grp_trend)
+ma_filt_type = input.string("EMA", "Тип Global MA", options=["EMA", "WMA", "HMA", "ALMA", "SMA"], group=grp_trend)
+ma_filt_len = input.int(200, "Длина Global MA", minval=1, group=grp_trend)
+alma_offset = input.float(0.85, "ALMA Offset", group=grp_trend)
+alma_sigma = input.float(6.0, "ALMA Sigma", group=grp_trend)
+en_ma = input.bool(true, "Показывать Fast/Slow MA", group=grp_trend)
+en_ma_filt = input.bool(true, "Показывать Global MA", group=grp_trend)
+en_ma_cross = input.bool(true, "Отмечать пересечение", group=grp_trend)
+ma_fast_col = input.color(color.new(#2196F3,0), "Цвет Fast MA", group=grp_trend)
+ma_slow_col = input.color(color.new(#9C27B0,0), "Цвет Slow MA", group=grp_trend)
+ma_filt_col = input.color(color.new(#FF9800,0), "Цвет Global MA", group=grp_trend)
+
+// ====================================================================================================================
+// 1.1 MARKET REGIME
+// ====================================================================================================================
+grp_regime = "1.1 Market Regime"
+en_regime = input.bool(true, "🟢 Фильтр Фазы Рынка", group=grp_regime)
+chop_len = input.int(14, "Период Choppiness", group=grp_regime)
+adx_len = input.int(14, "Период ADX", group=grp_regime)
+vol_th = input.float(0.65, "Порог волатильности (ATR Ratio)", step=0.05, group=grp_regime)
+
+// ====================================================================================================================
+// 2. ОСЦИЛЛЯТОРЫ (инпуты)
+// ====================================================================================================================
+grp_osc_kde = "2.1. KDE RSI"
+en_mod_kde = input.bool(true, "🟢 Модуль", group=grp_osc_kde)
+kde_rsi_len = input.int(14, "RSI Длина", minval=1, group=grp_osc_kde)
+kde_piv_len = input.int(21, "Длина Пивотов", minval=1, group=grp_osc_kde)
+kde_kernel = input.string("Gaussian", "Ядро", options=["Uniform", "Gaussian", "Sigmoid"], group=grp_osc_kde)
+kde_bandw = input.float(2.71828, "Bandwidth", group=grp_osc_kde)
+kde_steps = input.int(75, "Bins", minval=10, group=grp_osc_kde)
+kde_thresh = input.string("Medium", "Порог активации", options=["High", "Medium", "Low"], group=grp_osc_kde)
+
+grp_osc_stc = "2.2. Stoch Z-Score"
+en_mod_stoch = input.bool(true, "🟢 Модуль", group=grp_osc_stc)
+stoch_z_src = input.source(hlc3, "Source", group=grp_osc_stc)
+stoch_z_len = input.int(21, "Length", minval=1, group=grp_osc_stc)
+stoch_z_ob = input.float(2.0, "Overbought", step=0.5, group=grp_osc_stc)
+stoch_z_os = input.float(-2.0, "Oversold", step=0.5, group=grp_osc_stc)
+stoch_strict = input.bool(true, "Строгий фильтр (ALMA LTM)", group=grp_osc_stc)
+
+grp_osc_dlx = "2.3. Adaptive MACD Deluxe"
+en_mod_dlx = input.bool(true, "🟢 Модуль", group=grp_osc_dlx)
+macd_dlx_r2 = input.int(20, "R-Squared Lookback", minval=2, group=grp_osc_dlx)
+macd_dlx_fast = input.int(10, "Fast Length", minval=2, group=grp_osc_dlx)
+macd_dlx_slow = input.int(20, "Slow Length", minval=2, group=grp_osc_dlx)
+macd_dlx_ob = input.float(100.0, "OB", group=grp_osc_dlx)
+macd_dlx_os = input.float(-100.0, "OS", group=grp_osc_dlx)
+
+grp_osc_cci = "2.4. Advanced CCI (ST + L3)"
+en_mod_cci = input.bool(true, "🟢 Модуль", group=grp_osc_cci)
+cci_st_len = input.int(28, "CCI Period", minval=1, group=grp_osc_cci)
+cci_st_factor = input.float(3.0, "Factor", minval=0.1, group=grp_osc_cci)
+cci_st_pd = input.int(3, "ATR Period", minval=1, group=grp_osc_cci)
+cci_l3_len = input.int(11, "CCI Length L3", minval=1, group=grp_osc_cci)
+cci_l3_ci = input.int(5, "CI EMA Length", minval=1, group=grp_osc_cci)
+
+grp_osc_sm_act = "2.5. Smart Money Activity"
+en_mod_smact = input.bool(true, "🟢 Модуль", group=grp_osc_sm_act)
+sm_act_ltf = input.timeframe("5", "Младший ТФ", group=grp_osc_sm_act)
+sm_act_zlen = input.int(50, "Период Z-Score", minval=5, group=grp_osc_sm_act)
+sm_act_th = input.float(2.5, "Порог Z-Score", step=0.1, group=grp_osc_sm_act)
+
+grp_osc_sm_idx = "2.6. Smart Money Index"
+en_mod_smidx = input.bool(true, "🟢 Модуль", group=grp_osc_sm_idx)
+sm_idx_x = input.int(25, "Период Индекса", minval=1, group=grp_osc_sm_idx)
+sm_idx_rr = input.int(14, "Период RSI", minval=1, group=grp_osc_sm_idx)
+sm_idx_peak = input.int(500, "Нормализация", minval=1, group=grp_osc_sm_idx)
+sm_idx_thr = input.float(0.7, "Порог", minval=0.01, step=0.05, group=grp_osc_sm_idx)
+sm_idx_strict = input.bool(true, "Строгий триггер", group=grp_osc_sm_idx)
+
+grp_osc_sm_int = "2.7. Smart Money Interest"
+en_mod_smint = input.bool(true, "🟢 Модуль", group=grp_osc_sm_int)
+sm_int_x = input.int(25, "Период Индекса", minval=1, group=grp_osc_sm_int)
+sm_int_rr = input.int(14, "Период RSI", minval=1, group=grp_osc_sm_int)
+sm_int_peak = input.int(500, "Нормализация", minval=1, group=grp_osc_sm_int)
+sm_int_thr = input.float(0.9, "Порог", minval=0.01, step=0.05, group=grp_osc_sm_int)
+
+grp_osc_mdiv = "2.8. Multi-Div (Engine A)"
+en_mod_mdiv = input.bool(true, "🟢 Модуль", group=grp_osc_mdiv)
+mdiv_prd = input.int(5, "Период Пивотов", minval=1, group=grp_osc_mdiv)
+mdiv_type = input.string("Regular/Hidden", "Тип дивера", options=["Regular", "Hidden", "Regular/Hidden"], group=grp_osc_mdiv)
+mdiv_limit = input.int(1, "Мин. кол-во диверов", minval=1, maxval=11, group=grp_osc_mdiv)
+mdiv_maxb = input.int(100, "Макс. длина поиска", minval=30, group=grp_osc_mdiv)
+
+grp_osc_peter = "2.9. Multi-Div (Engine B, нерепейнт)"
+en_mod_peter = input.bool(true, "🟢 Модуль", group=grp_osc_peter)
+peter_lbL = input.int(3, "Pivot Left", minval=1, group=grp_osc_peter)
+peter_lbR = input.int(1, "Pivot Right", minval=1, group=grp_osc_peter)
+peter_rngL = input.int(1, "Min Range", minval=1, group=grp_osc_peter)
+peter_rngU = input.int(60, "Max Range", minval=10, group=grp_osc_peter)
+peter_limit = input.int(2, "Min Div Count", minval=1, maxval=10, group=grp_osc_peter)
+
+grp_osc_tfdiv = "3.0. Div (Engine C, Fractal)"
+en_mod_tfdiv = input.bool(true, "🟢 Модуль", group=grp_osc_tfdiv)
+tfdiv_n = input.int(4, "Fractal Periods", minval=2, group=grp_osc_tfdiv)
+tfdiv_type = input.string("MACD", "Осциллятор", options=["MACD", "RSI", "AO"], group=grp_osc_tfdiv)
+
+grp_osc_smt = "3.1. SMT (Межрыночные)"
+en_mod_smt = input.bool(true, "🟢 Модуль", group=grp_osc_smt)
+smt_len = input.int(3, "Pivot Lookback", minval=2, group=grp_osc_smt)
+smt_use1 = input.bool(true, "Символ 1", inline="symA", group=grp_osc_smt)
+smt_sym1 = input.symbol("CME_MINI_DL:ES1!", "", inline="symA", group=grp_osc_smt)
+smt_use2 = input.bool(true, "Символ 2", inline="symB", group=grp_osc_smt)
+smt_sym2 = input.symbol("CBOT_MINI_DL:YM1!", "", inline="symB", group=grp_osc_smt)
+
+// ====================================================================================================================
+// 3.2. СВЕЧНОЙ МОДУЛЬ — РАСШИРЕН (+5 новых однросвечных: Dragonfly Doji, Gravestone Doji, Long-Legged Doji,
+// High Wave, одиночный Hikkake). Автор всех паттернов и логики распознавания — UserUZR.
+// Разделение LIVE/SIGNAL: имя паттерна пересчитывается КАЖДЫЙ ТИК на текущем незакрытом баре (live-имя для
+// светофора), и отдельно замораживается в момент сигнала (signal-имя для инфоблока BUY/SELL).
+// ====================================================================================================================
+grp_cndl = "3.2. Свечной анализ UserUZR"
+en_mod_cndl = input.bool(true, "🟢 Модуль Свечей", group=grp_cndl)
+cndl_bull_col = input.color(color.new(#089981,0), "Цвет Бычьих", group=grp_cndl)
+cndl_bear_col = input.color(color.new(#f23645,0), "Цвет Медвежьих", group=grp_cndl)
+cndl_neut_col = input.color(color.new(color.black,0), "Цвет Нейтральных", group=grp_cndl)
+cndl_lbl_size = input.string("tiny", "Размер текста", options=["auto", "tiny", "small", "normal", "large"], group=grp_cndl)
+cndl_bar_col = input.bool(true, "Красить бары", group=grp_cndl)
+cndl_show_lbl = input.bool(true, "Показывать ярлыки", group=grp_cndl)
+cndl_minor_len = input.int(10, "Период minor-экстремума", minval=3, group=grp_cndl)
+en_hammer = input.bool(true, "Молот", group=grp_cndl, inline="b1")
+en_ihammer = input.bool(true, "Пер.Молот", group=grp_cndl, inline="b1")
+en_bull_eng = input.bool(true, "Поглощение", group=grp_cndl, inline="b2")
+en_r3 = input.bool(true, "3 Поднимающихся", group=grp_cndl, inline="b2")
+en_3ws = input.bool(true, "3 Белых Солдата", group=grp_cndl, inline="b3")
+en_mstar = input.bool(true, "Утренняя звезда", group=grp_cndl, inline="b3")
+en_bull_har = input.bool(true, "Харами", group=grp_cndl, inline="b4")
+en_tw_bot = input.bool(true, "Пинцет Дно", group=grp_cndl, inline="b4")
+en_hman = input.bool(true, "Повешенный", group=grp_cndl, inline="s1")
+en_sstar = input.bool(true, "Падающая звезда", group=grp_cndl, inline="s1")
+en_bear_eng = input.bool(true, "Поглощение", group=grp_cndl, inline="s2")
+en_f3 = input.bool(true, "3 Падающих", group=grp_cndl, inline="s2")
+en_3bc = input.bool(true, "3 Черн.Вороны", group=grp_cndl, inline="s3")
+en_estar = input.bool(true, "Вечерняя звезда", group=grp_cndl, inline="s3")
+en_bear_har = input.bool(true, "Харами", group=grp_cndl, inline="s4")
+en_tw_top = input.bool(true, "Пинцет Вершина", group=grp_cndl, inline="s4")
+en_doji = input.bool(false, "Doji", group=grp_cndl, inline="n1")
+en_spinning = input.bool(false, "Волчок", group=grp_cndl, inline="n1")
+en_marub_bull = input.bool(true, "Маруботсу Бычий", group=grp_cndl, inline="nb1")
+en_marub_bear = input.bool(true, "Маруботсу Медвежий", group=grp_cndl, inline="nb1")
+en_piercing = input.bool(true, "Просвет в Облаках", group=grp_cndl, inline="nb2")
+en_darkcloud = input.bool(true, "Тёмное Облако", group=grp_cndl, inline="nb2")
+en_outside_bull = input.bool(true, "Бычий Внешний Бар", group=grp_cndl, inline="nb3")
+en_outside_bear = input.bool(true, "Медвежий Внешний Бар", group=grp_cndl, inline="nb3")
+en_belthold_bull = input.bool(true, "Бычий Бэлт-Холд", group=grp_cndl, inline="nb4")
+en_belthold_bear = input.bool(true, "Медвежий Бэлт-Холд", group=grp_cndl, inline="nb4")
+en_3in_up = input.bool(true, "Три Внутри Вверх", group=grp_cndl, inline="nb5")
+en_3in_dn = input.bool(true, "Три Внутри Вниз", group=grp_cndl, inline="nb5")
+en_dragonfly = input.bool(true, "Dragonfly Doji", group=grp_cndl, inline="nb6")
+en_gravestone = input.bool(true, "Gravestone Doji", group=grp_cndl, inline="nb6")
+en_longleg = input.bool(true, "Long-Legged Doji", group=grp_cndl, inline="nb7")
+en_highwave = input.bool(true, "High Wave", group=grp_cndl, inline="nb7")
+en_hikkake = input.bool(true, "Hikkake (одиночный)", group=grp_cndl)
+
+// ====================================================================================================================
+// 3.3 P2 TF ENGINE — КАЛИБРОВАННЫЕ ПАРАМЕТРЫ ПО ТАЙМФРЕЙМАМ (UserUZR)
+// ====================================================================================================================
+var p2_tf_params p2_ltf1 = p2_tf_params.new(9, 45,75, 25,55, 8,17,6, 5,13, 14, 14,2.0, 0.25,0.75, 9,3,3, 20.0,80.0, 14,2.0,7, 10, 0.50, 14,1.4)
+var p2_tf_params p2_ltf2 = p2_tf_params.new(11, 45,75, 25,55, 10,21,7, 6,16, 17, 16,2.0, 0.28,0.72, 11,3,3, 22.0,78.0, 17,2.2,8, 12, 0.52, 17,1.4)
+var p2_tf_params p2_ltf3 = p2_tf_params.new(14, 45,75, 25,55, 12,26,9, 8,21, 21, 20,2.0, 0.30,0.70, 14,3,3, 25.0,75.0, 20,2.5,10, 14, 0.55, 20,1.5)
+var p2_tf_params p2_htf1 = p2_tf_params.new(18, 45,75, 25,55, 12,26,9, 10,30, 26, 24,2.1, 0.30,0.70, 18,4,4, 25.0,75.0, 24,2.8,12, 18, 0.58, 24,1.6)
+var p2_tf_params p2_htf2 = p2_tf_params.new(21, 45,75, 25,55, 12,26,9, 13,34, 30, 26,2.2, 0.30,0.70, 21,5,5, 25.0,75.0, 28,3.0,14, 22, 0.60, 28,1.7)
+var p2_tf_params p2_htf3 = p2_tf_params.new(25, 45,75, 25,55, 12,26,9, 21,50, 34, 30,2.3, 0.30,0.70, 25,5,5, 25.0,75.0, 32,3.2,16, 26, 0.62, 32,1.8)
+
+p2_osc_engine(simple int rsi_len, simple float rsi_bull_lo, simple float rsi_bull_hi, simple float rsi_bear_lo, simple float rsi_bear_hi, simple int macd_fast, simple int macd_slow, simple int macd_sig, simple int ema_fast, simple int ema_slow, simple int zscore_len, simple int bb_len, simple float bb_mult, simple float bb_bull_max, simple float bb_bear_min, simple int srsi_len, simple int srsi_k, simple int srsi_d, simple float srsi_bull_max, simple float srsi_bear_min, simple int cci_len, simple float cci_factor, simple int cci_atr_len, simple int mdiv_len, simple float body_ratio, simple int vol_sma_len, simple float vol_z_th) =>
+    float rsi_v = ta.rsi(close, rsi_len)
+    bool rsi_bull = rsi_v >= rsi_bull_lo and rsi_v <= rsi_bull_hi
+    bool rsi_bear = rsi_v >= rsi_bear_lo and rsi_v <= rsi_bear_hi
+    [mac_l, mac_s, mac_h] = ta.macd(close, macd_fast, macd_slow, macd_sig)
+    bool macd_bull = mac_l > mac_s or mac_h > 0
+    bool macd_bear = mac_l < mac_s or mac_h < 0
+    float ema_f = ta.ema(close, ema_fast)
+    float ema_s = ta.ema(close, ema_slow)
+    bool ema_bull = ema_f > ema_s
+    bool ema_bear = ema_f < ema_s
+    float zs_basis = ta.sma(close, zscore_len)
+    float zs_dev = ta.stdev(close, zscore_len)
+    float zscore = zs_dev > 0 ? (close - zs_basis) / zs_dev : 0.0
+    bool zs_bull = zscore < -1.0
+    bool zs_bear = zscore > 1.0
+    float bb_basis = ta.sma(close, bb_len)
+    float bb_dev = ta.stdev(close, bb_len) * bb_mult
+    float bb_upper = bb_basis + bb_dev
+    float bb_lower = bb_basis - bb_dev
+    float bb_range = math.max(bb_upper - bb_lower, 1e-10)
+    float bb_pctb = (close - bb_lower) / bb_range
+    bool bb_bull = bb_pctb <= bb_bull_max
+    bool bb_bear = bb_pctb >= bb_bear_min
+    float rsi_for_stoch = ta.rsi(close, srsi_len)
+    float stoch_rsi_raw = ta.stoch(rsi_for_stoch, rsi_for_stoch, rsi_for_stoch, srsi_len)
+    float stoch_rsi_k = ta.sma(stoch_rsi_raw, srsi_k)
+    float stoch_rsi_d = ta.sma(stoch_rsi_k, srsi_d)
+    bool srsi_bull = stoch_rsi_k <= srsi_bull_max and stoch_rsi_k >= stoch_rsi_d
+    bool srsi_bear = stoch_rsi_k >= srsi_bear_min and stoch_rsi_k <= stoch_rsi_d
+    float cci_v = ta.cci(close, cci_len)
+    float cci_atr = ta.atr(cci_atr_len)
+    float cci_up = hl2 - (cci_factor * cci_atr)
+    float cci_dn = hl2 + (cci_factor * cci_atr)
+    bool cci_bull = cci_v > 0 and close > cci_up
+    bool cci_bear = cci_v < 0 and close < cci_dn
+    float price_now = close
+    float price_then = close[mdiv_len]
+    float rsi_now = rsi_v
+    float rsi_then = rsi_v[mdiv_len]
+    bool div_bull_reg = price_now < price_then and rsi_now > rsi_then
+    bool div_bear_reg = price_now > price_then and rsi_now < rsi_then
+    float macd_now = mac_l
+    float macd_then = mac_l[mdiv_len]
+    bool div_bull_macd = price_now < price_then and macd_now > macd_then
+    bool div_bear_macd = price_now > price_then and macd_now < macd_then
+    bool mdiv_bull = div_bull_reg or div_bull_macd
+    bool mdiv_bear = div_bear_reg or div_bear_macd
+    float body_r = math.abs(close - open) / math.max(high - low, syminfo.mintick)
+    bool strong_body_bull = body_r > body_ratio and close > open
+    bool strong_body_bear = body_r > body_ratio and close < open
+    bool engulf_bull = close > open and close > high[1] and open < close[1]
+    bool engulf_bear = close < open and close < low[1] and open > close[1]
+    bool cndl_bull_eq = strong_body_bull or engulf_bull
+    bool cndl_bear_eq = strong_body_bear or engulf_bear
+    float vol_sma_v = ta.sma(volume, vol_sma_len)
+    float vol_stdev_v = ta.stdev(volume, vol_sma_len)
+    float vol_z = vol_stdev_v > 0 ? (volume - vol_sma_v) / vol_stdev_v : 0.0
+    bool vol_spike = vol_z > vol_z_th
+    bool vol_bull = vol_spike and close > open
+    bool vol_bear = vol_spike and close < open
+    int cnt_bull = (rsi_bull?1:0)+(macd_bull?1:0)+(ema_bull?1:0)+(zs_bull?1:0)+(bb_bull?1:0)+(srsi_bull?1:0)+(cci_bull?1:0)+(mdiv_bull?1:0)+(cndl_bull_eq?1:0)+(vol_bull?1:0)
+    int cnt_bear = (rsi_bear?1:0)+(macd_bear?1:0)+(ema_bear?1:0)+(zs_bear?1:0)+(bb_bear?1:0)+(srsi_bear?1:0)+(cci_bear?1:0)+(mdiv_bear?1:0)+(cndl_bear_eq?1:0)+(vol_bear?1:0)
+    [cnt_bull, cnt_bear]
+
+// ====================================================================================================================
+// 5. НАСТРОЙКИ СИГНАЛОВ И ВИЗУАЛ
+// ====================================================================================================================
+grp_sig = "5. Настройки Сигнала и Визуал"
+en_sig_labels = input.bool(true, "Ярлыки BUY/SELL", group=grp_sig)
+sig_lookback = input.int(3, "Блокировка повтора", minval=0, maxval=20, group=grp_sig)
+bos_bars_ok = input.int(3, "BOS окно подтверждения", minval=1, maxval=20, group=grp_sig)
+sig_text_size = input.string("normal", "Размер текста BUY/SELL", options=["auto", "tiny", "small", "normal", "large", "huge"], group=grp_sig)
+sig_text_col = input.color(color.black, "Цвет текста BUY/SELL", group=grp_sig)
+info_gap = input.float(0.4, "Дистанция Инфоблока (ATR)", minval=0.1, step=0.1, group=grp_sig)
+info_text_size = input.string("tiny", "Размер текста Инфоблока", options=["auto", "tiny", "small", "normal", "large", "huge"], group=grp_sig)
+info_align = input.string("Left", "Выравнивание Инфоблока", options=["Left", "Center", "Right"], group=grp_sig)
+info_text_col = input.color(color.black, "Цвет текста Инфоблока", group=grp_sig)
+info_bg_col = input.color(color.new(color.gray,80), "Фон Инфоблока (fallback)", group=grp_sig)
+info_max_lines = input.int(65, "Макс. строк Инфоблока", minval=10, maxval=160, group=grp_sig)
+en_bg_trend = input.bool(false, "Фон графика по тренду", group=grp_sig)
+bg_bull_col = input.color(color.new(#089981,95), "Фон Бычий", group=grp_sig)
+bg_bear_col = input.color(color.new(#f23645,95), "Фон Медвежий", group=grp_sig)
+info_show_zone_stars = input.bool(true, "Звёздный рейтинг зоны", group=grp_sig)
+info_show_time = input.bool(true, "Время сигнала", group=grp_sig)
+info_show_regime = input.bool(true, "Режим рынка в инфоблоке", group=grp_sig)
+info_show_counter = input.bool(true, "Противовес противоположной стороны", group=grp_sig)
+info_show_consensus = input.bool(true, "Консенсус со светофором", group=grp_sig)
+en_custom_label_color = input.bool(false, "Ручной цвет лейблов BUY/SELL", group=grp_sig)
+buy_label_col = input.color(color.new(#00c853,0), "Цвет лейбла BUY", inline="lblcol", group=grp_sig)
+sell_label_col = input.color(color.new(#d50000,0), "Цвет лейбла SELL", inline="lblcol", group=grp_sig)
+
+grp_info_colors = "5.1 Цвета Инфоблока"
+info_bg_app_bull = input.color(color.new(#0d4d28,0), "A+ Покупка", inline="info_app", group=grp_info_colors)
+info_bg_app_bear = input.color(color.new(#5c0000,0), "A+ Продажа", inline="info_app", group=grp_info_colors)
+info_bg_a_bull = input.color(color.new(#0d4d28,15), "A Покупка", inline="info_a", group=grp_info_colors)
+info_bg_a_bear = input.color(color.new(#5c0000,15), "A Продажа", inline="info_a", group=grp_info_colors)
+info_bg_b_bull = input.color(color.new(#0d3d66,25), "B Покупка", inline="info_b", group=grp_info_colors)
+info_bg_b_bear = input.color(color.new(#7a3c00,25), "B Продажа", inline="info_b", group=grp_info_colors)
+info_bg_c_bull = input.color(color.new(#0d3d66,55), "C Покупка", inline="info_c", group=grp_info_colors)
+info_bg_c_bear = input.color(color.new(#7a3c00,55), "C Продажа", inline="info_c", group=grp_info_colors)
+info_bg_d_bull = input.color(color.new(color.gray,40), "D Покупка", inline="info_d", group=grp_info_colors)
+info_bg_d_bear = input.color(color.new(color.gray,40), "D Продажа", inline="info_d", group=grp_info_colors)
+
+grp_live_colors = "5.2 Цвета Светофора"
+live_bg_app_bull = input.color(color.new(#00c853,5), "A+ Покупка", inline="live_app", group=grp_live_colors)
+live_bg_app_bear = input.color(color.new(#d50000,5), "A+ Продажа", inline="live_app", group=grp_live_colors)
+live_bg_a_bull = input.color(color.new(#00c853,20), "A Покупка", inline="live_a", group=grp_live_colors)
+live_bg_a_bear = input.color(color.new(#d50000,20), "A Продажа", inline="live_a", group=grp_live_colors)
+live_bg_b_bull = input.color(color.new(#2196f3,25), "B Покупка", inline="live_b", group=grp_live_colors)
+live_bg_b_bear = input.color(color.new(#ff6f00,25), "B Продажа", inline="live_b", group=grp_live_colors)
+live_bg_c_bull = input.color(color.new(#2196f3,55), "C Покупка", inline="live_c", group=grp_live_colors)
+live_bg_c_bear = input.color(color.new(#ff6f00,55), "C Продажа", inline="live_c", group=grp_live_colors)
+live_bg_d_bull = input.color(color.new(color.orange,10), "D Покупка", inline="live_d", group=grp_live_colors)
+live_bg_d_bear = input.color(color.new(color.orange,10), "D Продажа", inline="live_d", group=grp_live_colors)
+live_bg_none = input.color(color.new(color.gray,20), "NONE", group=grp_live_colors)
+live_bg_intrabar = input.color(color.new(#ffd600,5), "Intrabar", group=grp_live_colors)
+
+// ====================================================================================================================
+// 6. MTF КАСКАД
+// ====================================================================================================================
+grp_mtf = "6. MTF Каскад (Живой Светофор)"
+mtf_tv_1 = input.timeframe("1", "LTF1 ТФ", inline="mtfltf", group=grp_mtf)
+mtf_tv_2 = input.timeframe("3", "LTF2", inline="mtfltf", group=grp_mtf)
+mtf_tv_3 = input.timeframe("5", "LTF3", inline="mtfltf", group=grp_mtf)
+htf_tv_1 = input.timeframe("60", "HTF1 ТФ", inline="mtfhtf", group=grp_mtf)
+htf_tv_2 = input.timeframe("240", "HTF2", inline="mtfhtf", group=grp_mtf)
+htf_tv_3 = input.timeframe("D", "HTF3", inline="mtfhtf", group=grp_mtf)
+mtf_window = input.int(5, "Окно каскада LTF (баров)", minval=1, maxval=20, inline="mtfwin", group=grp_mtf)
+htf_window = input.int(3, "Окно каскада HTF (баров)", minval=1, maxval=10, inline="mtfwin", group=grp_mtf)
+ltf_gate_min_raw = qa_ltf_gate_min_raw
+htf_gate_min_raw = qa_htf_gate_min_raw
+ltf_gate_min = f_pr_gate_ltf_p2(ltf_gate_min_raw)
+htf_gate_min = f_pr_gate_htf_p2(htf_gate_min_raw)
+in_poi_required = f_pr_in_poi_required(qa_in_poi_required_raw)
+live_lbl_gap = input.float(1.2, "Дистанция светофора (ATR)", step=0.1, minval=0.5, group=grp_mtf)
+live_text_size = input.string("small", "Размер текста светофора", options=["tiny", "small", "normal", "large", "huge"], group=grp_mtf)
+live_text_col = input.color(color.black, "Цвет текста светофора", group=grp_mtf)
+live_max_lines = input.int(45, "Макс. строк светофора", minval=10, maxval=160, group=grp_mtf)
+live_show_session = input.bool(true, "Контекст сессии", group=grp_mtf)
+
+grp_p2_perTF = "6.1 P2 OSC10 — пороги подтверждения по TF"
+p2_ltf1_min_ok_raw = qa_ltf1_min_ok_raw
+p2_ltf2_min_ok_raw = qa_ltf2_min_ok_raw
+p2_ltf3_min_ok_raw = qa_ltf3_min_ok_raw
+p2_htf1_min_ok_raw = qa_htf1_min_ok_raw
+p2_htf2_min_ok_raw = qa_htf2_min_ok_raw
+p2_htf3_min_ok_raw = qa_htf3_min_ok_raw
+
+var int[] PR_OSC_OFS_LTF = array.from(-1, -2)
+var int[] PR_OSC_OFS_HTF = array.from(-1, -2)
+
+f_pr_osc_ltf(int base) =>
+    int result = base
+    if preset_idx_p2 >= 0
+        result := math.max(1, math.min(10, base + PR_OSC_OFS_LTF.get(preset_idx_p2)))
+    result
+
+f_pr_osc_htf(int base) =>
+    int result = base
+    if preset_idx_p2 >= 0
+        result := math.max(1, math.min(10, base + PR_OSC_OFS_HTF.get(preset_idx_p2)))
+    result
+
+p2_ltf1_min_ok = f_pr_osc_ltf(p2_ltf1_min_ok_raw)
+p2_ltf2_min_ok = f_pr_osc_ltf(p2_ltf2_min_ok_raw)
+p2_ltf3_min_ok = f_pr_osc_ltf(p2_ltf3_min_ok_raw)
+p2_htf1_min_ok = f_pr_osc_htf(p2_htf1_min_ok_raw)
+p2_htf2_min_ok = f_pr_osc_htf(p2_htf2_min_ok_raw)
+p2_htf3_min_ok = f_pr_osc_htf(p2_htf3_min_ok_raw)
+
+[p2_ltf1_cnt_b, p2_ltf1_cnt_s] = request.security(syminfo.tickerid, mtf_tv_1, p2_osc_engine(9, 45,75, 25,55, 8,17,6, 5,13, 14, 14,2.0, 0.25,0.75, 9,3,3, 20.0,80.0, 14,2.0,7, 10, 0.50, 14,1.4), lookahead=barmerge.lookahead_off)
+[p2_ltf2_cnt_b, p2_ltf2_cnt_s] = request.security(syminfo.tickerid, mtf_tv_2, p2_osc_engine(11, 45,75, 25,55, 10,21,7, 6,16, 17, 16,2.0, 0.28,0.72, 11,3,3, 22.0,78.0, 17,2.2,8, 12, 0.52, 17,1.4), lookahead=barmerge.lookahead_off)
+[p2_ltf3_cnt_b, p2_ltf3_cnt_s] = request.security(syminfo.tickerid, mtf_tv_3, p2_osc_engine(14, 45,75, 25,55, 12,26,9, 8,21, 21, 20,2.0, 0.30,0.70, 14,3,3, 25.0,75.0, 20,2.5,10, 14, 0.55, 20,1.5), lookahead=barmerge.lookahead_off)
+[p2_htf1_cnt_b, p2_htf1_cnt_s] = request.security(syminfo.tickerid, htf_tv_1, p2_osc_engine(18, 45,75, 25,55, 12,26,9, 10,30, 26, 24,2.1, 0.30,0.70, 18,4,4, 25.0,75.0, 24,2.8,12, 18, 0.58, 24,1.6), lookahead=barmerge.lookahead_off)
+[p2_htf2_cnt_b, p2_htf2_cnt_s] = request.security(syminfo.tickerid, htf_tv_2, p2_osc_engine(21, 45,75, 25,55, 12,26,9, 13,34, 30, 26,2.2, 0.30,0.70, 21,5,5, 25.0,75.0, 28,3.0,14, 22, 0.60, 28,1.7), lookahead=barmerge.lookahead_off)
+[p2_htf3_cnt_b, p2_htf3_cnt_s] = request.security(syminfo.tickerid, htf_tv_3, p2_osc_engine(25, 45,75, 25,55, 12,26,9, 21,50, 34, 30,2.3, 0.30,0.70, 25,5,5, 25.0,75.0, 32,3.2,16, 26, 0.62, 32,1.8), lookahead=barmerge.lookahead_off)
+
+bool p2_ltf1_osc_b = p2_ltf1_cnt_b >= p2_ltf1_min_ok
+bool p2_ltf1_osc_s = p2_ltf1_cnt_s >= p2_ltf1_min_ok
+bool p2_ltf2_osc_b = p2_ltf2_cnt_b >= p2_ltf2_min_ok
+bool p2_ltf2_osc_s = p2_ltf2_cnt_s >= p2_ltf2_min_ok
+bool p2_ltf3_osc_b = p2_ltf3_cnt_b >= p2_ltf3_min_ok
+bool p2_ltf3_osc_s = p2_ltf3_cnt_s >= p2_ltf3_min_ok
+bool p2_htf1_osc_b = p2_htf1_cnt_b >= p2_htf1_min_ok
+bool p2_htf1_osc_s = p2_htf1_cnt_s >= p2_htf1_min_ok
+bool p2_htf2_osc_b = p2_htf2_cnt_b >= p2_htf2_min_ok
+bool p2_htf2_osc_s = p2_htf2_cnt_s >= p2_htf2_min_ok
+bool p2_htf3_osc_b = p2_htf3_cnt_b >= p2_htf3_min_ok
+bool p2_htf3_osc_s = p2_htf3_cnt_s >= p2_htf3_min_ok
+bool p2_osc6_strong_bull = p2_ltf1_cnt_b >= 6 or p2_ltf2_cnt_b >= 6 or p2_ltf3_cnt_b >= 6
+bool p2_osc6_strong_bear = p2_ltf1_cnt_s >= 6 or p2_ltf2_cnt_s >= 6 or p2_ltf3_cnt_s >= 6
+float osc10_sum_bull_ltf = p2_ltf1_cnt_b + p2_ltf2_cnt_b + p2_ltf3_cnt_b
+float osc10_sum_bear_ltf = p2_ltf1_cnt_s + p2_ltf2_cnt_s + p2_ltf3_cnt_s
+bool osc10_sum_bull_ok = osc10_sum_bull_ltf >= osc10_sum_min
+bool osc10_sum_bear_ok = osc10_sum_bear_ltf >= osc10_sum_min
+
+// ====================================================================================================================
+// 7. ВНЕШНИЕ ИНДИКАТОРЫ (P1 ← Main)
+// ====================================================================================================================
+grp_p1 = "7. Внешние Индикаторы (Main P1)"
+float p1_alive_src = input.source(close, "[P1] ALIVE_SIGNAL", group=grp_p1)
+float p1_smc_src = input.source(close, "[P1] SMC Trend", group=grp_p1)
+float p1_ob_src = input.source(close, "[P1] OB State", group=grp_p1)
+float p1_ob_touch_src = input.source(close, "[P1] OB Touch", group=grp_p1)
+float p1_bb_src = input.source(close, "[P1] Breaker Signal", group=grp_p1)
+float p1_hm_src = input.source(close, "[P1] HM Sweep", group=grp_p1)
+float p1_hm_vol_src = input.source(close, "[P1] HM Sweep Vol", group=grp_p1)
+float p1_fvg_src = input.source(close, "[P1] FVG POC", group=grp_p1)
+float p1_fvg_top_src = input.source(close, "[P1] FVG Top", group=grp_p1)
+float p1_fvg_bot_src = input.source(close, "[P1] FVG Bottom", group=grp_p1)
+float p1_sd_src = input.source(close, "[P1] S&D Zone", group=grp_p1)
+float p1_sdinv_src = input.source(close, "[P1] S&D Break", group=grp_p1)
+float p1_sweep_src = input.source(close, "[P1] SMC Sweep", group=grp_p1)
+float p1_choch_src = input.source(close, "[P1] CHoCH", group=grp_p1)
+float p1_bos_trig_src = input.source(close, "[P1] BOS Trigger", group=grp_p1)
+float p1_bos_src = input.source(close, "[P1] Confirmed BOS Level", group=grp_p1)
+float p1_choch_lvl_src = input.source(close, "[P1] Confirmed CHoCH Level", group=grp_p1)
+float p1_bos_touches_src = input.source(close, "[P1] BOS Level Touches", group=grp_p1)
+float p1_choch_touches_src = input.source(close, "[P1] CHoCH Level Touches", group=grp_p1)
+float p1_avwap_src = input.source(close, "[P1] Institutional AVWAP", group=grp_p1)
+float p1_avwap_fast_src = input.source(close, "[P1] Fast AVWAP", group=grp_p1)
+float p1_disp_src = input.source(close, "[P1] Displacement Candle", group=grp_p1)
+float p1_swing_h_src = input.source(close, "[P1] Swing High", group=grp_p1)
+float p1_swing_l_src = input.source(close, "[P1] Swing Low", group=grp_p1)
+float p1_ote_zone_src = input.source(close, "[P1] OTE Zone", group=grp_p1)
+float p1_zone_conf_bull_src = input.source(close, "[P1] Zone Confluence Bull", group=grp_p1)
+float p1_zone_conf_bear_src = input.source(close, "[P1] Zone Confluence Bear", group=grp_p1)
+float p1_zone_layers_bull_src = input.source(close, "[P1] Zone Layers Bull", group=grp_p1)
+float p1_zone_layers_bear_src = input.source(close, "[P1] Zone Layers Bear", group=grp_p1)
+float p1_choch_sw_bull_src = input.source(close, "[P1] CHoCH After Sweep Bull", group=grp_p1)
+float p1_choch_sw_bear_src = input.source(close, "[P1] CHoCH After Sweep Bear", group=grp_p1)
+float p1_ob_touch_cnt_bull_src = input.source(close, "[P1] Bull OB Touch Count", group=grp_p1)
+float p1_ob_touch_cnt_bear_src = input.source(close, "[P1] Bear OB Touch Count", group=grp_p1)
+float p1_ob_sd_bull_src = input.source(close, "[P1] OB in SD Bull", group=grp_p1)
+float p1_ob_sd_bear_src = input.source(close, "[P1] OB in SD Bear", group=grp_p1)
+float p1_conf_bull_src = input.source(close, "[P1] Confluence Bull", group=grp_p1)
+float p1_conf_bear_src = input.source(close, "[P1] Confluence Bear", group=grp_p1)
+float p1_master_src = input.source(close, "[P1] Master Signal", group=grp_p1)
+float p1_regime_bull_src = input.source(close, "[P1] Market Regime Bull", group=grp_p1)
+float p1_regime_bear_src = input.source(close, "[P1] Market Regime Bear", group=grp_p1)
+float p1_adx_val_src = input.source(close, "[P1] ADX Value", group=grp_p1)
+float p1_ltf1_score_bull_src = input.source(close, "[P1] LTF1 Score Bull", group=grp_p1)
+float p1_ltf1_score_bear_src = input.source(close, "[P1] LTF1 Score Bear", group=grp_p1)
+float p1_ltf2_score_bull_src = input.source(close, "[P1] LTF2 Score Bull", group=grp_p1)
+float p1_ltf2_score_bear_src = input.source(close, "[P1] LTF2 Score Bear", group=grp_p1)
+float p1_ltf3_score_bull_src = input.source(close, "[P1] LTF3 Score Bull", group=grp_p1)
+float p1_ltf3_score_bear_src = input.source(close, "[P1] LTF3 Score Bear", group=grp_p1)
+float p1_htf1_score_bull_src = input.source(close, "[P1] HTF1 Score Bull", group=grp_p1)
+float p1_htf1_score_bear_src = input.source(close, "[P1] HTF1 Score Bear", group=grp_p1)
+float p1_htf2_score_bull_src = input.source(close, "[P1] HTF2 Score Bull", group=grp_p1)
+float p1_htf2_score_bear_src = input.source(close, "[P1] HTF2 Score Bear", group=grp_p1)
+float p1_htf3_score_bull_src = input.source(close, "[P1] HTF3 Score Bull", group=grp_p1)
+float p1_htf3_score_bear_src = input.source(close, "[P1] HTF3 Score Bear", group=grp_p1)
+float p1_ltf1_min_src = input.source(close, "[P1] LTF1 Min Score", group=grp_p1)
+float p1_ltf2_min_src = input.source(close, "[P1] LTF2 Min Score", group=grp_p1)
+float p1_ltf3_min_src = input.source(close, "[P1] LTF3 Min Score", group=grp_p1)
+float p1_htf1_min_src = input.source(close, "[P1] HTF1 Min Score", group=grp_p1)
+float p1_htf2_min_src = input.source(close, "[P1] HTF2 Min Score", group=grp_p1)
+float p1_htf3_min_src = input.source(close, "[P1] HTF3 Min Score", group=grp_p1)
+
+is_conn(src) => not na(p1_alive_src) and p1_alive_src == 9999.0 and not na(src)
+bool p1_connected = not na(p1_alive_src) and p1_alive_src == 9999.0
+
+int p1_smc_trend = is_conn(p1_smc_src) ? int(p1_smc_src) : 0
+int p1_bos_trig = is_conn(p1_bos_trig_src) ? int(p1_bos_trig_src) : 0
+int p1_ob_signal = is_conn(p1_ob_src) ? int(p1_ob_src) : 0
+int p1_sd_zone = is_conn(p1_sd_src) ? int(p1_sd_src) : 0
+int p1_fvg_dir = is_conn(p1_fvg_src) ? int(p1_fvg_src) : 0
+int p1_bb_signal = is_conn(p1_bb_src) ? int(p1_bb_src) : 0
+int p1_hm_signal = is_conn(p1_hm_src) ? int(p1_hm_src) : 0
+int p1_sdinv_signal = is_conn(p1_sdinv_src) ? int(p1_sdinv_src) : 0
+int p1_sweep_signal = is_conn(p1_sweep_src) ? int(p1_sweep_src) : 0
+int p1_choch_signal = is_conn(p1_choch_src) ? int(p1_choch_src) : 0
+int p1_ob_touch = is_conn(p1_ob_touch_src) ? int(p1_ob_touch_src) : 0
+float p1_fvg_top = is_conn(p1_fvg_top_src) ? p1_fvg_top_src : na
+float p1_fvg_bot = is_conn(p1_fvg_bot_src) ? p1_fvg_bot_src : na
+float p1_hm_vol = is_conn(p1_hm_vol_src) ? p1_hm_vol_src : 0.0
+float p1_avwap = is_conn(p1_avwap_src) ? p1_avwap_src : na
+float p1_avwap_fast = is_conn(p1_avwap_fast_src) ? p1_avwap_fast_src : na
+int p1_disp = is_conn(p1_disp_src) ? int(p1_disp_src) : 0
+float p1_swing_h = is_conn(p1_swing_h_src) ? p1_swing_h_src : na
+float p1_swing_l = is_conn(p1_swing_l_src) ? p1_swing_l_src : na
+int p1_ote_zone = is_conn(p1_ote_zone_src) ? int(p1_ote_zone_src) : 0
+int p1_ltf1_sb = is_conn(p1_ltf1_score_bull_src) ? int(p1_ltf1_score_bull_src) : 0
+int p1_ltf1_ss = is_conn(p1_ltf1_score_bear_src) ? int(p1_ltf1_score_bear_src) : 0
+int p1_ltf2_sb = is_conn(p1_ltf2_score_bull_src) ? int(p1_ltf2_score_bull_src) : 0
+int p1_ltf2_ss = is_conn(p1_ltf2_score_bear_src) ? int(p1_ltf2_score_bear_src) : 0
+int p1_ltf3_sb = is_conn(p1_ltf3_score_bull_src) ? int(p1_ltf3_score_bull_src) : 0
+int p1_ltf3_ss = is_conn(p1_ltf3_score_bear_src) ? int(p1_ltf3_score_bear_src) : 0
+int p1_htf1_sb = is_conn(p1_htf1_score_bull_src) ? int(p1_htf1_score_bull_src) : 0
+int p1_htf1_ss = is_conn(p1_htf1_score_bear_src) ? int(p1_htf1_score_bear_src) : 0
+int p1_htf2_sb = is_conn(p1_htf2_score_bull_src) ? int(p1_htf2_score_bull_src) : 0
+int p1_htf2_ss = is_conn(p1_htf2_score_bear_src) ? int(p1_htf2_score_bear_src) : 0
+int p1_htf3_sb = is_conn(p1_htf3_score_bull_src) ? int(p1_htf3_score_bull_src) : 0
+int p1_htf3_ss = is_conn(p1_htf3_score_bear_src) ? int(p1_htf3_score_bear_src) : 0
+int p1_ltf1_min = is_conn(p1_ltf1_min_src) ? int(p1_ltf1_min_src) : 4
+int p1_ltf2_min = is_conn(p1_ltf2_min_src) ? int(p1_ltf2_min_src) : 4
+int p1_ltf3_min = is_conn(p1_ltf3_min_src) ? int(p1_ltf3_min_src) : 4
+int p1_htf1_min = is_conn(p1_htf1_min_src) ? int(p1_htf1_min_src) : 5
+int p1_htf2_min = is_conn(p1_htf2_min_src) ? int(p1_htf2_min_src) : 5
+int p1_htf3_min = is_conn(p1_htf3_min_src) ? int(p1_htf3_min_src) : 6
+int p1_master = is_conn(p1_master_src) ? int(p1_master_src) : 0
+int p1_conf_bull = is_conn(p1_conf_bull_src) ? int(p1_conf_bull_src) : 0
+int p1_conf_bear = is_conn(p1_conf_bear_src) ? int(p1_conf_bear_src) : 0
+bool p1_regime_bull = is_conn(p1_regime_bull_src) and p1_regime_bull_src == 1
+bool p1_regime_bear = is_conn(p1_regime_bear_src) and p1_regime_bear_src == 1
+float p1_adx_val = is_conn(p1_adx_val_src) ? p1_adx_val_src : na
+bool p1_zone_conf_bull = is_conn(p1_zone_conf_bull_src) and p1_zone_conf_bull_src == 1
+bool p1_zone_conf_bear = is_conn(p1_zone_conf_bear_src) and p1_zone_conf_bear_src == 1
+int p1_zone_layers_bull = is_conn(p1_zone_layers_bull_src) ? int(p1_zone_layers_bull_src) : 0
+int p1_zone_layers_bear = is_conn(p1_zone_layers_bear_src) ? int(p1_zone_layers_bear_src) : 0
+bool p1_choch_sw_bull = is_conn(p1_choch_sw_bull_src) and p1_choch_sw_bull_src == 1
+bool p1_choch_sw_bear = is_conn(p1_choch_sw_bear_src) and p1_choch_sw_bear_src == 1
+int p1_ob_touch_cnt_bull = is_conn(p1_ob_touch_cnt_bull_src) ? int(p1_ob_touch_cnt_bull_src) : 0
+int p1_ob_touch_cnt_bear = is_conn(p1_ob_touch_cnt_bear_src) ? int(p1_ob_touch_cnt_bear_src) : 0
+bool p1_ob_sd_bull = is_conn(p1_ob_sd_bull_src) and p1_ob_sd_bull_src == 1
+bool p1_ob_sd_bear = is_conn(p1_ob_sd_bear_src) and p1_ob_sd_bear_src == 1
+int bos_level_dir = is_conn(p1_bos_src) ? int(math.sign(p1_bos_src)) : 0
+float bos_level_price = is_conn(p1_bos_src) ? math.abs(p1_bos_src) : na
+int choch_level_dir = is_conn(p1_choch_lvl_src) ? int(math.sign(p1_choch_lvl_src)) : 0
+float choch_level_price = is_conn(p1_choch_lvl_src) ? math.abs(p1_choch_lvl_src) : na
+int p1_bos_touches = is_conn(p1_bos_touches_src) ? int(p1_bos_touches_src) : 0
+int p1_choch_touches = is_conn(p1_choch_touches_src) ? int(p1_choch_touches_src) : 0
+
+if not p1_connected and barstate.islast
+    label.new(bar_index, high + ta.atr(14) * 3, text="⛔ Main P1 не подключён", style=label.style_label_down, color=color.new(color.red,10), textcolor=color.white, size=size.normal)
+
+bool p1_tier_ltf1_bull = p1_connected and (p1_ltf1_sb >= p1_ltf1_min)
+bool p1_tier_ltf1_bear = p1_connected and (p1_ltf1_ss >= p1_ltf1_min)
+bool p1_tier_ltf2_bull = p1_connected and (p1_ltf2_sb >= p1_ltf2_min)
+bool p1_tier_ltf2_bear = p1_connected and (p1_ltf2_ss >= p1_ltf2_min)
+bool p1_tier_ltf3_bull = p1_connected and (p1_ltf3_sb >= p1_ltf3_min)
+bool p1_tier_ltf3_bear = p1_connected and (p1_ltf3_ss >= p1_ltf3_min)
+bool p1_tier_htf1_bull = p1_connected and (p1_htf1_sb >= p1_htf1_min)
+bool p1_tier_htf1_bear = p1_connected and (p1_htf1_ss >= p1_htf1_min)
+bool p1_tier_htf2_bull = p1_connected and (p1_htf2_sb >= p1_htf2_min)
+bool p1_tier_htf2_bear = p1_connected and (p1_htf2_ss >= p1_htf2_min)
+bool p1_tier_htf3_bull = p1_connected and (p1_htf3_sb >= p1_htf3_min)
+bool p1_tier_htf3_bear = p1_connected and (p1_htf3_ss >= p1_htf3_min)
+
+bool tier_ltf1_bull = p1_tier_ltf1_bull and p2_ltf1_osc_b
+bool tier_ltf1_bear = p1_tier_ltf1_bear and p2_ltf1_osc_s
+bool tier_ltf2_bull = p1_tier_ltf2_bull and p2_ltf2_osc_b
+bool tier_ltf2_bear = p1_tier_ltf2_bear and p2_ltf2_osc_s
+bool tier_ltf3_bull = p1_tier_ltf3_bull and p2_ltf3_osc_b
+bool tier_ltf3_bear = p1_tier_ltf3_bear and p2_ltf3_osc_s
+bool tier_htf1_bull = p1_tier_htf1_bull and p2_htf1_osc_b
+bool tier_htf1_bear = p1_tier_htf1_bear and p2_htf1_osc_s
+bool tier_htf2_bull = p1_tier_htf2_bull and p2_htf2_osc_b
+bool tier_htf2_bear = p1_tier_htf2_bear and p2_htf2_osc_s
+bool tier_htf3_bull = p1_tier_htf3_bull and p2_htf3_osc_b
+bool tier_htf3_bear = p1_tier_htf3_bear and p2_htf3_osc_s
+
+var int blt1b = 999, var int blt2b = 999, var int blt3b = 999
+var int blt1s = 999, var int blt2s = 999, var int blt3s = 999
+var int bht1b = 999, var int bht2b = 999, var int bht3b = 999
+var int bht1s = 999, var int bht2s = 999, var int bht3s = 999
+blt1b := tier_ltf1_bull ? 0 : math.min(blt1b+1, 999)
+blt2b := tier_ltf2_bull ? 0 : math.min(blt2b+1, 999)
+blt3b := tier_ltf3_bull ? 0 : math.min(blt3b+1, 999)
+blt1s := tier_ltf1_bear ? 0 : math.min(blt1s+1, 999)
+blt2s := tier_ltf2_bear ? 0 : math.min(blt2s+1, 999)
+blt3s := tier_ltf3_bear ? 0 : math.min(blt3s+1, 999)
+bht1b := tier_htf1_bull ? 0 : math.min(bht1b+1, 999)
+bht2b := tier_htf2_bull ? 0 : math.min(bht2b+1, 999)
+bht3b := tier_htf3_bull ? 0 : math.min(bht3b+1, 999)
+bht1s := tier_htf1_bear ? 0 : math.min(bht1s+1, 999)
+bht2s := tier_htf2_bear ? 0 : math.min(bht2s+1, 999)
+bht3s := tier_htf3_bear ? 0 : math.min(bht3s+1, 999)
+
+int mtf_state_raw_bull = (blt1b<=mtf_window?1:0)+(blt2b<=mtf_window?1:0)+(blt3b<=mtf_window?1:0)
+int mtf_state_raw_bear = (blt1s<=mtf_window?1:0)+(blt2s<=mtf_window?1:0)+(blt3s<=mtf_window?1:0)
+int htf_state_raw_bull = (bht1b<=htf_window?1:0)+(bht2b<=htf_window?1:0)+(bht3b<=htf_window?1:0)
+int htf_state_raw_bear = (bht1s<=htf_window?1:0)+(bht2s<=htf_window?1:0)+(bht3s<=htf_window?1:0)
+
+float atr14 = ta.atr(14)
+float atr100 = ta.atr(100)
+bool vol_ok = (atr14 / math.max(atr100, 1e-10)) > vol_th
+float chop_tr_sum = math.sum(ta.tr, chop_len)
+float chop_hi = ta.highest(high, chop_len)
+float chop_lo = ta.lowest(low, chop_len)
+float choppiness = 100 * math.log10(chop_tr_sum / math.max(chop_hi - chop_lo, 1e-10)) / math.log10(chop_len)
+[di_plus, di_minus, adx_val] = ta.dmi(adx_len, adx_len)
+bool regime_trending = adx_val > 25 and choppiness < 50
+bool regime_ranging = choppiness > 61.8 or adx_val < 20
+bool regime_compression = vol_ok == false and choppiness > 61.8
+bool local_regime_bull = adx_val > 20 and di_plus > di_minus
+bool local_regime_bear = adx_val > 20 and di_minus > di_plus
+bool final_regime_bull = p1_connected ? p1_regime_bull : local_regime_bull
+bool final_regime_bear = p1_connected ? p1_regime_bear : local_regime_bear
+float final_adx = p1_connected and not na(p1_adx_val) ? p1_adx_val : adx_val
+int adx_tier_bull = final_regime_bull ? (final_adx>=adx_tier_th3?3:final_adx>=adx_tier_th2?2:final_adx>=adx_tier_th1?1:0) : 0
+int adx_tier_bear = final_regime_bear ? (final_adx>=adx_tier_th3?3:final_adx>=adx_tier_th2?2:final_adx>=adx_tier_th1?1:0) : 0
+
+float retest_tol = atr14 * 0.15
+bool b_bos_retest_bull = p1_connected and bos_level_dir == 1 and not na(bos_level_price) and math.abs(close - bos_level_price) <= retest_tol and p1_bos_touches <= 3
+bool b_bos_retest_bear = p1_connected and bos_level_dir == -1 and not na(bos_level_price) and math.abs(close - bos_level_price) <= retest_tol and p1_bos_touches <= 3
+bool b_choch_retest_bull = p1_connected and choch_level_dir == 1 and not na(choch_level_price) and math.abs(close - choch_level_price) <= retest_tol and p1_choch_touches <= 3
+bool b_choch_retest_bear = p1_connected and choch_level_dir == -1 and not na(choch_level_price) and math.abs(close - choch_level_price) <= retest_tol and p1_choch_touches <= 3
+bool bos_level_exhausted = p1_bos_touches > 3
+bool choch_level_exhausted = p1_choch_touches > 3
+
+float hm_vol_base_sma = ta.sma(volume, 20)
+bool hm_vol_significant = p1_hm_vol > hm_vol_base_sma * 1.5
+
+[g_mac_line, g_mac_signal, g_mac_hist] = ta.macd(close, 12, 26, 9)
+float g_macdL = g_mac_line
+float g_macdH = g_mac_hist
+float g_rsi = ta.rsi(close, 14)
+float g_stc = ta.sma(ta.stoch(close, high, low, 14), 3)
+float g_cci = ta.cci(close, 10)
+float g_mom = ta.mom(close, 10)
+float g_obv = ta.obv
+float g_vwm = ta.vwma(close, 12) - ta.vwma(close, 26)
+float g_cmf = ta.sma((((close-low)-(high-close))/(high-low))*volume, 21) / ta.sma(volume, 21)
+float g_mfi = ta.mfi(close, 14)
+float chg_close = ta.change(close)
+float chg_high = ta.change(high)
+float chg_low = ta.change(low)
+float g_p_obv = ta.cum(chg_close > 0 ? volume : chg_close < 0 ? -volume : 0)
+float g_p_diosc = fixnan(100 * ta.rma(chg_high - (-chg_low), 14) / ta.rma(ta.tr, 14))
+float g_cndl_atr = ta.atr(14)
+
+float s_h1 = request.security(smt_sym1, timeframe.period, high)
+float s_l1 = request.security(smt_sym1, timeframe.period, low)
+float s_h2 = request.security(smt_sym2, timeframe.period, high)
+float s_l2 = request.security(smt_sym2, timeframe.period, low)
+float[] global_lt_v = request.security_lower_tf(syminfo.tickerid, sm_act_ltf, volume)
+float[] global_lt_c = request.security_lower_tf(syminfo.tickerid, sm_act_ltf, close)
+float[] global_lt_o = request.security_lower_tf(syminfo.tickerid, sm_act_ltf, open)
+
+f_get_ma(src, len, type) => switch type
+    "EMA" => ta.ema(src, len)
+    "WMA" => ta.wma(src, len)
+    "HMA" => ta.hma(src, len)
+    "ALMA" => ta.alma(src, len, alma_offset, alma_sigma)
+    => ta.sma(src, len)
+
+float ma_f = f_get_ma(close, ma_fast_len, ma_fast_type)
+float ma_s = f_get_ma(close, ma_slow_len, ma_slow_type)
+float ma_g = f_get_ma(close, ma_filt_len, ma_filt_type)
+bool cond_cross_bull = ma_f > ma_s
+bool cond_cross_bear = ma_f < ma_s
+bool cond_pglob_bull = close > ma_g
+bool cond_pglob_bear = close < ma_g
+bool ma_trend_bull = ma_sig_logic == "Fast > Slow" ? cond_cross_bull : ma_sig_logic == "Price > Global MA" ? cond_pglob_bull : (cond_cross_bull and cond_pglob_bull)
+bool ma_trend_bear = ma_sig_logic == "Fast > Slow" ? cond_cross_bear : ma_sig_logic == "Price > Global MA" ? cond_pglob_bear : (cond_cross_bear and cond_pglob_bear)
+int ma_trend_status = ma_trend_bull ? 1 : ma_trend_bear ? -1 : 0
+bool x_ma_bull = ta.crossover(ma_f, ma_s)
+bool x_ma_bear = ta.crossunder(ma_f, ma_s)
+
+plot(en_ma ? ma_f : na, "MA Fast", ma_fast_col, 1)
+plot(en_ma ? ma_s : na, "MA Slow", ma_slow_col, 2)
+plot(en_ma_filt ? ma_g : na, "MA Global", ma_filt_col, 2)
+plotshape(en_ma and en_ma_cross and x_ma_bull, "MA Cross Bull", shape.labelup, location.belowbar, color.new(#2196F3,30), 0, "✕", color.white, size=size.tiny)
+plotshape(en_ma and en_ma_cross and x_ma_bear, "MA Cross Bear", shape.labeldown, location.abovebar, color.new(#9C27B0,30), 0, "✕", color.white, size=size.tiny)
+
+var float swing_h = na
+var float swing_l = na
+var int auto_trend = 1
+float ph_sw = ta.pivothigh(high, sync_len, sync_len)
+float pl_sw = ta.pivotlow(low, sync_len, sync_len)
+if not na(ph_sw)
+    swing_h := ph_sw
+if not na(pl_sw)
+    swing_l := pl_sw
+bool cross_up = ta.crossover(close, swing_h)
+bool cross_down = ta.crossunder(close, swing_l)
+if not na(swing_h) and cross_up
+    auto_trend := 1
+if not na(swing_l) and cross_down
+    auto_trend := -1
+int final_trend = p1_connected ? p1_smc_trend : auto_trend
+bgcolor(en_bg_trend ? (final_trend == 1 ? bg_bull_col : bg_bear_col) : na, title="Фон тренда")
+
+var int bars_since_bos = 999
+bars_since_bos := (p1_connected and p1_bos_trig != 0) ? 0 : math.min(bars_since_bos + 1, 999)
+
+// ====================================================================================================================
+// МОДУЛЬ 2.1: KDE RSI (UserUZR)
+// ====================================================================================================================
+f_gaussian(float dist, float bw) => 1.0/math.sqrt(2.0*math.pi)*math.pow(math.e, -0.5*math.pow(dist/bw, 2.0))
+f_uniform(float dist, float bw) => (math.abs(dist) > bw) ? 0.0 : 0.5
+f_sigmoid(float dist, float bw) => 2.0/math.pi*(1.0/(math.pow(math.e, (dist/bw))+math.pow(math.e, -(dist/bw))))
+
+f_kde(array<float> arr, string kernel, float bw, int steps) =>
+    arrSize = arr.size()
+    arrRange = arr.range()
+    arrMin = arr.min()
+    stepCount = arrRange / math.max(steps, 1)
+    densityRange = array.new<float>(steps * 2)
+    for i = 0 to (steps*2)-1
+        densityRange.set(i, arrMin + i * stepCount)
+    xArr = array.new<float>()
+    yArr = array.new<float>()
+    for i = 0 to densityRange.size()-1
+        float temp = 0
+        for j = 0 to arr.size()-1
+            switch kernel
+                "Gaussian" => temp += f_gaussian(densityRange.get(i)-arr.get(j), 1.0/bw)
+                "Uniform" => temp += f_uniform(densityRange.get(i)-arr.get(j), 1.0/bw)
+                "Sigmoid" => temp += f_sigmoid(densityRange.get(i)-arr.get(j), 1.0/bw)
+        xArr.push(densityRange.get(i))
+        yArr.push(1.0/math.max(arrSize,1)*temp)
+    [xArr, yArr]
+
+f_prefixSum(array<float> arr, int l, int r) => arr.get(r) - (l == 0 ? 0 : arr.get(l-1))
+
+float kde_rsi = na
+bool osc_kde_bull = false
+bool osc_kde_bear = false
+var array<float> highPivotRSIs = array.new<float>()
+var array<float> lowPivotRSIs = array.new<float>()
+var array<float> KDEHighX = array.new<float>()
+var array<float> KDEHighY = array.new<float>()
+var array<float> KDEHighYSum = array.new<float>()
+var array<float> KDELowX = array.new<float>()
+var array<float> KDELowY = array.new<float>()
+var array<float> KDELowYSum = array.new<float>()
+var bool in_kde_bull = false
+var bool in_kde_bear = false
+
+if en_mod_kde
+    kde_rsi := ta.rsi(close, kde_rsi_len)
+    float kde_hp = ta.pivothigh(high, kde_piv_len, kde_piv_len)
+    float kde_lp = ta.pivotlow(low, kde_piv_len, kde_piv_len)
+    float lowProb = 0.0
+    float highProb = 0.0
+    if not na(kde_hp)
+        if highPivotRSIs.size() > 300
+            highPivotRSIs.remove(0)
+        highPivotRSIs.push(kde_rsi[kde_piv_len])
+        [kx, ky] = f_kde(highPivotRSIs, kde_kernel, kde_bandw, kde_steps)
+        KDEHighX := kx, KDEHighY := ky, KDEHighYSum.clear()
+        float tH = 0.0
+        for i = 0 to KDEHighY.size()-1
+            tH += KDEHighY.get(i)
+            KDEHighYSum.push(tH)
+    if not na(kde_lp)
+        if lowPivotRSIs.size() > 300
+            lowPivotRSIs.remove(0)
+        lowPivotRSIs.push(kde_rsi[kde_piv_len])
+        [lx, ly] = f_kde(lowPivotRSIs, kde_kernel, kde_bandw, kde_steps)
+        KDELowX := lx, KDELowY := ly, KDELowYSum.clear()
+        float tL = 0.0
+        for i = 0 to KDELowY.size()-1
+            tL += KDELowY.get(i)
+            KDELowYSum.push(tL)
+    if highPivotRSIs.size() > 0 and KDEHighX.size() > 0
+        int sL = array.binary_search_leftmost(KDEHighX, kde_rsi)
+        int sR = array.binary_search_rightmost(KDEHighX, kde_rsi)
+        int iL = math.max(0, math.min(sL, KDEHighX.size()-1))
+        int iR = math.max(0, math.min(sR, KDEHighX.size()-1))
+        int ni = (math.abs(kde_rsi-KDEHighX.get(iL)) < math.abs(kde_rsi-KDEHighX.get(iR))) ? iL : iR
+        highProb := f_prefixSum(KDEHighYSum, 0, ni)
+    if lowPivotRSIs.size() > 0 and KDELowX.size() > 0
+        int sL = array.binary_search_leftmost(KDELowX, kde_rsi)
+        int sR = array.binary_search_rightmost(KDELowX, kde_rsi)
+        int iL = math.max(0, math.min(sL, KDELowX.size()-1))
+        int iR = math.max(0, math.min(sR, KDELowX.size()-1))
+        int ni = (math.abs(kde_rsi-KDELowX.get(iL)) < math.abs(kde_rsi-KDELowX.get(iR))) ? iL : iR
+        lowProb := f_prefixSum(KDELowYSum, ni, KDELowYSum.size()-1)
+    float act_thresh = kde_thresh == "High" ? 0.4 : kde_thresh == "Medium" ? 0.25 : 0.15
+    bool curr_in_bull = KDELowY.size() > 0 and lowProb > array.get(KDELowYSum, KDELowYSum.size()-1) * (1.0 - act_thresh)
+    bool curr_in_bear = KDEHighY.size() > 0 and highProb > array.get(KDEHighYSum, KDEHighYSum.size()-1) * (1.0 - act_thresh)
+    osc_kde_bull := not curr_in_bull and in_kde_bull
+    osc_kde_bear := not curr_in_bear and in_kde_bear
+    in_kde_bull := curr_in_bull
+    in_kde_bear := curr_in_bear
+
+// ====================================================================================================================
+// МОДУЛЬ 2.2: STOCHASTIC Z-SCORE
+// ====================================================================================================================
+bool osc_stoch_bull = false
+bool osc_stoch_bear = false
+float smoothed_scaled = na
+if en_mod_stoch
+    float stoch_basis = ta.sma(stoch_z_src, stoch_z_len)
+    float stoch_stdev = ta.stdev(stoch_z_src, stoch_z_len)
+    float zscore = stoch_stdev == 0 ? 0.0 : (stoch_z_src - stoch_basis) / stoch_stdev
+    float highest_z = ta.highest(zscore, stoch_z_len)
+    float lowest_z = ta.lowest(zscore, stoch_z_len)
+    float range_z = highest_z - lowest_z
+    float stochZ = range_z == 0 ? 50.0 : 100.0 * (zscore - lowest_z) / range_z
+    float scaledSZ = (stochZ / 25.0) - 2.0
+    smoothed_scaled := ta.hma(scaledSZ, stoch_z_len)
+    float prev = nz(smoothed_scaled[1], 0.0)
+    float ltm = nz(ta.alma(zscore, stoch_z_len, 0.0, 0.1), 0.0)
+    osc_stoch_bull := ta.crossover(smoothed_scaled, prev) and prev < stoch_z_os and (stoch_strict ? ltm > 0 : true)
+    osc_stoch_bear := ta.crossunder(smoothed_scaled, prev) and prev > stoch_z_ob and (stoch_strict ? ltm < 0 : true)
+
+// ====================================================================================================================
+// МОДУЛЬ 2.3: ADAPTIVE MACD DELUXE
+// ====================================================================================================================
+bool osc_macd_dlx_bull = false
+bool osc_macd_dlx_bear = false
+float dlx_macSeries = na
+var float mac_dlx = 0.0
+if en_mod_dlx
+    float dlx_r = ta.correlation(close, bar_index, macd_dlx_r2)
+    float dlx_detWgt = 0.5 + 0.5 * nz(math.pow(dlx_r, 2), 0.0)
+    float dlx_fastK = 2.0 / (macd_dlx_fast + 1)
+    float dlx_slowK = 2.0 / (macd_dlx_slow + 1)
+    float dlx_blend = dlx_detWgt * (1-dlx_fastK) * (1-dlx_slowK) + (1-dlx_detWgt) * (1-dlx_fastK) / (1-dlx_slowK)
+    mac_dlx := (close - nz(close[1], close)) * (dlx_fastK - dlx_slowK) + (2-dlx_fastK-dlx_slowK) * nz(mac_dlx[1], 0.0) - dlx_blend * nz(mac_dlx[2], 0.0)
+    float dlx_hl_ema = ta.ema(high - low, macd_dlx_slow)
+    dlx_macSeries := dlx_hl_ema == 0 ? 0.0 : (mac_dlx / dlx_hl_ema * 100.0)
+    osc_macd_dlx_bull := ta.crossover(dlx_macSeries, macd_dlx_os)
+    osc_macd_dlx_bear := ta.crossunder(dlx_macSeries, macd_dlx_ob)
+
+// ====================================================================================================================
+// МОДУЛЬ 2.4: ADVANCED CCI
+// ====================================================================================================================
+bool osc_cci_bull = false
+bool osc_cci_bear = false
+var float st_TrendUp = na
+var float st_TrendDown = na
+var int st_Trend = 1
+if en_mod_cci
+    float st_cci_val = ta.cci(close, cci_st_len)
+    float st_Up = hl2 - (cci_st_factor * ta.atr(cci_st_pd))
+    float st_Dn = hl2 + (cci_st_factor * ta.atr(cci_st_pd))
+    st_TrendUp := nz(st_cci_val[1]) > 0 ? math.max(st_Up, nz(st_TrendUp, st_Up)) : st_Up
+    st_TrendDown := nz(st_cci_val[1]) < 0 ? math.min(st_Dn, nz(st_TrendDown, st_Dn)) : st_Dn
+    st_Trend := st_cci_val > 0 ? 1 : st_cci_val < 0 ? -1 : nz(st_Trend[1], 1)
+    float st_tsl = st_Trend == 1 ? st_TrendUp : st_TrendDown
+    float l3_typ = (high + low + close) / 3.0
+    float l3_dev = ta.dev(l3_typ, cci_l3_len)
+    float l3_cci_val = (l3_typ - ta.sma(l3_typ, cci_l3_len)) / (0.015 * math.max(l3_dev, 1e-10))
+    float l3_ci_val = ta.ema(l3_cci_val, cci_l3_ci)
+    osc_cci_bull := ta.crossover(close, st_tsl) or (ta.crossover(l3_cci_val, l3_ci_val) and l3_cci_val < 0)
+    osc_cci_bear := ta.crossunder(close, st_tsl) or (ta.crossunder(l3_cci_val, l3_ci_val) and l3_cci_val > 0)
+
+// ====================================================================================================================
+// МОДУЛЬ 2.5: SMART MONEY ACTIVITY + CVD
+// ====================================================================================================================
+bool sm_act_bull = false
+bool sm_act_bear = false
+var array<float> sm_vols = array.new<float>()
+var float cvd = 0.0
+var array<float> cvd_hist_arr = array.new<float>()
+bool cvd_bull_div = false
+bool cvd_bear_div = false
+bool sm_absorption = false
+if en_mod_smact
+    float[] lt_v = global_lt_v
+    float[] lt_c = global_lt_c
+    float[] lt_o = global_lt_o
+    int res_size = array.size(lt_v)
+    int sm_maximum = sm_act_zlen * math.max(1, res_size)
+    if res_size > 0
+        float bar_cvd = 0.0, float max_bull_vol = 0.0, float max_bear_vol = 0.0
+        for i = 0 to res_size-1
+            float v = array.get(lt_v, i)
+            float c = array.get(lt_c, i)
+            float o = array.get(lt_o, i)
+            if c > o
+                bar_cvd += v, max_bull_vol := math.max(max_bull_vol, v)
+            else if c < o
+                bar_cvd -= v, max_bear_vol := math.max(max_bear_vol, v)
+        array.unshift(cvd_hist_arr, bar_cvd)
+        if array.size(cvd_hist_arr) > 50
+            array.pop(cvd_hist_arr)
+        cvd := array.sum(cvd_hist_arr)
+        if max_bull_vol > (ta.sma(volume, 50) * 0.5) and max_bear_vol > (ta.sma(volume, 50) * 0.5)
+            sm_absorption := true
+        cvd_bull_div := close < ta.sma(close, 10) and cvd > ta.sma(cvd, 10)
+        cvd_bear_div := close > ta.sma(close, 10) and cvd < ta.sma(cvd, 10)
+        for i = res_size-1 to 0
+            array.unshift(sm_vols, array.get(lt_v, i))
+        while array.size(sm_vols) > sm_maximum
+            array.pop(sm_vols)
+        float volsAvg = array.avg(sm_vols), float volsStdev = array.stdev(sm_vols)
+        if volsStdev > 0
+            float max_z = 0.0, int max_idx = -1
+            for i = 0 to res_size-1
+                float az = (array.get(lt_v, i) - volsAvg) / volsStdev
+                if az > max_z
+                    max_z := az, max_idx := i
+            if max_z > sm_act_th and max_idx != -1
+                float ic = array.get(lt_c, max_idx)
+                float io = array.get(lt_o, max_idx)
+                bool isBull = ic > io
+                float bMin = math.min(open, close), float bMax = math.max(open, close)
+                bool cls2 = math.abs(ic - close) < syminfo.mintick or (ic > bMin and ic < bMax)
+                bool cls1 = (ic >= bMin*0.995 and ic <= bMax*1.005) and not cls2
+                if cls2
+                    if isBull
+                        sm_act_bull := true
+                    else
+                        sm_act_bear := true
+                else if cls1 and max_z > sm_act_th*1.3
+                    if isBull
+                        sm_act_bull := true
+                    else
+                        sm_act_bear := true
+
+var int bars_since_sm_act_bull_N3 = 999
+var int bars_since_sm_act_bear_N3 = 999
+bars_since_sm_act_bull_N3 := sm_act_bull ? 0 : math.min(bars_since_sm_act_bull_N3+1, 999)
+bars_since_sm_act_bear_N3 := sm_act_bear ? 0 : math.min(bars_since_sm_act_bear_N3+1, 999)
+
+// ====================================================================================================================
+// МОДУЛЬ 2.6: SMART MONEY INDEX
+// ====================================================================================================================
+bool sm_idx_bull = false
+bool sm_idx_bear = false
+float sm_net_index = na
+if en_mod_smidx
+    float safe_pvi = nz(ta.pvi, 1.0), float safe_nvi = nz(ta.nvi, 1.0)
+    float sm_drsi = ta.rsi(safe_pvi - ta.ema(safe_pvi, 255), sm_idx_rr)
+    float sm_srsi = ta.rsi(safe_nvi - ta.ema(safe_nvi, 255), sm_idx_rr)
+    float dr_safe = sm_drsi == 0 ? 1e-10 : sm_drsi
+    float di_safe = (100.0-sm_drsi) == 0 ? 1e-10 : (100.0-sm_drsi)
+    float sb = math.sum(sm_srsi/dr_safe, sm_idx_x)
+    float ss = math.sum((100.0-sm_srsi)/di_safe, sm_idx_x)
+    float pk = ta.highest(math.max(sb, ss), sm_idx_peak)
+    float pks = pk == 0 ? 1e-10 : pk
+    sm_net_index := (sb/pks) - (ss/pks)
+    if sm_idx_strict
+        sm_idx_bull := ta.crossover(sm_net_index, sm_idx_thr)
+        sm_idx_bear := ta.crossunder(sm_net_index, -sm_idx_thr)
+    else
+        sm_idx_bull := sm_net_index > sm_idx_thr and sm_net_index > nz(sm_net_index[1])
+        sm_idx_bear := sm_net_index < -sm_idx_thr and sm_net_index < nz(sm_net_index[1])
+
+// ====================================================================================================================
+// МОДУЛЬ 2.7: SMART MONEY INTEREST
+// ====================================================================================================================
+bool sm_int_bull = false
+bool sm_int_bear = false
+if en_mod_smint
+    float d = ta.pvi - ta.ema(ta.pvi, 255)
+    float s = ta.nvi - ta.ema(ta.nvi, 255)
+    float dr = ta.rsi(d, sm_int_rr), float sr = ta.rsi(s, sm_int_rr)
+    float dr_s = dr == 0 ? 1e-10 : dr, float sr_s = sr == 0 ? 1e-10 : sr
+    float sumb = math.sum(sr/dr_s, sm_int_x)
+    float sums = math.sum(dr/sr_s, sm_int_x)
+    float pkb = ta.highest(sumb, sm_int_peak)
+    float pks_ = ta.highest(sums, sm_int_peak)
+    sm_int_bull := sumb/(pkb==0?1e-10:pkb) > sm_int_thr
+    sm_int_bear := sums/(pks_==0?1e-10:pks_) > sm_int_thr
+
+bool sm_all3_bull = en_mod_smact and en_mod_smidx and en_mod_smint and sm_act_bull and sm_idx_bull and sm_int_bull
+bool sm_all3_bear = en_mod_smact and en_mod_smidx and en_mod_smint and sm_act_bear and sm_idx_bear and sm_int_bear
+
+// ====================================================================================================================
+// МОДУЛЬ 2.8: MULTI-INDICATOR DIVERGENCE (Engine A, UserUZR)
+// ====================================================================================================================
+bool osc_mdiv_bull = false
+bool osc_mdiv_bear = false
+int total_mdiv_bull = 0
+int total_mdiv_bear = 0
+var int[] mdiv_ph_pos = array.new<int>(10, 0)
+var int[] mdiv_pl_pos = array.new<int>(10, 0)
+var float[] mdiv_ph_val = array.new<float>(10, 0.0)
+var float[] mdiv_pl_val = array.new<float>(10, 0.0)
+bool chk_reg = mdiv_type == "Regular" or mdiv_type == "Regular/Hidden"
+bool chk_hid = mdiv_type == "Hidden" or mdiv_type == "Regular/Hidden"
+
+f_check_pos_div(series float src, int cond_type) =>
+    int div_found = 0
+    if src > src[1] or close > close[1]
+        for x = 0 to 9
+            int len = bar_index - array.get(mdiv_pl_pos, x) + mdiv_prd
+            if array.get(mdiv_pl_pos, x) == 0 or len > mdiv_maxb
+                break
+            if len > 5
+                bool c1 = (cond_type == 1 and src[1] > src[len] and close[1] < array.get(mdiv_pl_val, x))
+                bool c2 = (cond_type == 2 and src[1] < src[len] and close[1] > array.get(mdiv_pl_val, x))
+                if c1 or c2
+                    float s1 = (src[1]-src[len])/(len-1), float v1 = src[1]-s1
+                    float s2 = (close[1]-close[len])/(len-1), float v2 = close[1]-s2
+                    bool ok = true
+                    for y = 2 to len-1
+                        if src[y] < v1 or close[y] < v2
+                            ok := false, break
+                        v1 -= s1, v2 -= s2
+                    if ok
+                        div_found := 1, break
+    div_found
+
+f_check_neg_div(series float src, int cond_type) =>
+    int div_found = 0
+    if src < src[1] or close < close[1]
+        for x = 0 to 9
+            int len = bar_index - array.get(mdiv_ph_pos, x) + mdiv_prd
+            if array.get(mdiv_ph_pos, x) == 0 or len > mdiv_maxb
+                break
+            if len > 5
+                bool c1 = (cond_type == 1 and src[1] < src[len] and close[1] > array.get(mdiv_ph_val, x))
+                bool c2 = (cond_type == 2 and src[1] > src[len] and close[1] < array.get(mdiv_ph_val, x))
+                if c1 or c2
+                    float s1 = (src[1]-src[len])/(len-1), float v1 = src[1]-s1
+                    float s2 = (close[1]-close[len])/(len-1), float v2 = close[1]-s2
+                    bool ok = true
+                    for y = 2 to len-1
+                        if src[y] > v1 or close[y] > v2
+                            ok := false, break
+                        v1 -= s1, v2 -= s2
+                    if ok
+                        div_found := 1, break
+    div_found
+
+f_add_div(series float src, bool en) =>
+    int b = 0, int br = 0
+    if en
+        if chk_reg
+            b += f_check_pos_div(src, 1)
+            br += f_check_neg_div(src, 1)
+        if chk_hid
+            b += f_check_pos_div(src, 2)
+            br += f_check_neg_div(src, 2)
+    [b, br]
+
+if en_mod_mdiv
+    float mdiv_ph = ta.pivothigh(close, mdiv_prd, mdiv_prd)
+    float mdiv_pl = ta.pivotlow(close, mdiv_prd, mdiv_prd)
+    if not na(mdiv_ph)
+        array.unshift(mdiv_ph_pos, bar_index), array.unshift(mdiv_ph_val, mdiv_ph)
+        array.pop(mdiv_ph_pos), array.pop(mdiv_ph_val)
+    if not na(mdiv_pl)
+        array.unshift(mdiv_pl_pos, bar_index), array.unshift(mdiv_pl_val, mdiv_pl)
+        array.pop(mdiv_pl_pos), array.pop(mdiv_pl_val)
+    [b1,br1] = f_add_div(g_rsi, true), [b2,br2] = f_add_div(g_macdL, true)
+    [b3,br3] = f_add_div(g_macdH, true), [b4,br4] = f_add_div(g_stc, true)
+    [b5,br5] = f_add_div(g_cci, true), [b6,br6] = f_add_div(g_mom, true)
+    [b7,br7] = f_add_div(g_obv, true), [b8,br8] = f_add_div(g_vwm, true)
+    [b9,br9] = f_add_div(g_cmf, true), [b10,br10] = f_add_div(g_mfi, true)
+    total_mdiv_bull := b1+b2+b3+b4+b5+b6+b7+b8+b9+b10
+    total_mdiv_bear := br1+br2+br3+br4+br5+br6+br7+br8+br9+br10
+    osc_mdiv_bull := total_mdiv_bull >= mdiv_limit
+    osc_mdiv_bear := total_mdiv_bear >= mdiv_limit
+
+bool osc_mdiv_multi_bull = osc_mdiv_bull and total_mdiv_bull >= 3
+bool osc_mdiv_multi_bear = osc_mdiv_bear and total_mdiv_bear >= 3
+
+// ====================================================================================================================
+// МОДУЛЬ 2.9: НЕРЕПЕЙНТ ДИВЕРГЕНЦИЯ (Engine B, UserUZR)
+// ====================================================================================================================
+bool osc_peter_bull = false
+bool osc_peter_bear = false
+
+f_div_engine_b(series float _osc, int _lbL, int _lbR, int _rL, int _rU) =>
+    bool pl = not na(ta.pivotlow(_osc, _lbL, _lbR))
+    bool ph = not na(ta.pivothigh(_osc, _lbL, _lbR))
+    float opl = ta.valuewhen(pl, _osc[_lbR], 1), float cpl = ta.valuewhen(pl, low[_lbR], 1)
+    float oph = ta.valuewhen(ph, _osc[_lbR], 1), float cph = ta.valuewhen(ph, high[_lbR], 1)
+    int ls = ta.barssince(pl[1]), int hs = ta.barssince(ph[1])
+    bool lr = ls >= _rL and ls <= _rU, bool hr = hs >= _rL and hs <= _rU
+    int breg = (low[_lbR] < cpl and _osc[_lbR] > opl and lr and pl) ? 1 : 0
+    int bhid = (low[_lbR] > cpl and _osc[_lbR] < opl and lr and pl) ? 1 : 0
+    int sreg = (high[_lbR] > cph and _osc[_lbR] < oph and hr and ph) ? 1 : 0
+    int shid = (high[_lbR] < cph and _osc[_lbR] > oph and hr and ph) ? 1 : 0
+    [breg+bhid, sreg+shid]
+
+if en_mod_peter
+    int pt_b = 0, int pt_s = 0
+    [b1,s1] = f_div_engine_b(g_rsi, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b+=b1, pt_s+=s1
+    [b2,s2] = f_div_engine_b(g_macdL, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b+=b2, pt_s+=s2
+    [b3,s3] = f_div_engine_b(g_macdH, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b+=b3, pt_s+=s3
+    [b4,s4] = f_div_engine_b(g_mom, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b+=b4, pt_s+=s4
+    [b5,s5] = f_div_engine_b(g_cci, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b+=b5, pt_s+=s5
+    [b6,s6] = f_div_engine_b(g_p_obv, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b+=b6, pt_s+=s6
+    [b7,s7] = f_div_engine_b(g_stc, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b+=b7, pt_s+=s7
+    [b8,s8] = f_div_engine_b(g_p_diosc, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b+=b8, pt_s+=s8
+    [b9,s9] = f_div_engine_b(g_vwm, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b+=b9, pt_s+=s9
+    [b10,s10] = f_div_engine_b(g_cmf, peter_lbL, peter_lbR, peter_rngL, peter_rngU), pt_b+=b10, pt_s+=s10
+    osc_peter_bull := pt_b >= peter_limit
+    osc_peter_bear := pt_s >= peter_limit
+
+// ====================================================================================================================
+// МОДУЛЬ 3.0: ФРАКТАЛЬНАЯ ДИВЕРГЕНЦИЯ (Engine C, UserUZR)
+// ====================================================================================================================
+bool osc_tfdiv_bull = false
+bool osc_tfdiv_bear = false
+float tf_aoH = ta.sma(hl2, 5) - ta.sma(hl2, 34)
+float tf_rsiH = ta.rsi(close, 14) - 50
+float tf_hist = tfdiv_type == "MACD" ? g_macdH : tfdiv_type == "AO" ? tf_aoH : tf_rsiH
+float tf_ema = ta.ema(close, 50)
+bool tf_up_frac = not na(ta.pivothigh(tfdiv_n, tfdiv_n)) and close[tfdiv_n] > tf_ema
+bool tf_dn_frac = not na(ta.pivotlow(tfdiv_n, tfdiv_n)) and close[tfdiv_n] < tf_ema
+float t_h_lp = ta.valuewhen(tf_up_frac, high[tfdiv_n], 0)
+float t_h_pp = ta.valuewhen(tf_up_frac, high[tfdiv_n], 1)
+float t_h_lh = ta.valuewhen(tf_up_frac, tf_hist[tfdiv_n], 0)
+float t_h_ph = ta.valuewhen(tf_up_frac, tf_hist[tfdiv_n], 1)
+int t_h_lb = ta.valuewhen(tf_up_frac, bar_index[tfdiv_n], 0)
+int t_h_pb = ta.valuewhen(tf_up_frac, bar_index[tfdiv_n], 1)
+float t_l_lp = ta.valuewhen(tf_dn_frac, low[tfdiv_n], 0)
+float t_l_pp = ta.valuewhen(tf_dn_frac, low[tfdiv_n], 1)
+float t_l_lh = ta.valuewhen(tf_dn_frac, tf_hist[tfdiv_n], 0)
+float t_l_ph = ta.valuewhen(tf_dn_frac, tf_hist[tfdiv_n], 1)
+int t_l_lb = ta.valuewhen(tf_dn_frac, bar_index[tfdiv_n], 0)
+int t_l_pb = ta.valuewhen(tf_dn_frac, bar_index[tfdiv_n], 1)
+if en_mod_tfdiv
+    bool bc = t_h_lh > 0 and t_h_ph > 0 and (t_h_lb+30 > bar_index) and (t_h_lb-t_h_pb < 30)
+    osc_tfdiv_bear := ta.change(t_h_lp) != 0 and bc and t_h_lp > t_h_pp and t_h_lh < t_h_ph
+    bool bc2 = t_l_lh < 0 and t_l_ph < 0 and (t_l_lb+30 > bar_index) and (t_l_lb-t_l_pb < 30)
+    osc_tfdiv_bull := ta.change(t_l_lp) != 0 and bc2 and t_l_lp < t_l_pp and t_l_lh > t_l_ph
+
+// ====================================================================================================================
+// МОДУЛЬ 3.1: SMT DIVERGENCES
+// ====================================================================================================================
+bool osc_smt_bull = false
+bool osc_smt_bear = false
+
+f_get_smt_div(bool is_ph, float y2, float sym_y2) =>
+    var float y1 = na, var float sy1 = na, var int cnt = 0, var int ldb = 0
+    if bar_index - ldb > 50
+        cnt := 0
+    if y2 != y2[1] and sym_y2 != sym_y2[1]
+        if not na(y1) and not na(sy1) and (y2-y1)*(sym_y2-sy1) < 0
+            cnt += 1, ldb := bar_index
+        sy1 := sym_y2, y1 := y2
+    else if (is_ph and y2 > y2[1]) or (not is_ph and y2 < y2[1])
+        sy1 := na, y1 := y2
+    cnt
+
+if en_mod_smt
+    float smt_ph = fixnan(ta.pivothigh(smt_len, smt_len))
+    float smt_pl = fixnan(ta.pivotlow(smt_len, smt_len))
+    float sph1 = fixnan(ta.pivothigh(s_h1, smt_len, smt_len))
+    float spl1 = fixnan(ta.pivotlow(s_l1, smt_len, smt_len))
+    float sph2 = fixnan(ta.pivothigh(s_h2, smt_len, smt_len))
+    float spl2 = fixnan(ta.pivotlow(s_l2, smt_len, smt_len))
+    int ph1 = f_get_smt_div(true, smt_ph, sph1), int pl1 = f_get_smt_div(false, smt_pl, spl1)
+    int ph2 = f_get_smt_div(true, smt_ph, sph2), int pl2 = f_get_smt_div(false, smt_pl, spl2)
+    if smt_ph != nz(smt_ph[1]) and ((smt_use1 and ph1 > nz(ph1[1])) or (smt_use2 and ph2 > nz(ph2[1])))
+        osc_smt_bear := true
+    if smt_pl != nz(smt_pl[1]) and ((smt_use1 and pl1 > nz(pl1[1])) or (smt_use2 and pl2 > nz(pl2[1])))
+        osc_smt_bull := true
+
+// ====================================================================================================================
+// МОДУЛЬ 3.2: СВЕЧНОЙ ДВИЖОК (UserUZR) — LIVE (каждый тик) + SIGNAL (заморозка на баре сигнала)
+// ====================================================================================================================
+float c_upper = ta.highest(cndl_minor_len)
+float c_lower = ta.lowest(cndl_minor_len)
+var int minor_dir = 0
+if high == c_upper and minor_dir != 1
+    minor_dir := 1
+if low == c_lower and minor_dir != -1
+    minor_dir := -1
+
+bool rc = close < open
+bool gc = close > open
+float cand_top = math.max(open, close), float cand_bot = math.min(open, close)
+float hl_width = high - low, float bod_width = cand_top - cand_bot
+float hw_per = hl_width == 0 ? 0 : ((high - cand_top) / hl_width) * 100
+float lw_per = hl_width == 0 ? 0 : ((cand_bot - low) / hl_width) * 100
+float b_per = hl_width == 0 ? 0 : (bod_width / hl_width) * 100
+bool is_doji = math.round_to_mintick(close) == math.round_to_mintick(open)
+bool is_minor_bear = minor_dir < 0
+bool is_minor_bull = minor_dir > 0
+
+bool p_hammer = lw_per>(b_per*1.5) and b_per<60 and hw_per<8 and not is_doji and is_minor_bear
+bool p_ihammer = hw_per>(b_per*1.5) and b_per<60 and lw_per<8 and not is_doji and is_minor_bear
+bool p_rising_3 = gc[4] and b_per[4]>40 and rc[3] and cand_top[3]<=high[4] and cand_bot[3]>=low[4] and rc[2] and cand_top[2]<=high[4] and cand_bot[2]>=low[4] and rc[1] and cand_top[1]<=high[4] and cand_bot[1]>=low[4] and gc and close>high[4] and b_per>40 and is_minor_bull[4]
+bool p_bull_eng = rc[1] and gc and bod_width>(bod_width[1]*0.4) and open<close[1] and cand_top>cand_top[1] and not p_rising_3 and not is_doji[1] and is_minor_bear
+bool p_3ws = gc[2] and b_per[2]>55 and gc[1] and b_per[1]>55 and cand_bot[1]>=cand_bot[2] and cand_bot[1]<=cand_top[2] and close[1]>high[2] and gc and b_per>55 and cand_bot>=cand_bot[1] and cand_bot<=cand_top[1] and close>high[1] and is_minor_bear[2]
+bool p_mstar = rc[2] and b_per[2]>65 and rc[1] and bod_width[1]<(bod_width[2]*0.6) and open[1]<close[2] and gc and close>hl2[2] and is_minor_bear[2]
+bool p_bull_har = gc and high<=cand_top[1] and low>=cand_bot[1] and rc[1] and is_minor_bear[1]
+bool p_tw_bot = math.abs(low-low[1])<=syminfo.mintick*3 and gc and rc[1] and is_minor_bear[1]
+bool p_sstar = hw_per>(b_per*1.5) and b_per<60 and lw_per<8 and not is_doji and is_minor_bull
+bool p_hman = lw_per>(b_per*1.5) and b_per<60 and hw_per<8 and not is_doji and is_minor_bull
+bool p_falling_3 = rc[4] and b_per[4]>40 and gc[3] and cand_top[3]<=high[4] and cand_bot[3]>=low[4] and gc[2] and cand_top[2]<=high[4] and cand_bot[2]>=low[4] and gc[1] and cand_top[1]<=high[4] and cand_bot[1]>=low[4] and rc and close<low[4] and b_per>40 and is_minor_bear[4]
+bool p_bear_eng = gc[1] and rc and bod_width>(bod_width[1]*0.4) and open>close[1] and cand_bot<cand_bot[1] and not p_falling_3 and not is_doji[1] and is_minor_bull
+bool p_3bc = rc[2] and b_per[2]>55 and rc[1] and b_per[1]>55 and cand_top[1]<=cand_top[2] and cand_top[1]>=cand_bot[2] and close[1]<low[2] and rc and b_per>55 and cand_top<=cand_top[1] and cand_top>=cand_bot[1] and close<low[1] and is_minor_bull[2]
+bool p_estar = gc[2] and b_per[2]>65 and gc[1] and bod_width[1]<(bod_width[2]*0.6) and open[1]>close[2] and rc and close<hl2[2] and is_minor_bull[2]
+bool p_bear_har = rc and high<=cand_top[1] and low>=cand_bot[1] and gc[1] and is_minor_bull[1]
+bool p_tw_top = math.abs(high-high[1])<=syminfo.mintick*3 and rc and gc[1] and is_minor_bull[1]
+bool p_marub_bull = gc and b_per > 95 and is_minor_bear
+bool p_marub_bear = rc and b_per > 95 and is_minor_bull
+bool p_piercing = rc[1] and b_per[1]>50 and gc and open<low[1] and close>(cand_top[1]+cand_bot[1])/2 and close<cand_top[1] and is_minor_bear[1]
+bool p_darkcloud = gc[1] and b_per[1]>50 and rc and open>high[1] and close<(cand_top[1]+cand_bot[1])/2 and close>cand_bot[1] and is_minor_bull[1]
+bool p_outside_bull = high>high[1] and low<low[1] and gc and is_minor_bear
+bool p_outside_bear = high>high[1] and low<low[1] and rc and is_minor_bull
+bool p_belthold_bull = gc and math.abs(open-low)<=syminfo.mintick*2 and b_per>70 and is_minor_bear
+bool p_belthold_bear = rc and math.abs(open-high)<=syminfo.mintick*2 and b_per>70 and is_minor_bull
+bool p_3in_up = p_bull_har[1] and gc and close>cand_top[2] and is_minor_bear[2]
+bool p_3in_dn = p_bear_har[1] and rc and close<cand_bot[2] and is_minor_bull[2]
+bool p_spinning = b_per<35 and hw_per>20 and lw_per>20 and not is_doji
+bool p_dragonfly = is_doji and lw_per>60 and hw_per<8
+bool p_gravestone = is_doji and hw_per>60 and lw_per<8
+bool p_longleg = is_doji and hw_per>25 and lw_per>25
+bool p_highwave = b_per<25 and hw_per>30 and lw_per>30 and not is_doji
+bool p_hikkake = ((high<=high[1] and low>=low[1]) and ((close>close[1] and close>open) or (close<close[1] and close<open)))
+
+f_cndl_scan() =>
+    bool bull = false
+    bool bear = false
+    bool neutral = false
+    string bull_name = ""
+    string bear_name = ""
+    string neut_name = ""
+    if en_mod_cndl
+        if en_marub_bull and p_marub_bull
+            bull := true, bull_name := "Маруботсу Бычий"
+        else if en_belthold_bull and p_belthold_bull
+            bull := true, bull_name := "Бычий Бэлт-Холд"
+        else if en_piercing and p_piercing
+            bull := true, bull_name := "Просвет в Облаках"
+        else if en_3in_up and p_3in_up
+            bull := true, bull_name := "Три Внутри Вверх"
+        else if en_outside_bull and p_outside_bull
+            bull := true, bull_name := "Бычий Внешний Бар"
+        else if en_hammer and p_hammer
+            bull := true, bull_name := "Молот"
+        else if en_ihammer and p_ihammer
+            bull := true, bull_name := "Перевёрнутый Молот"
+        else if en_bull_eng and p_bull_eng
+            bull := true, bull_name := "Бычье Поглощение"
+        else if en_r3 and p_rising_3
+            bull := true, bull_name := "Метод 3 Поднимающихся"
+        else if en_3ws and p_3ws
+            bull := true, bull_name := "3 Белых Солдата"
+        else if en_mstar and p_mstar
+            bull := true, bull_name := "Утренняя Звезда"
+        else if en_bull_har and p_bull_har
+            bull := true, bull_name := "Бычье Харами"
+        else if en_tw_bot and p_tw_bot
+            bull := true, bull_name := "Пинцет Дно"
+        else if en_dragonfly and p_dragonfly
+            bull := true, bull_name := "Dragonfly Doji"
+        if en_marub_bear and p_marub_bear
+            bear := true, bear_name := "Маруботсу Медвежий"
+        else if en_belthold_bear and p_belthold_bear
+            bear := true, bear_name := "Медвежий Бэлт-Холд"
+        else if en_darkcloud and p_darkcloud
+            bear := true, bear_name := "Тёмное Облако"
+        else if en_3in_dn and p_3in_dn
+            bear := true, bear_name := "Три Внутри Вниз"
+        else if en_outside_bear and p_outside_bear
+            bear := true, bear_name := "Медвежий Внешний Бар"
+        else if en_sstar and p_sstar
+            bear := true, bear_name := "Падающая Звезда"
+        else if en_hman and p_hman
+            bear := true, bear_name := "Повешенный"
+        else if en_bear_eng and p_bear_eng
+            bear := true, bear_name := "Медвежье Поглощение"
+        else if en_f3 and p_falling_3
+            bear := true, bear_name := "Метод 3 Падающих"
+        else if en_3bc and p_3bc
+            bear := true, bear_name := "3 Чёрные Вороны"
+        else if en_estar and p_estar
+            bear := true, bear_name := "Вечерняя Звезда"
+        else if en_bear_har and p_bear_har
+            bear := true, bear_name := "Медвежье Харами"
+        else if en_tw_top and p_tw_top
+            bear := true, bear_name := "Пинцет Вершина"
+        else if en_gravestone and p_gravestone
+            bear := true, bear_name := "Gravestone Doji"
+        if not bull and not bear
+            if en_doji and is_doji
+                neutral := true, neut_name := "Доджи"
+            else if en_longleg and p_longleg
+                neutral := true, neut_name := "Long-Legged Doji"
+            else if en_spinning and p_spinning
+                neutral := true, neut_name := "Волчок"
+            else if en_highwave and p_highwave
+                neutral := true, neut_name := "High Wave"
+            else if en_hikkake and p_hikkake
+                neutral := true, neut_name := "Hikkake"
+    [bull, bear, neutral, bull_name, bear_name, neut_name]
+
+[cndl_bull, cndl_bear, is_neutral, cndl_bull_name, cndl_bear_name, cndl_neut_name] = f_cndl_scan()
+string cndl_name_live = cndl_bull ? cndl_bull_name : cndl_bear ? cndl_bear_name : is_neutral ? cndl_neut_name : "—"
+
+plotshape(en_mod_cndl and cndl_show_lbl and cndl_bull, "Бычий паттерн", shape.triangleup, location.belowbar, cndl_bull_col, text="", size=size.tiny)
+plotshape(en_mod_cndl and cndl_show_lbl and cndl_bear, "Медвежий паттерн", shape.triangledown, location.abovebar, cndl_bear_col, text="", size=size.tiny)
+plotshape(en_mod_cndl and cndl_show_lbl and is_neutral, "Нейтральный", shape.xcross, location.abovebar, cndl_neut_col, text="", size=size.tiny)
+if en_mod_cndl and cndl_show_lbl and barstate.isconfirmed
+    if cndl_bull
+        label.new(bar_index, low - g_cndl_atr*0.2, text=cndl_bull_name, style=label.style_label_up, color=color.new(color.white,100), textcolor=cndl_bull_col, size=get_size(cndl_lbl_size))
+    if cndl_bear
+        label.new(bar_index, high + g_cndl_atr*0.2, text=cndl_bear_name, style=label.style_label_down, color=color.new(color.white,100), textcolor=cndl_bear_col, size=get_size(cndl_lbl_size))
+    if is_neutral
+        label.new(bar_index, high + g_cndl_atr*0.2, text=cndl_neut_name, style=label.style_label_down, color=color.new(color.white,100), textcolor=cndl_neut_col, size=get_size(cndl_lbl_size))
+barcolor(en_mod_cndl and cndl_bar_col ? (cndl_bull ? cndl_bull_col : cndl_bear ? cndl_bear_col : is_neutral ? cndl_neut_col : na) : na)
+
+// ====================================================================================================================
+// ТАЙМЕРЫ СОБЫТИЙ P1
+// ====================================================================================================================
+var int bars_since_choch_bull = 999
+var int bars_since_choch_bear = 999
+var int bars_since_hm_bull = 999
+var int bars_since_hm_bear = 999
+var int bars_since_sweep_bull = 999
+var int bars_since_sweep_bear = 999
+var int bars_since_sdinv_bull = 999
+var int bars_since_sdinv_bear = 999
+var int bars_since_ob_touch_bull = 999
+var int bars_since_ob_touch_bear = 999
+var int bars_since_disp_bull = 999
+var int bars_since_disp_bear = 999
+var int bars_since_zone_conf_bull = 999
+var int bars_since_zone_conf_bear = 999
+var int bars_since_choch_sw_bull = 999
+var int bars_since_choch_sw_bear = 999
+
+bars_since_choch_bull := (p1_connected and p1_choch_src == 1) ? 0 : math.min(bars_since_choch_bull+1, 999)
+bars_since_choch_bear := (p1_connected and p1_choch_src == -1) ? 0 : math.min(bars_since_choch_bear+1, 999)
+bars_since_hm_bull := (p1_connected and p1_hm_src == 1) ? 0 : math.min(bars_since_hm_bull+1, 999)
+bars_since_hm_bear := (p1_connected and p1_hm_src == -1) ? 0 : math.min(bars_since_hm_bear+1, 999)
+bars_since_sweep_bull := (p1_connected and p1_sweep_src == 1) ? 0 : math.min(bars_since_sweep_bull+1, 999)
+bars_since_sweep_bear := (p1_connected and p1_sweep_src == -1) ? 0 : math.min(bars_since_sweep_bear+1, 999)
+bars_since_sdinv_bull := (p1_connected and p1_sdinv_src == 1) ? 0 : math.min(bars_since_sdinv_bull+1, 999)
+bars_since_sdinv_bear := (p1_connected and p1_sdinv_src == -1) ? 0 : math.min(bars_since_sdinv_bear+1, 999)
+bars_since_ob_touch_bull := (p1_connected and p1_ob_touch_src == 1) ? 0 : math.min(bars_since_ob_touch_bull+1, 999)
+bars_since_ob_touch_bear := (p1_connected and p1_ob_touch_src == -1) ? 0 : math.min(bars_since_ob_touch_bear+1, 999)
+bars_since_disp_bull := (p1_connected and p1_disp_src == 1) ? 0 : math.min(bars_since_disp_bull+1, 999)
+bars_since_disp_bear := (p1_connected and p1_disp_src == -1) ? 0 : math.min(bars_since_disp_bear+1, 999)
+bars_since_zone_conf_bull := (p1_connected and p1_zone_conf_bull_src == 1) ? 0 : math.min(bars_since_zone_conf_bull+1, 999)
+bars_since_zone_conf_bear := (p1_connected and p1_zone_conf_bear_src == 1) ? 0 : math.min(bars_since_zone_conf_bear+1, 999)
+bars_since_choch_sw_bull := (p1_connected and p1_choch_sw_bull_src == 1) ? 0 : math.min(bars_since_choch_sw_bull+1, 999)
+bars_since_choch_sw_bear := (p1_connected and p1_choch_sw_bear_src == 1) ? 0 : math.min(bars_since_choch_sw_bear+1, 999)
+
+// ====================================================================================================================
+// P1 СТРУКТУРНЫЕ БУЛЕВЫ
+// ====================================================================================================================
+bool b_smc_bull = p1_connected ? p1_smc_trend == 1 : false
+bool b_smc_bear = p1_connected ? p1_smc_trend == -1 : false
+bool b_ob_bull = p1_connected ? p1_ob_signal == 1 : false
+bool b_ob_bear = p1_connected ? p1_ob_signal == -1 : false
+bool b_sd_bull = p1_connected ? p1_sd_zone == 1 : false
+bool b_sd_bear = p1_connected ? p1_sd_zone == -1 : false
+bool b_fvg_bull = p1_connected ? p1_fvg_dir == 1 : false
+bool b_fvg_bear = p1_connected ? p1_fvg_dir == -1 : false
+bool b_bos_bull = p1_connected ? (bars_since_bos <= bos_bars_ok and p1_smc_trend == 1) : false
+bool b_bos_bear = p1_connected ? (bars_since_bos <= bos_bars_ok and p1_smc_trend == -1) : false
+bool b_bb_bull = p1_bb_signal == 1
+bool b_bb_bear = p1_bb_signal == -1
+bool b_hm_bull = p1_hm_signal == 1
+bool b_hm_bear = p1_hm_signal == -1
+bool b_sdinv_bull = bars_since_sdinv_bull <= 2
+bool b_sdinv_bear = bars_since_sdinv_bear <= 2
+bool b_sweep_bull = p1_sweep_signal == 1
+bool b_sweep_bear = p1_sweep_signal == -1
+bool b_choch_bull = p1_choch_signal == 1
+bool b_choch_bear = p1_choch_signal == -1
+bool b_ob_fresh_bull = bars_since_ob_touch_bull <= 2
+bool b_ob_fresh_bear = bars_since_ob_touch_bear <= 2
+bool b_disp_bull = bars_since_disp_bull <= 2
+bool b_disp_bear = bars_since_disp_bear <= 2
+bool b_fvg_precise_bull = p1_connected and is_conn(p1_fvg_top_src) and is_conn(p1_fvg_bot_src) and not na(p1_fvg_top) and not na(p1_fvg_bot) and close<=p1_fvg_top and close>=p1_fvg_bot and p1_fvg_dir == 1
+bool b_fvg_precise_bear = p1_connected and is_conn(p1_fvg_top_src) and is_conn(p1_fvg_bot_src) and not na(p1_fvg_top) and not na(p1_fvg_bot) and close<=p1_fvg_top and close>=p1_fvg_bot and p1_fvg_dir == -1
+bool b_fvg_poc_bull = p1_connected and p1_fvg_dir == 1
+bool b_fvg_poc_bear = p1_connected and p1_fvg_dir == -1
+bool b_zone_conf_bull = bars_since_zone_conf_bull <= 4
+bool b_zone_conf_bear = bars_since_zone_conf_bear <= 4
+bool b_choch_sw_bull = bars_since_choch_sw_bull <= 2
+bool b_choch_sw_bear = bars_since_choch_sw_bear <= 2
+bool b_ob_sd_bull = p1_ob_sd_bull
+bool b_ob_sd_bear = p1_ob_sd_bear
+bool b_ob_virgin_bull = is_conn(p1_ob_touch_cnt_bull_src) and p1_ob_touch_cnt_bull <= 1
+bool b_ob_virgin_bear = is_conn(p1_ob_touch_cnt_bear_src) and p1_ob_touch_cnt_bear <= 1
+bool b_ob_touch_fresh1_bull = is_conn(p1_ob_touch_cnt_bull_src) and p1_ob_touch_cnt_bull == 1
+bool b_ob_touch_fresh1_bear = is_conn(p1_ob_touch_cnt_bear_src) and p1_ob_touch_cnt_bear == 1
+bool b_master_bull = p1_connected and p1_master == 1
+bool b_master_bear = p1_connected and p1_master == -1
+bool b_conf_bull_ok = p1_connected and p1_conf_bull >= 7
+bool b_conf_bear_ok = p1_connected and p1_conf_bear >= 7
+bool b_candle_inside_ob_bull = (b_ob_bull) and cndl_bull
+bool b_candle_inside_ob_bear = (b_ob_bear) and cndl_bear
+
+// ====================================================================================================================
+// OTE РАСЧЁТЫ
+// ====================================================================================================================
+var float recent_swing_h = na
+var float recent_swing_l = na
+if p1_connected and (p1_choch_src != 0 or p1_bos_trig != 0)
+    recent_swing_h := high, recent_swing_l := low
+else
+    recent_swing_h := math.max(nz(recent_swing_h, high), high)
+    recent_swing_l := math.min(nz(recent_swing_l, low), low)
+
+float ote_swing_h = is_conn(p1_swing_h_src) ? p1_swing_h : recent_swing_h
+float ote_swing_l = is_conn(p1_swing_l_src) ? p1_swing_l : recent_swing_l
+float ote_range = nz(ote_swing_h) - nz(ote_swing_l)
+float ote_long_top = nz(ote_swing_h) - (ote_range*0.618)
+float ote_long_bot = nz(ote_swing_h) - (ote_range*0.786)
+float disc_long_top = nz(ote_swing_h) - (ote_range*0.5)
+float ote_short_bot = nz(ote_swing_l) + (ote_range*0.618)
+float ote_short_top = nz(ote_swing_l) + (ote_range*0.786)
+float prem_short_bot = nz(ote_swing_l) + (ote_range*0.5)
+int ote_score_bull = (ote_range>0 and close<=ote_long_top and close>=ote_long_bot) ? 2 : (ote_range>0 and close<disc_long_top) ? 1 : 0
+int ote_score_bear = (ote_range>0 and close>=ote_short_bot and close<=ote_short_top) ? 2 : (ote_range>0 and close>prem_short_bot) ? 1 : 0
+if p1_ote_zone == 1
+    ote_score_bull := math.max(ote_score_bull, 2)
+else if p1_ote_zone == -1
+    ote_score_bear := math.max(ote_score_bear, 2)
+bool b_pd_bull = p1_connected ? (ote_score_bull >= 1) : false
+bool b_pd_bear = p1_connected ? (ote_score_bear >= 1) : false
+
+bool b_avwap_bull = is_conn(p1_avwap_fast_src) and not na(p1_avwap_fast) ? (close>p1_avwap_fast) : (is_conn(p1_avwap_src) and not na(p1_avwap) ? close>p1_avwap : false)
+bool b_avwap_bear = is_conn(p1_avwap_fast_src) and not na(p1_avwap_fast) ? (close<p1_avwap_fast) : (is_conn(p1_avwap_src) and not na(p1_avwap) ? close<p1_avwap : false)
+bool b_avwap_cross_bull = is_conn(p1_avwap_fast_src) and not na(p1_avwap_fast) ? ta.crossover(close, p1_avwap_fast) : (is_conn(p1_avwap_src) and not na(p1_avwap) ? ta.crossover(close, p1_avwap) : false)
+bool b_avwap_cross_bear = is_conn(p1_avwap_fast_src) and not na(p1_avwap_fast) ? ta.crossunder(close, p1_avwap_fast) : (is_conn(p1_avwap_src) and not na(p1_avwap) ? ta.crossunder(close, p1_avwap) : false)
+
+bool in_poi_bull = b_ob_bull or b_sd_bull or b_fvg_precise_bull or ote_score_bull >= 2
+bool in_poi_bear = b_ob_bear or b_sd_bear or b_fvg_precise_bear or ote_score_bear >= 2
+int mtf_state_bull = (not in_poi_required or in_poi_bull) ? mtf_state_raw_bull : 0
+int mtf_state_bear = (not in_poi_required or in_poi_bear) ? mtf_state_raw_bear : 0
+int htf_bull_conf = htf_state_raw_bull
+int htf_bear_conf = htf_state_raw_bear
+
+bool ltf_gate_bull = (ltf_gate_min == 0 or mtf_state_bull >= ltf_gate_min or not p1_connected)
+bool ltf_gate_bear = (ltf_gate_min == 0 or mtf_state_bear >= ltf_gate_min or not p1_connected)
+bool htf_gate_bull = (htf_gate_min == 0 or htf_bull_conf >= htf_gate_min)
+bool htf_gate_bear = (htf_gate_min == 0 or htf_bear_conf >= htf_gate_min)
+bool full_gate_bull = ltf_gate_bull and htf_gate_bull
+bool full_gate_bear = ltf_gate_bear and htf_gate_bear
+
+// ── Структурная свежесть-комбо: 2+ структурных события за окно struct_fresh_bars ──
+int fresh_cnt_bull = (bars_since_choch_bull<=struct_fresh_bars?1:0)+(bars_since_sweep_bull<=struct_fresh_bars?1:0)+(bars_since_hm_bull<=struct_fresh_bars?1:0)+(bars_since_disp_bull<=struct_fresh_bars?1:0)+(bars_since_sm_act_bull_N3<=struct_fresh_bars?1:0)
+int fresh_cnt_bear = (bars_since_choch_bear<=struct_fresh_bars?1:0)+(bars_since_sweep_bear<=struct_fresh_bars?1:0)+(bars_since_hm_bear<=struct_fresh_bars?1:0)+(bars_since_disp_bear<=struct_fresh_bars?1:0)+(bars_since_sm_act_bear_N3<=struct_fresh_bars?1:0)
+bool struct_fresh_bull = fresh_cnt_bull >= 2
+bool struct_fresh_bear = fresh_cnt_bear >= 2
+
+tf_detail_strings tf_pack_bull = tf_detail_strings.new()
+tf_detail_strings tf_pack_bear = tf_detail_strings.new()
+
+tf_pack_bull.htf1 := "HTF1(" + htf_tv_1 + "): P1=" + str.tostring(p1_htf1_sb) + "/" + str.tostring(p1_htf1_min) + " OSC=" + str.tostring(p2_htf1_cnt_b) + "/10(мин." + str.tostring(p2_htf1_min_ok) + ")" + (tier_htf1_bull ? " ✅" : " —")
+tf_pack_bull.htf2 := "HTF2(" + htf_tv_2 + "): P1=" + str.tostring(p1_htf2_sb) + "/" + str.tostring(p1_htf2_min) + " OSC=" + str.tostring(p2_htf2_cnt_b) + "/10(мин." + str.tostring(p2_htf2_min_ok) + ")" + (tier_htf2_bull ? " ✅" : " —")
+tf_pack_bull.htf3 := "HTF3(" + htf_tv_3 + "): P1=" + str.tostring(p1_htf3_sb) + "/" + str.tostring(p1_htf3_min) + " OSC=" + str.tostring(p2_htf3_cnt_b) + "/10(мин." + str.tostring(p2_htf3_min_ok) + ")" + (tier_htf3_bull ? " ✅" : " —")
+tf_pack_bear.htf1 := "HTF1(" + htf_tv_1 + "): P1=" + str.tostring(p1_htf1_ss) + "/" + str.tostring(p1_htf1_min) + " OSC=" + str.tostring(p2_htf1_cnt_s) + "/10(мин." + str.tostring(p2_htf1_min_ok) + ")" + (tier_htf1_bear ? " ✅" : " —")
+tf_pack_bear.htf2 := "HTF2(" + htf_tv_2 + "): P1=" + str.tostring(p1_htf2_ss) + "/" + str.tostring(p1_htf2_min) + " OSC=" + str.tostring(p2_htf2_cnt_s) + "/10(мин." + str.tostring(p2_htf2_min_ok) + ")" + (tier_htf2_bear ? " ✅" : " —")
+tf_pack_bear.htf3 := "HTF3(" + htf_tv_3 + "): P1=" + str.tostring(p1_htf3_ss) + "/" + str.tostring(p1_htf3_min) + " OSC=" + str.tostring(p2_htf3_cnt_s) + "/10(мин." + str.tostring(p2_htf3_min_ok) + ")" + (tier_htf3_bear ? " ✅" : " —")
+tf_pack_bull.ltf1 := "LTF1(" + mtf_tv_1 + "м): P1=" + str.tostring(p1_ltf1_sb) + "/" + str.tostring(p1_ltf1_min) + " OSC=" + str.tostring(p2_ltf1_cnt_b) + "/10(мин." + str.tostring(p2_ltf1_min_ok) + ")" + (tier_ltf1_bull ? " ✅" : (blt1b<=mtf_window ? " ⏳" : " —"))
+tf_pack_bull.ltf2 := "LTF2(" + mtf_tv_2 + "м): P1=" + str.tostring(p1_ltf2_sb) + "/" + str.tostring(p1_ltf2_min) + " OSC=" + str.tostring(p2_ltf2_cnt_b) + "/10(мин." + str.tostring(p2_ltf2_min_ok) + ")" + (tier_ltf2_bull ? " ✅" : (blt2b<=mtf_window ? " ⏳" : " —"))
+tf_pack_bull.ltf3 := "LTF3(" + mtf_tv_3 + "м): P1=" + str.tostring(p1_ltf3_sb) + "/" + str.tostring(p1_ltf3_min) + " OSC=" + str.tostring(p2_ltf3_cnt_b) + "/10(мин." + str.tostring(p2_ltf3_min_ok) + ")" + (tier_ltf3_bull ? " ✅" : (blt3b<=mtf_window ? " ⏳" : " —"))
+tf_pack_bear.ltf1 := "LTF1(" + mtf_tv_1 + "м): P1=" + str.tostring(p1_ltf1_ss) + "/" + str.tostring(p1_ltf1_min) + " OSC=" + str.tostring(p2_ltf1_cnt_s) + "/10(мин." + str.tostring(p2_ltf1_min_ok) + ")" + (tier_ltf1_bear ? " ✅" : (blt1s<=mtf_window ? " ⏳" : " —"))
+tf_pack_bear.ltf2 := "LTF2(" + mtf_tv_2 + "м): P1=" + str.tostring(p1_ltf2_ss) + "/" + str.tostring(p1_ltf2_min) + " OSC=" + str.tostring(p2_ltf2_cnt_s) + "/10(мин." + str.tostring(p2_ltf2_min_ok) + ")" + (tier_ltf2_bear ? " ✅" : (blt2s<=mtf_window ? " ⏳" : " —"))
+tf_pack_bear.ltf3 := "LTF3(" + mtf_tv_3 + "м): P1=" + str.tostring(p1_ltf3_ss) + "/" + str.tostring(p1_ltf3_min) + " OSC=" + str.tostring(p2_ltf3_cnt_s) + "/10(мин." + str.tostring(p2_ltf3_min_ok) + ")" + (tier_ltf3_bear ? " ✅" : (blt3s<=mtf_window ? " ⏳" : " —"))
+tf_pack_bull.htf_verdict := htf_bull_conf == 3 ? "🟢 HTF: все 3 подтв." : htf_bull_conf == 2 ? "🟡 HTF: 2/3" : htf_bull_conf == 1 ? "⚪ HTF: 1/3" : "❌ HTF: нет"
+tf_pack_bear.htf_verdict := htf_bear_conf == 3 ? "🟢 HTF: все 3 подтв." : htf_bear_conf == 2 ? "🟡 HTF: 2/3" : htf_bear_conf == 1 ? "⚪ HTF: 1/3" : "❌ HTF: нет"
+tf_pack_bull.ltf_cascade_verdict := mtf_state_bull == 3 ? "🟢 LTF: все тиры" : mtf_state_bull == 2 ? "🟡 LTF: 2/3" : mtf_state_bull == 1 ? "⚪ LTF: 1/3" : (in_poi_required and in_poi_bull) ? "❌ LTF: не подтв." : (not in_poi_required) ? "— Без POI" : "— Вне POI"
+tf_pack_bear.ltf_cascade_verdict := mtf_state_bear == 3 ? "🟢 LTF: все тиры" : mtf_state_bear == 2 ? "🟡 LTF: 2/3" : mtf_state_bear == 1 ? "⚪ LTF: 1/3" : (in_poi_required and in_poi_bear) ? "❌ LTF: не подтв." : (not in_poi_required) ? "— Без POI" : "— Вне POI"
+
+string bos_retest_str_b = (not na(bos_level_price) and bos_level_dir == 1) ? "🎯 BOS(бык) " + str.tostring(bos_level_price, format.mintick) + " каса.:" + str.tostring(p1_bos_touches) + (bos_level_exhausted ? " (истощён)" : "") : ""
+string bos_retest_str_s = (not na(bos_level_price) and bos_level_dir == -1) ? "🎯 BOS(медв) " + str.tostring(bos_level_price, format.mintick) + " каса.:" + str.tostring(p1_bos_touches) + (bos_level_exhausted ? " (истощён)" : "") : ""
+string choch_retest_str_b = (not na(choch_level_price) and choch_level_dir == 1) ? "🎯 CHoCH(бык) " + str.tostring(choch_level_price, format.mintick) + " каса.:" + str.tostring(p1_choch_touches) + (choch_level_exhausted ? " (истощён)" : "") : ""
+string choch_retest_str_s = (not na(choch_level_price) and choch_level_dir == -1) ? "🎯 CHoCH(медв) " + str.tostring(choch_level_price, format.mintick) + " каса.:" + str.tostring(p1_choch_touches) + (choch_level_exhausted ? " (истощён)" : "") : ""
+
+side_detail pack_bull = side_detail.new()
+side_detail pack_bear = side_detail.new()
+
+// ====================================================================================================================
+// СКОРИНГ — 68 факторов, tooltip убраны, added 64-67 (osc10_sum, adx_tier, struct_fresh, consensus)
+// ====================================================================================================================
+int buy_score = 0
+int sell_score = 0
+bool buy_valid = true
+bool sell_valid = true
+if not p1_connected
+    buy_valid := false, sell_valid := false
+
+preset_factor pf0 = f_pr_get(0, s_rsi_kde, 1, m_rsi_kde)
+buy_score += pf0.include ? (osc_kde_bull ? pf0.weight : 0) : 0
+sell_score += pf0.include ? (osc_kde_bear ? pf0.weight : 0) : 0
+buy_valid := buy_valid and (pf0.must ? osc_kde_bull : true)
+sell_valid := sell_valid and (pf0.must ? osc_kde_bear : true)
+
+preset_factor pf1 = f_pr_get(1, s_stoch, 1, m_stoch)
+buy_score += pf1.include ? (osc_stoch_bull ? pf1.weight : 0) : 0
+sell_score += pf1.include ? (osc_stoch_bear ? pf1.weight : 0) : 0
+buy_valid := buy_valid and (pf1.must ? osc_stoch_bull : true)
+sell_valid := sell_valid and (pf1.must ? osc_stoch_bear : true)
+
+preset_factor pf2 = f_pr_get(2, s_macd_dlx, 1, m_macd_dlx)
+buy_score += pf2.include ? (osc_macd_dlx_bull ? pf2.weight : 0) : 0
+sell_score += pf2.include ? (osc_macd_dlx_bear ? pf2.weight : 0) : 0
+buy_valid := buy_valid and (pf2.must ? osc_macd_dlx_bull : true)
+sell_valid := sell_valid and (pf2.must ? osc_macd_dlx_bear : true)
+
+preset_factor pf3 = f_pr_get(3, s_cci, 1, m_cci)
+buy_score += pf3.include ? (osc_cci_bull ? pf3.weight : 0) : 0
+sell_score += pf3.include ? (osc_cci_bear ? pf3.weight : 0) : 0
+buy_valid := buy_valid and (pf3.must ? osc_cci_bull : true)
+sell_valid := sell_valid and (pf3.must ? osc_cci_bear : true)
+
+preset_factor pf4 = f_pr_get(4, s_mdiv, 1, m_mdiv)
+buy_score += pf4.include ? (osc_mdiv_bull ? pf4.weight : 0) : 0
+sell_score += pf4.include ? (osc_mdiv_bear ? pf4.weight : 0) : 0
+buy_valid := buy_valid and (pf4.must ? osc_mdiv_bull : true)
+sell_valid := sell_valid and (pf4.must ? osc_mdiv_bear : true)
+
+preset_factor pf5 = f_pr_get(5, s_peter, 1, m_peter)
+buy_score += pf5.include ? (osc_peter_bull ? pf5.weight : 0) : 0
+sell_score += pf5.include ? (osc_peter_bear ? pf5.weight : 0) : 0
+buy_valid := buy_valid and (pf5.must ? osc_peter_bull : true)
+sell_valid := sell_valid and (pf5.must ? osc_peter_bear : true)
+
+preset_factor pf6 = f_pr_get(6, s_tfdiv, 1, m_tfdiv)
+buy_score += pf6.include ? (osc_tfdiv_bull ? pf6.weight : 0) : 0
+sell_score += pf6.include ? (osc_tfdiv_bear ? pf6.weight : 0) : 0
+buy_valid := buy_valid and (pf6.must ? osc_tfdiv_bull : true)
+sell_valid := sell_valid and (pf6.must ? osc_tfdiv_bear : true)
+
+preset_factor pf7 = f_pr_get(7, s_smt, 1, m_smt)
+buy_score += pf7.include ? (osc_smt_bull ? pf7.weight : 0) : 0
+sell_score += pf7.include ? (osc_smt_bear ? pf7.weight : 0) : 0
+buy_valid := buy_valid and (pf7.must ? osc_smt_bull : true)
+sell_valid := sell_valid and (pf7.must ? osc_smt_bear : true)
+
+preset_factor pf8 = f_pr_get(8, s_sm_act, 1, m_sm_act)
+buy_score += pf8.include ? (sm_act_bull ? pf8.weight : 0) : 0
+sell_score += pf8.include ? (sm_act_bear ? pf8.weight : 0) : 0
+buy_valid := buy_valid and (pf8.must ? sm_act_bull : true)
+sell_valid := sell_valid and (pf8.must ? sm_act_bear : true)
+
+preset_factor pf9 = f_pr_get(9, s_sm_idx, 1, m_sm_idx)
+buy_score += pf9.include ? (sm_idx_bull ? pf9.weight : 0) : 0
+sell_score += pf9.include ? (sm_idx_bear ? pf9.weight : 0) : 0
+buy_valid := buy_valid and (pf9.must ? sm_idx_bull : true)
+sell_valid := sell_valid and (pf9.must ? sm_idx_bear : true)
+
+preset_factor pf10 = f_pr_get(10, s_sm_int, 1, m_sm_int)
+buy_score += pf10.include ? (sm_int_bull ? pf10.weight : 0) : 0
+sell_score += pf10.include ? (sm_int_bear ? pf10.weight : 0) : 0
+buy_valid := buy_valid and (pf10.must ? sm_int_bull : true)
+sell_valid := sell_valid and (pf10.must ? sm_int_bear : true)
+
+preset_factor pf11 = f_pr_get(11, s_cndl, 1, m_cndl)
+buy_score += pf11.include ? (cndl_bull ? pf11.weight : 0) : 0
+sell_score += pf11.include ? (cndl_bear ? pf11.weight : 0) : 0
+buy_valid := buy_valid and (pf11.must ? cndl_bull : true)
+sell_valid := sell_valid and (pf11.must ? cndl_bear : true)
+
+preset_factor pf12 = f_pr_get(12, s_ma_cross, 1, m_ma_cross)
+buy_score += pf12.include ? (x_ma_bull ? pf12.weight : 0) : 0
+sell_score += pf12.include ? (x_ma_bear ? pf12.weight : 0) : 0
+buy_valid := buy_valid and (pf12.must ? x_ma_bull : true)
+sell_valid := sell_valid and (pf12.must ? x_ma_bear : true)
+
+preset_factor pf13 = f_pr_get(13, s_ma_trend, 1, m_ma_trend)
+buy_score += pf13.include ? (ma_trend_bull ? pf13.weight : 0) : 0
+sell_score += pf13.include ? (ma_trend_bear ? pf13.weight : 0) : 0
+buy_valid := buy_valid and (pf13.must ? ma_trend_bull : true)
+sell_valid := sell_valid and (pf13.must ? ma_trend_bear : true)
+
+preset_factor pf14 = f_pr_get(14, s_smc, 1, m_smc)
+buy_score += pf14.include ? (b_smc_bull ? pf14.weight : 0) : 0
+sell_score += pf14.include ? (b_smc_bear ? pf14.weight : 0) : 0
+buy_valid := buy_valid and (pf14.must ? b_smc_bull : true)
+sell_valid := sell_valid and (pf14.must ? b_smc_bear : true)
+
+preset_factor pf15 = f_pr_get(15, s_ob, 1, m_ob)
+buy_score += pf15.include ? (b_ob_bull ? pf15.weight : 0) : 0
+sell_score += pf15.include ? (b_ob_bear ? pf15.weight : 0) : 0
+buy_valid := buy_valid and (pf15.must ? b_ob_bull : true)
+sell_valid := sell_valid and (pf15.must ? b_ob_bear : true)
+
+preset_factor pf16 = f_pr_get(16, s_sd, 1, m_sd)
+buy_score += pf16.include ? (b_sd_bull ? pf16.weight : 0) : 0
+sell_score += pf16.include ? (b_sd_bear ? pf16.weight : 0) : 0
+buy_valid := buy_valid and (pf16.must ? b_sd_bull : true)
+sell_valid := sell_valid and (pf16.must ? b_sd_bear : true)
+
+preset_factor pf17 = f_pr_get(17, s_fvg, 1, m_fvg)
+buy_score += pf17.include ? ((b_fvg_bull or b_fvg_precise_bull) ? pf17.weight : 0) : 0
+sell_score += pf17.include ? ((b_fvg_bear or b_fvg_precise_bear) ? pf17.weight : 0) : 0
+buy_valid := buy_valid and (pf17.must ? (b_fvg_bull or b_fvg_precise_bull) : true)
+sell_valid := sell_valid and (pf17.must ? (b_fvg_bear or b_fvg_precise_bear) : true)
+
+preset_factor pf18 = f_pr_get(18, s_bos, 1, m_bos)
+buy_score += pf18.include ? (b_bos_bull ? pf18.weight : 0) : 0
+sell_score += pf18.include ? (b_bos_bear ? pf18.weight : 0) : 0
+buy_valid := buy_valid and (pf18.must ? b_bos_bull : true)
+sell_valid := sell_valid and (pf18.must ? b_bos_bear : true)
+
+preset_factor pf19 = f_pr_get(19, s_bb, 1, m_bb)
+buy_score += pf19.include ? (b_bb_bull ? pf19.weight : 0) : 0
+sell_score += pf19.include ? (b_bb_bear ? pf19.weight : 0) : 0
+buy_valid := buy_valid and (pf19.must ? b_bb_bull : true)
+sell_valid := sell_valid and (pf19.must ? b_bb_bear : true)
+
+preset_factor pf20 = f_pr_get(20, s_hm, 1, m_hm)
+buy_score += pf20.include ? (b_hm_bull ? pf20.weight : 0) : 0
+sell_score += pf20.include ? (b_hm_bear ? pf20.weight : 0) : 0
+buy_valid := buy_valid and (pf20.must ? b_hm_bull : true)
+sell_valid := sell_valid and (pf20.must ? b_hm_bear : true)
+
+preset_factor pf21 = f_pr_get(21, s_sdinv, 1, m_sdinv)
+buy_score += pf21.include ? (b_sdinv_bull ? pf21.weight : 0) : 0
+sell_score += pf21.include ? (b_sdinv_bear ? pf21.weight : 0) : 0
+buy_valid := buy_valid and (pf21.must ? b_sdinv_bull : true)
+sell_valid := sell_valid and (pf21.must ? b_sdinv_bear : true)
+
+preset_factor pf22 = f_pr_get(22, s_sweep, 1, m_sweep)
+buy_score += pf22.include ? (b_sweep_bull ? pf22.weight : 0) : 0
+sell_score += pf22.include ? (b_sweep_bear ? pf22.weight : 0) : 0
+buy_valid := buy_valid and (pf22.must ? b_sweep_bull : true)
+sell_valid := sell_valid and (pf22.must ? b_sweep_bear : true)
+
+preset_factor pf23 = f_pr_get(23, s_choch, 1, m_choch)
+buy_score += pf23.include ? (b_choch_bull ? pf23.weight : 0) : 0
+sell_score += pf23.include ? (b_choch_bear ? pf23.weight : 0) : 0
+buy_valid := buy_valid and (pf23.must ? b_choch_bull : true)
+sell_valid := sell_valid and (pf23.must ? b_choch_bear : true)
+
+preset_factor pf24 = f_pr_get(24, s_pd, 1, m_pd)
+buy_score += pf24.include ? (b_pd_bull ? pf24.weight : 0) : 0
+sell_score += pf24.include ? (b_pd_bear ? pf24.weight : 0) : 0
+buy_valid := buy_valid and (pf24.must ? b_pd_bull : true)
+sell_valid := sell_valid and (pf24.must ? b_pd_bear : true)
+
+preset_factor pf25 = f_pr_get(25, s_avwap, 1, m_avwap)
+buy_score += pf25.include ? (b_avwap_bull ? pf25.weight : 0) : 0
+sell_score += pf25.include ? (b_avwap_bear ? pf25.weight : 0) : 0
+buy_valid := buy_valid and (pf25.must ? b_avwap_bull : true)
+sell_valid := sell_valid and (pf25.must ? b_avwap_bear : true)
+
+preset_factor pf26 = f_pr_get(26, s_avwap_x, 1, m_avwap_x)
+buy_score += pf26.include ? (b_avwap_cross_bull ? pf26.weight : 0) : 0
+sell_score += pf26.include ? (b_avwap_cross_bear ? pf26.weight : 0) : 0
+buy_valid := buy_valid and (pf26.must ? b_avwap_cross_bull : true)
+sell_valid := sell_valid and (pf26.must ? b_avwap_cross_bear : true)
+
+preset_factor pf27 = f_pr_get(27, s_disp, 1, m_disp)
+buy_score += pf27.include ? (b_disp_bull ? pf27.weight : 0) : 0
+sell_score += pf27.include ? (b_disp_bear ? pf27.weight : 0) : 0
+buy_valid := buy_valid and (pf27.must ? b_disp_bull : true)
+sell_valid := sell_valid and (pf27.must ? b_disp_bear : true)
+
+preset_factor pf28 = f_pr_get(28, s_ob_frsh, 1, m_ob_frsh)
+buy_score += pf28.include ? (b_ob_fresh_bull ? pf28.weight : 0) : 0
+sell_score += pf28.include ? (b_ob_fresh_bear ? pf28.weight : 0) : 0
+buy_valid := buy_valid and (pf28.must ? b_ob_fresh_bull : true)
+sell_valid := sell_valid and (pf28.must ? b_ob_fresh_bear : true)
+
+preset_factor pf29 = f_pr_get(29, s_htf_bull, 1, m_htf_bull)
+preset_factor pf30 = f_pr_get(30, s_htf_bear, 1, m_htf_bear)
+buy_score += pf29.include ? (htf_gate_bull ? pf29.weight : 0) : 0
+sell_score += pf30.include ? (htf_gate_bear ? pf30.weight : 0) : 0
+buy_valid := buy_valid and (pf29.must ? htf_gate_bull : true)
+sell_valid := sell_valid and (pf30.must ? htf_gate_bear : true)
+
+preset_factor pf31 = f_pr_get(31, s_zone_conf, 2, m_zone_conf)
+int zone_w_bull = p1_zone_layers_bull >= 3 ? pf31.weight : p1_zone_layers_bull == 2 ? math.max(1, pf31.weight-1) : 0
+int zone_w_bear = p1_zone_layers_bear >= 3 ? pf31.weight : p1_zone_layers_bear == 2 ? math.max(1, pf31.weight-1) : 0
+buy_score += pf31.include ? zone_w_bull : 0
+sell_score += pf31.include ? zone_w_bear : 0
+buy_valid := buy_valid and (pf31.must ? b_zone_conf_bull : true)
+sell_valid := sell_valid and (pf31.must ? b_zone_conf_bear : true)
+
+preset_factor pf32 = f_pr_get(32, s_choch_sw, 2, m_choch_sw)
+buy_score += pf32.include ? (b_choch_sw_bull ? pf32.weight : 0) : 0
+sell_score += pf32.include ? (b_choch_sw_bear ? pf32.weight : 0) : 0
+buy_valid := buy_valid and (pf32.must ? b_choch_sw_bull : true)
+sell_valid := sell_valid and (pf32.must ? b_choch_sw_bear : true)
+
+preset_factor pf33 = f_pr_get(33, s_ob_sd, 2, m_ob_sd)
+buy_score += pf33.include ? (b_ob_sd_bull ? pf33.weight : 0) : 0
+sell_score += pf33.include ? (b_ob_sd_bear ? pf33.weight : 0) : 0
+buy_valid := buy_valid and (pf33.must ? b_ob_sd_bull : true)
+sell_valid := sell_valid and (pf33.must ? b_ob_sd_bear : true)
+
+preset_factor pf34 = f_pr_get(34, s_osc6, 1, m_osc6)
+buy_score += pf34.include ? (p2_osc6_strong_bull ? pf34.weight : 0) : 0
+sell_score += pf34.include ? (p2_osc6_strong_bear ? pf34.weight : 0) : 0
+buy_valid := buy_valid and (pf34.must ? p2_osc6_strong_bull : true)
+sell_valid := sell_valid and (pf34.must ? p2_osc6_strong_bear : true)
+
+preset_factor pf35 = f_pr_get(35, s_regime, 1, m_regime)
+buy_score += pf35.include ? (final_regime_bull ? pf35.weight : 0) : 0
+sell_score += pf35.include ? (final_regime_bear ? pf35.weight : 0) : 0
+buy_valid := buy_valid and (pf35.must ? final_regime_bull : true)
+sell_valid := sell_valid and (pf35.must ? final_regime_bear : true)
+
+preset_factor pf36 = f_pr_get(36, s_bos_retest, 1, m_bos_retest)
+buy_score += pf36.include ? (b_bos_retest_bull ? pf36.weight : 0) : 0
+sell_score += pf36.include ? (b_bos_retest_bear ? pf36.weight : 0) : 0
+buy_valid := buy_valid and (pf36.must ? b_bos_retest_bull : true)
+sell_valid := sell_valid and (pf36.must ? b_bos_retest_bear : true)
+
+preset_factor pf37 = f_pr_get(37, s_choch_retest, 1, m_choch_retest)
+buy_score += pf37.include ? (b_choch_retest_bull ? pf37.weight : 0) : 0
+sell_score += pf37.include ? (b_choch_retest_bear ? pf37.weight : 0) : 0
+buy_valid := buy_valid and (pf37.must ? b_choch_retest_bull : true)
+sell_valid := sell_valid and (pf37.must ? b_choch_retest_bear : true)
+
+preset_factor pf38 = f_pr_get(38, s_cvd, 1, m_cvd)
+buy_score += pf38.include ? (cvd_bull_div ? pf38.weight : 0) : 0
+sell_score += pf38.include ? (cvd_bear_div ? pf38.weight : 0) : 0
+buy_valid := buy_valid and (pf38.must ? cvd_bull_div : true)
+sell_valid := sell_valid and (pf38.must ? cvd_bear_div : true)
+
+preset_factor pf39 = f_pr_get(39, s_absorption, 1, m_absorption)
+buy_score += pf39.include ? (sm_absorption ? pf39.weight : 0) : 0
+sell_score += pf39.include ? (sm_absorption ? pf39.weight : 0) : 0
+buy_valid := buy_valid and (pf39.must ? sm_absorption : true)
+sell_valid := sell_valid and (pf39.must ? sm_absorption : true)
+
+preset_factor pf40 = f_pr_get(40, s_hm_vol_sig, 1, m_hm_vol_sig)
+bool hmv_b = b_hm_bull and hm_vol_significant
+bool hmv_s = b_hm_bear and hm_vol_significant
+buy_score += pf40.include ? (hmv_b ? pf40.weight : 0) : 0
+sell_score += pf40.include ? (hmv_s ? pf40.weight : 0) : 0
+buy_valid := buy_valid and (pf40.must ? hmv_b : true)
+sell_valid := sell_valid and (pf40.must ? hmv_s : true)
+
+preset_factor pf41 = f_pr_get(41, s_fvg_poc, 1, m_fvg_poc)
+buy_score += pf41.include ? (b_fvg_poc_bull ? pf41.weight : 0) : 0
+sell_score += pf41.include ? (b_fvg_poc_bear ? pf41.weight : 0) : 0
+buy_valid := buy_valid and (pf41.must ? b_fvg_poc_bull : true)
+sell_valid := sell_valid and (pf41.must ? b_fvg_poc_bear : true)
+
+preset_factor pf42 = f_pr_get(42, s_ob_touch_fresh1, 1, m_ob_touch_fresh1)
+buy_score += pf42.include ? (b_ob_touch_fresh1_bull ? pf42.weight : 0) : 0
+sell_score += pf42.include ? (b_ob_touch_fresh1_bear ? pf42.weight : 0) : 0
+buy_valid := buy_valid and (pf42.must ? b_ob_touch_fresh1_bull : true)
+sell_valid := sell_valid and (pf42.must ? b_ob_touch_fresh1_bear : true)
+
+preset_factor pf43 = f_pr_get(43, s_sm_all3, 2, m_sm_all3)
+buy_score += pf43.include ? (sm_all3_bull ? pf43.weight : 0) : 0
+sell_score += pf43.include ? (sm_all3_bear ? pf43.weight : 0) : 0
+buy_valid := buy_valid and (pf43.must ? sm_all3_bull : true)
+sell_valid := sell_valid and (pf43.must ? sm_all3_bear : true)
+
+preset_factor pf44 = f_pr_get(44, s_mdiv_multi, 1, m_mdiv_multi)
+buy_score += pf44.include ? (osc_mdiv_multi_bull ? pf44.weight : 0) : 0
+sell_score += pf44.include ? (osc_mdiv_multi_bear ? pf44.weight : 0) : 0
+buy_valid := buy_valid and (pf44.must ? osc_mdiv_multi_bull : true)
+sell_valid := sell_valid and (pf44.must ? osc_mdiv_multi_bear : true)
+
+preset_factor pf45 = f_pr_get(45, s_candle_in_ob, 1, m_candle_in_ob)
+buy_score += pf45.include ? (b_candle_inside_ob_bull ? pf45.weight : 0) : 0
+sell_score += pf45.include ? (b_candle_inside_ob_bear ? pf45.weight : 0) : 0
+buy_valid := buy_valid and (pf45.must ? b_candle_inside_ob_bull : true)
+sell_valid := sell_valid and (pf45.must ? b_candle_inside_ob_bear : true)
+
+preset_factor pf46 = f_pr_get(46, s_sweep_ob, 2, m_sweep_ob)
+bool b_sweep_ob_bull = b_sweep_bull and b_ob_bull
+bool b_sweep_ob_bear = b_sweep_bear and b_ob_bear
+buy_score += pf46.include ? (b_sweep_ob_bull ? pf46.weight : 0) : 0
+sell_score += pf46.include ? (b_sweep_ob_bear ? pf46.weight : 0) : 0
+buy_valid := buy_valid and (pf46.must ? b_sweep_ob_bull : true)
+sell_valid := sell_valid and (pf46.must ? b_sweep_ob_bear : true)
+
+preset_factor pf47 = f_pr_get(47, s_disp_ob, 2, m_disp_ob)
+bool b_disp_ob_bull = b_disp_bull and b_ob_bull
+bool b_disp_ob_bear = b_disp_bear and b_ob_bear
+buy_score += pf47.include ? (b_disp_ob_bull ? pf47.weight : 0) : 0
+sell_score += pf47.include ? (b_disp_ob_bear ? pf47.weight : 0) : 0
+buy_valid := buy_valid and (pf47.must ? b_disp_ob_bull : true)
+sell_valid := sell_valid and (pf47.must ? b_disp_ob_bear : true)
+
+preset_factor pf48 = f_pr_get(48, s_disp_fvg, 2, m_disp_fvg)
+bool b_disp_fvg_bull = b_disp_bull and b_fvg_precise_bull
+bool b_disp_fvg_bear = b_disp_bear and b_fvg_precise_bear
+buy_score += pf48.include ? (b_disp_fvg_bull ? pf48.weight : 0) : 0
+sell_score += pf48.include ? (b_disp_fvg_bear ? pf48.weight : 0) : 0
+buy_valid := buy_valid and (pf48.must ? b_disp_fvg_bull : true)
+sell_valid := sell_valid and (pf48.must ? b_disp_fvg_bear : true)
+
+preset_factor pf49 = f_pr_get(49, s_ob_avwap, 1, m_ob_avwap)
+bool b_ob_avwap_bull = b_ob_bull and b_avwap_bull
+bool b_ob_avwap_bear = b_ob_bear and b_avwap_bear
+buy_score += pf49.include ? (b_ob_avwap_bull ? pf49.weight : 0) : 0
+sell_score += pf49.include ? (b_ob_avwap_bear ? pf49.weight : 0) : 0
+buy_valid := buy_valid and (pf49.must ? b_ob_avwap_bull : true)
+sell_valid := sell_valid and (pf49.must ? b_ob_avwap_bear : true)
+
+preset_factor pf50 = f_pr_get(50, s_freshob_candle, 1, m_freshob_candle)
+bool b_freshob_candle_bull = b_ob_virgin_bull and cndl_bull
+bool b_freshob_candle_bear = b_ob_virgin_bear and cndl_bear
+buy_score += pf50.include ? (b_freshob_candle_bull ? pf50.weight : 0) : 0
+sell_score += pf50.include ? (b_freshob_candle_bear ? pf50.weight : 0) : 0
+buy_valid := buy_valid and (pf50.must ? b_freshob_candle_bull : true)
+sell_valid := sell_valid and (pf50.must ? b_freshob_candle_bear : true)
+
+preset_factor pf51 = f_pr_get(51, s_sd_fvg, 1, m_sd_fvg)
+bool b_sd_fvg_bull = b_sd_bull and b_fvg_precise_bull
+bool b_sd_fvg_bear = b_sd_bear and b_fvg_precise_bear
+buy_score += pf51.include ? (b_sd_fvg_bull ? pf51.weight : 0) : 0
+sell_score += pf51.include ? (b_sd_fvg_bear ? pf51.weight : 0) : 0
+buy_valid := buy_valid and (pf51.must ? b_sd_fvg_bull : true)
+sell_valid := sell_valid and (pf51.must ? b_sd_fvg_bear : true)
+
+preset_factor pf52 = f_pr_get(52, s_ote_ob, 1, m_ote_ob)
+bool b_ote_ob_bull = (ote_score_bull>=2) and b_ob_bull
+bool b_ote_ob_bear = (ote_score_bear>=2) and b_ob_bear
+buy_score += pf52.include ? (b_ote_ob_bull ? pf52.weight : 0) : 0
+sell_score += pf52.include ? (b_ote_ob_bear ? pf52.weight : 0) : 0
+buy_valid := buy_valid and (pf52.must ? b_ote_ob_bull : true)
+sell_valid := sell_valid and (pf52.must ? b_ote_ob_bear : true)
+
+preset_factor pf53 = f_pr_get(53, s_ote_sd, 1, m_ote_sd)
+bool b_ote_sd_bull = (ote_score_bull>=2) and b_sd_bull
+bool b_ote_sd_bear = (ote_score_bear>=2) and b_sd_bear
+buy_score += pf53.include ? (b_ote_sd_bull ? pf53.weight : 0) : 0
+sell_score += pf53.include ? (b_ote_sd_bear ? pf53.weight : 0) : 0
+buy_valid := buy_valid and (pf53.must ? b_ote_sd_bull : true)
+sell_valid := sell_valid and (pf53.must ? b_ote_sd_bear : true)
+
+preset_factor pf54 = f_pr_get(54, s_candle_sd, 1, m_candle_sd)
+bool b_candle_sd_bull = cndl_bull and b_sd_bull
+bool b_candle_sd_bear = cndl_bear and b_sd_bear
+buy_score += pf54.include ? (b_candle_sd_bull ? pf54.weight : 0) : 0
+sell_score += pf54.include ? (b_candle_sd_bear ? pf54.weight : 0) : 0
+buy_valid := buy_valid and (pf54.must ? b_candle_sd_bull : true)
+sell_valid := sell_valid and (pf54.must ? b_candle_sd_bear : true)
+
+preset_factor pf55 = f_pr_get(55, s_smact_smidx, 1, m_smact_smidx)
+bool b_smact_smidx_bull = sm_act_bull and sm_idx_bull
+bool b_smact_smidx_bear = sm_act_bear and sm_idx_bear
+buy_score += pf55.include ? (b_smact_smidx_bull ? pf55.weight : 0) : 0
+sell_score += pf55.include ? (b_smact_smidx_bear ? pf55.weight : 0) : 0
+buy_valid := buy_valid and (pf55.must ? b_smact_smidx_bull : true)
+sell_valid := sell_valid and (pf55.must ? b_smact_smidx_bear : true)
+
+preset_factor pf56 = f_pr_get(56, s_cvd_absorp, 1, m_cvd_absorp)
+bool b_cvd_absorp_bull = cvd_bull_div and sm_absorption
+bool b_cvd_absorp_bear = cvd_bear_div and sm_absorption
+buy_score += pf56.include ? (b_cvd_absorp_bull ? pf56.weight : 0) : 0
+sell_score += pf56.include ? (b_cvd_absorp_bear ? pf56.weight : 0) : 0
+buy_valid := buy_valid and (pf56.must ? b_cvd_absorp_bull : true)
+sell_valid := sell_valid and (pf56.must ? b_cvd_absorp_bear : true)
+
+preset_factor pf57 = f_pr_get(57, s_cvd_sm_hm, 2, m_cvd_sm_hm)
+bool b_cvd_sm_hm_bull = cvd_bull_div and sm_act_bull and hmv_b
+bool b_cvd_sm_hm_bear = cvd_bear_div and sm_act_bear and hmv_s
+buy_score += pf57.include ? (b_cvd_sm_hm_bull ? pf57.weight : 0) : 0
+sell_score += pf57.include ? (b_cvd_sm_hm_bear ? pf57.weight : 0) : 0
+buy_valid := buy_valid and (pf57.must ? b_cvd_sm_hm_bull : true)
+sell_valid := sell_valid and (pf57.must ? b_cvd_sm_hm_bear : true)
+
+preset_factor pf58 = f_pr_get(58, s_kde_stoch, 1, m_kde_stoch)
+bool b_kde_stoch_bull = osc_kde_bull and osc_stoch_bull
+bool b_kde_stoch_bear = osc_kde_bear and osc_stoch_bear
+buy_score += pf58.include ? (b_kde_stoch_bull ? pf58.weight : 0) : 0
+sell_score += pf58.include ? (b_kde_stoch_bear ? pf58.weight : 0) : 0
+buy_valid := buy_valid and (pf58.must ? b_kde_stoch_bull : true)
+sell_valid := sell_valid and (pf58.must ? b_kde_stoch_bear : true)
+
+preset_factor pf59 = f_pr_get(59, s_macd_cci, 1, m_macd_cci)
+bool b_macd_cci_bull = osc_macd_dlx_bull and osc_cci_bull
+bool b_macd_cci_bear = osc_macd_dlx_bear and osc_cci_bear
+buy_score += pf59.include ? (b_macd_cci_bull ? pf59.weight : 0) : 0
+sell_score += pf59.include ? (b_macd_cci_bear ? pf59.weight : 0) : 0
+buy_valid := buy_valid and (pf59.must ? b_macd_cci_bull : true)
+sell_valid := sell_valid and (pf59.must ? b_macd_cci_bear : true)
+
+preset_factor pf60 = f_pr_get(60, s_peter_tfdiv, 1, m_peter_tfdiv)
+bool b_peter_tfdiv_bull = osc_peter_bull and osc_tfdiv_bull
+bool b_peter_tfdiv_bear = osc_peter_bear and osc_tfdiv_bear
+buy_score += pf60.include ? (b_peter_tfdiv_bull ? pf60.weight : 0) : 0
+sell_score += pf60.include ? (b_peter_tfdiv_bear ? pf60.weight : 0) : 0
+buy_valid := buy_valid and (pf60.must ? b_peter_tfdiv_bull : true)
+sell_valid := sell_valid and (pf60.must ? b_peter_tfdiv_bear : true)
+
+preset_factor pf61 = f_pr_get(61, s_smt_mdiv, 1, m_smt_mdiv)
+bool b_smt_mdiv_bull = osc_smt_bull and osc_mdiv_bull
+bool b_smt_mdiv_bear = osc_smt_bear and osc_mdiv_bear
+buy_score += pf61.include ? (b_smt_mdiv_bull ? pf61.weight : 0) : 0
+sell_score += pf61.include ? (b_smt_mdiv_bear ? pf61.weight : 0) : 0
+buy_valid := buy_valid and (pf61.must ? b_smt_mdiv_bull : true)
+sell_valid := sell_valid and (pf61.must ? b_smt_mdiv_bear : true)
+
+preset_factor pf62 = f_pr_get(62, s_triple_div, 3, m_triple_div)
+bool b_triple_div_bull = osc_mdiv_bull and osc_peter_bull and osc_smt_bull
+bool b_triple_div_bear = osc_mdiv_bear and osc_peter_bear and osc_smt_bear
+buy_score += pf62.include ? (b_triple_div_bull ? pf62.weight : 0) : 0
+sell_score += pf62.include ? (b_triple_div_bear ? pf62.weight : 0) : 0
+buy_valid := buy_valid and (pf62.must ? b_triple_div_bull : true)
+sell_valid := sell_valid and (pf62.must ? b_triple_div_bear : true)
+
+preset_factor pf63 = f_pr_get(63, s_macross_matrend, 1, m_macross_matrend)
+bool b_macross_matrend_bull = x_ma_bull and ma_trend_bull
+bool b_macross_matrend_bear = x_ma_bear and ma_trend_bear
+buy_score += pf63.include ? (b_macross_matrend_bull ? pf63.weight : 0) : 0
+sell_score += pf63.include ? (b_macross_matrend_bear ? pf63.weight : 0) : 0
+buy_valid := buy_valid and (pf63.must ? b_macross_matrend_bull : true)
+sell_valid := sell_valid and (pf63.must ? b_macross_matrend_bear : true)
+
+preset_factor pf64 = f_pr_get(64, s_osc10_sum, 1, m_osc10_sum)
+buy_score += pf64.include ? (osc10_sum_bull_ok ? pf64.weight : 0) : 0
+sell_score += pf64.include ? (osc10_sum_bear_ok ? pf64.weight : 0) : 0
+buy_valid := buy_valid and (pf64.must ? osc10_sum_bull_ok : true)
+sell_valid := sell_valid and (pf64.must ? osc10_sum_bear_ok : true)
+
+preset_factor pf65 = f_pr_get(65, s_adx_tier, 1, m_adx_tier)
+buy_score += pf65.include ? (adx_tier_bull >= 1 ? adx_tier_bull * pf65.weight : 0) : 0
+sell_score += pf65.include ? (adx_tier_bear >= 1 ? adx_tier_bear * pf65.weight : 0) : 0
+buy_valid := buy_valid and (pf65.must ? adx_tier_bull >= 1 : true)
+sell_valid := sell_valid and (pf65.must ? adx_tier_bear >= 1 : true)
+
+preset_factor pf66 = f_pr_get(66, s_struct_fresh, 2, m_struct_fresh)
+buy_score += pf66.include ? (struct_fresh_bull ? pf66.weight : 0) : 0
+sell_score += pf66.include ? (struct_fresh_bear ? pf66.weight : 0) : 0
+buy_valid := buy_valid and (pf66.must ? struct_fresh_bull : true)
+sell_valid := sell_valid and (pf66.must ? struct_fresh_bear : true)
+
+// ── Фактор 67: консенсус направления скоринга с текущим наклоном светофора (по силе тиров+скора) ──
+f_side_strength(int ltf_s, int htf_s, int sc) => ltf_s*2.0 + htf_s*2.0 + sc
+bool consensus_lean_bull = f_side_strength(mtf_state_bull, htf_bull_conf, buy_score) > f_side_strength(mtf_state_bear, htf_bear_conf, sell_score)
+bool b_consensus_bull = consensus_lean_bull
+bool b_consensus_bear = not consensus_lean_bull
+
+preset_factor pf67 = f_pr_get(67, s_consensus, 1, m_consensus)
+buy_score += pf67.include ? (b_consensus_bull ? pf67.weight : 0) : 0
+sell_score += pf67.include ? (b_consensus_bear ? pf67.weight : 0) : 0
+buy_valid := buy_valid and (pf67.must ? b_consensus_bull : true)
+sell_valid := sell_valid and (pf67.must ? b_consensus_bear : true)
+
+// ====================================================================================================================
+// ГРЕЙДАЦИЯ (UserUZR, композитная модель)
+// ====================================================================================================================
+f_signal_grade(int ltf_sc, int htf_sc, int layers, int sc, int req, bool regime_aligned) =>
+    float safe_req = math.max(req, 1)
+    float ltf_pct = ltf_sc / 3.0
+    float htf_pct = htf_sc / 3.0
+    float score_pct = math.min(sc / safe_req, ga_score_cap)
+    float bonus = (layers >= 2 ? ga_bonus_layers : 0.0) + (regime_aligned ? ga_bonus_regime : 0.0)
+    float composite = ltf_pct*ga_w_ltf + htf_pct*ga_w_htf + score_pct*ga_w_score + bonus
+    string result = "NONE"
+    if composite >= ga_thresh_app
+        result := "A+"
+    else if composite >= ga_thresh_a
+        result := "A"
+    else if composite >= ga_thresh_b
+        result := "B"
+    else if composite >= ga_thresh_c
+        result := "C"
+    else if composite > 0.0
+        result := "D"
+    result
+
+f_grade_emoji(string grade) => switch grade
+    "A+" => "💎"
+    "A" => "🏆"
+    "B" => "🥇"
+    "C" => "🥈"
+    "D" => "⚪"
+    => "—"
+
+f_grade_color_bull(string grade) => switch grade
+    "A+" => color.new(#00c853,0)
+    "A" => color.new(#00c853,15)
+    "B" => color.new(#2196f3,20)
+    "C" => color.new(#2196f3,50)
+    => color.new(color.gray,40)
+
+f_grade_color_bear(string grade) => switch grade
+    "A+" => color.new(#d50000,0)
+    "A" => color.new(#d50000,15)
+    "B" => color.new(#ff6f00,20)
+    "C" => color.new(#ff6f00,50)
+    => color.new(color.gray,40)
+
+f_grade_info_bg(string grade, bool is_bull) => is_bull ? (grade=="A+"?info_bg_app_bull:grade=="A"?info_bg_a_bull:grade=="B"?info_bg_b_bull:grade=="C"?info_bg_c_bull:grade=="D"?info_bg_d_bull:info_bg_col) : (grade=="A+"?info_bg_app_bear:grade=="A"?info_bg_a_bear:grade=="B"?info_bg_b_bear:grade=="C"?info_bg_c_bear:grade=="D"?info_bg_d_bear:info_bg_col)
+f_grade_live_bg(string grade, bool is_bull) => is_bull ? (grade=="A+"?live_bg_app_bull:grade=="A"?live_bg_a_bull:grade=="B"?live_bg_b_bull:grade=="C"?live_bg_c_bull:grade=="D"?live_bg_d_bull:live_bg_none) : (grade=="A+"?live_bg_app_bear:grade=="A"?live_bg_a_bear:grade=="B"?live_bg_b_bear:grade=="C"?live_bg_c_bear:grade=="D"?live_bg_d_bear:live_bg_none)
+f_label_color_bull(string grade) => en_custom_label_color ? buy_label_col : f_grade_color_bull(grade)
+f_label_color_bear(string grade) => en_custom_label_color ? sell_label_col : f_grade_color_bear(grade)
+
+// ====================================================================================================================
+// ГЕНЕРАЦИЯ СИГНАЛОВ — realtime intrabar + non-repaint итог
+// ====================================================================================================================
+bool signal_is_score_buy = p1_connected and (buy_score >= req_score and buy_valid and full_gate_bull)
+bool signal_is_score_sell = p1_connected and (sell_score >= req_score and sell_valid and full_gate_bear)
+
+var int intrabar_bar_idx_buy = -1
+var int intrabar_bar_idx_sell = -1
+var float intrabar_signal_price_buy = na
+var float intrabar_signal_price_sell = na
+if intrabar_bar_idx_buy != bar_index
+    intrabar_signal_price_buy := na
+    intrabar_bar_idx_buy := bar_index
+if intrabar_bar_idx_sell != bar_index
+    intrabar_signal_price_sell := na
+    intrabar_bar_idx_sell := bar_index
+if signal_is_score_buy and na(intrabar_signal_price_buy)
+    intrabar_signal_price_buy := close
+if signal_is_score_sell and na(intrabar_signal_price_sell)
+    intrabar_signal_price_sell := close
+if not signal_is_score_buy
+    intrabar_signal_price_buy := na
+if not signal_is_score_sell
+    intrabar_signal_price_sell := na
+bool intrabar_signal_live_buy = not na(intrabar_signal_price_buy) and not barstate.isconfirmed
+bool intrabar_signal_live_sell = not na(intrabar_signal_price_sell) and not barstate.isconfirmed
+
+var bool is_buy = false
+var bool is_sell = false
+var int bars_since_any_buy = 999
+var int bars_since_any_sell = 999
+var float signal_price_buy = na
+var float signal_price_sell = na
+var string signal_grade_buy = "NONE"
+var string signal_grade_sell = "NONE"
+var string signal_cndl_name_buy = "—"
+var string signal_cndl_name_sell = "—"
+is_buy := false
+is_sell := false
+bars_since_any_buy := math.min(bars_since_any_buy+1, 999)
+bars_since_any_sell := math.min(bars_since_any_sell+1, 999)
+
+if barstate.isconfirmed
+    string grade_b_now = f_signal_grade(mtf_state_bull, htf_bull_conf, p1_zone_layers_bull, buy_score, req_score, final_regime_bull)
+    string grade_s_now = f_signal_grade(mtf_state_bear, htf_bear_conf, p1_zone_layers_bear, sell_score, req_score, final_regime_bear)
+    if signal_is_score_buy and bars_since_any_buy >= sig_lookback and f_grade_allowed(grade_b_now)
+        is_buy := true, bars_since_any_buy := 0
+        signal_price_buy := not na(intrabar_signal_price_buy) ? intrabar_signal_price_buy : close
+        signal_grade_buy := grade_b_now
+        signal_cndl_name_buy := cndl_name_live
+    if signal_is_score_sell and bars_since_any_sell >= sig_lookback and f_grade_allowed(grade_s_now)
+        is_sell := true, bars_since_any_sell := 0
+        signal_price_sell := not na(intrabar_signal_price_sell) ? intrabar_signal_price_sell : close
+        signal_grade_sell := grade_s_now
+        signal_cndl_name_sell := cndl_name_live
+
+// ====================================================================================================================
+// ЗАПОЛНЕНИЕ SIDE_DETAIL — включая новые поля osc10_sum/adx_tier/struct_fresh/consensus (UserUZR)
+// ====================================================================================================================
+pack_bull.smc := b_smc_bull, pack_bear.smc := b_smc_bear
+pack_bull.choch_sw := b_choch_sw_bull, pack_bear.choch_sw := b_choch_sw_bear
+pack_bull.bb := b_bb_bull, pack_bear.bb := b_bb_bear
+pack_bull.bos := b_bos_bull, pack_bear.bos := b_bos_bear
+pack_bull.choch := b_choch_bull, pack_bear.choch := b_choch_bear
+pack_bull.chb := bars_since_choch_bull, pack_bear.chb := bars_since_choch_bear
+pack_bull.sweep := b_sweep_bull, pack_bear.sweep := b_sweep_bear
+pack_bull.swb := bars_since_sweep_bull, pack_bear.swb := bars_since_sweep_bear
+pack_bull.disp := b_disp_bull, pack_bear.disp := b_disp_bear
+pack_bull.dpb := bars_since_disp_bull, pack_bear.dpb := bars_since_disp_bear
+pack_bull.avwap_x := b_avwap_cross_bull, pack_bear.avwap_x := b_avwap_cross_bear
+pack_bull.avwap := b_avwap_bull, pack_bear.avwap := b_avwap_bear
+pack_bull.virgin := b_ob_virgin_bull, pack_bear.virgin := b_ob_virgin_bear
+pack_bull.touches := p1_ob_touch_cnt_bull, pack_bear.touches := p1_ob_touch_cnt_bear
+pack_bull.ob_sd := b_ob_sd_bull, pack_bear.ob_sd := b_ob_sd_bear
+pack_bull.layers := p1_zone_layers_bull, pack_bear.layers := p1_zone_layers_bear
+pack_bull.fvg_p := b_fvg_precise_bull, pack_bear.fvg_p := b_fvg_precise_bear
+pack_bull.sd := b_sd_bull, pack_bear.sd := b_sd_bear
+pack_bull.ob := b_ob_bull, pack_bear.ob := b_ob_bear
+pack_bull.ob_fr := b_ob_fresh_bull, pack_bear.ob_fr := b_ob_fresh_bear
+pack_bull.ote := ote_score_bull, pack_bear.ote := ote_score_bear
+pack_bull.pd := b_pd_bull, pack_bear.pd := b_pd_bear
+pack_bull.sm_act := sm_act_bull, pack_bear.sm_act := sm_act_bear
+pack_bull.sm_bars := bars_since_sm_act_bull_N3, pack_bear.sm_bars := bars_since_sm_act_bear_N3
+pack_bull.sm_idx := sm_idx_bull, pack_bear.sm_idx := sm_idx_bear
+pack_bull.sm_int := sm_int_bull, pack_bear.sm_int := sm_int_bear
+pack_bull.cvd := cvd_bull_div, pack_bear.cvd := cvd_bear_div
+pack_bull.hm_bars := bars_since_hm_bull, pack_bear.hm_bars := bars_since_hm_bear
+pack_bull.sdinv := b_sdinv_bull, pack_bear.sdinv := b_sdinv_bear
+pack_bull.kde := in_kde_bull, pack_bear.kde := in_kde_bear
+pack_bull.stoch := osc_stoch_bull, pack_bear.stoch := osc_stoch_bear
+pack_bull.macd := osc_macd_dlx_bull, pack_bear.macd := osc_macd_dlx_bear
+pack_bull.cci := osc_cci_bull, pack_bear.cci := osc_cci_bear
+pack_bull.mdiv := osc_mdiv_bull, pack_bear.mdiv := osc_mdiv_bear
+pack_bull.mdiv_cnt := total_mdiv_bull, pack_bear.mdiv_cnt := total_mdiv_bear
+pack_bull.peter := osc_peter_bull, pack_bear.peter := osc_peter_bear
+pack_bull.tfdiv := osc_tfdiv_bull, pack_bear.tfdiv := osc_tfdiv_bear
+pack_bull.smt := osc_smt_bull, pack_bear.smt := osc_smt_bear
+pack_bull.osc6 := p2_osc6_strong_bull, pack_bear.osc6 := p2_osc6_strong_bear
+pack_bull.cndl_name := cndl_name_live, pack_bear.cndl_name := cndl_name_live
+pack_bull.cndl := cndl_bull, pack_bear.cndl := cndl_bear
+pack_bull.ma_x := x_ma_bull, pack_bear.ma_x := x_ma_bear
+pack_bull.ma_tr := ma_trend_bull, pack_bear.ma_tr := ma_trend_bear
+pack_bull.regime := final_regime_bull, pack_bear.regime := final_regime_bear
+pack_bull.bos_retest := b_bos_retest_bull, pack_bear.bos_retest := b_bos_retest_bear
+pack_bull.bos_retest_text := bos_retest_str_b, pack_bear.bos_retest_text := bos_retest_str_s
+pack_bull.choch_retest := b_choch_retest_bull, pack_bear.choch_retest := b_choch_retest_bear
+pack_bull.choch_retest_text := choch_retest_str_b, pack_bear.choch_retest_text := choch_retest_str_s
+pack_bull.hm_vol_sig := (b_hm_bull and hm_vol_significant), pack_bear.hm_vol_sig := (b_hm_bear and hm_vol_significant)
+pack_bull.osc10_sum := osc10_sum_bull_ltf, pack_bear.osc10_sum := osc10_sum_bear_ltf
+pack_bull.adx_tier := adx_tier_bull, pack_bear.adx_tier := adx_tier_bear
+pack_bull.struct_fresh := struct_fresh_bull, pack_bear.struct_fresh := struct_fresh_bear
+pack_bull.consensus := b_consensus_bull, pack_bear.consensus := b_consensus_bear
+
+// ====================================================================================================================
+// КОНТЕКСТ СЕССИИ И ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+// ====================================================================================================================
+f_session_context() =>
+    bool asian = not na(time("1440","0000-0900:1234567","UTC"))
+    bool london = not na(time("1440","0700-1600:1234567","UTC"))
+    bool ny = not na(time("1440","1200-2100:1234567","UTC"))
+    bool overlap = london and ny
+    string sess = overlap ? "🔥ЛДН+НЙ" : ny ? "🗽НЙ" : london ? "🇬🇧ЛДН" : asian ? "🌏АЗИЯ" : "🌙Закрыто"
+    string day = dayofweek==dayofweek.monday?"Пн":dayofweek==dayofweek.tuesday?"Вт":dayofweek==dayofweek.wednesday?"Ср":dayofweek==dayofweek.thursday?"Чт":dayofweek==dayofweek.friday?"Пт":"Вых"
+    sess + "│" + day + " " + str.format_time(time, "HH:mm", "UTC") + " UTC"
+
+f_get_align(str) => str == "Left" ? text.align_left : str == "Right" ? text.align_right : text.align_center
+
+f_cap_lines(string txt, int max_lines) =>
+    string result = txt
+    int newline_count = str.length(txt) - str.length(str.replace_all(txt, "\n", ""))
+    if newline_count > max_lines
+        string acc = ""
+        int cnt = 0
+        string remaining = txt
+        while cnt < max_lines
+            int pos = str.pos(remaining, "\n")
+            if na(pos)
+                acc += remaining
+                cnt := max_lines
+            else
+                acc += str.substring(remaining, 0, pos+1)
+                remaining := str.substring(remaining, pos+1)
+                cnt += 1
+        result := acc + "…[обрезано]"
+    result
+
+f_counter_side_summary(bool main_is_bull) =>
+    int c_ltf = main_is_bull ? mtf_state_bear : mtf_state_bull
+    int c_htf = main_is_bull ? htf_bear_conf : htf_bull_conf
+    int c_sc = main_is_bull ? sell_score : buy_score
+    string c_dir = main_is_bull ? "ПРОДАЖА" : "ПОКУПКА"
+    "⚖️ Противовес(" + c_dir + "): HTF " + str.tostring(c_htf) + "/3│LTF " + str.tostring(c_ltf) + "/3│Скор " + str.tostring(c_sc) + "/" + str.tostring(req_score)
+
+f_consensus_line(bool sig_is_bull) =>
+    bool light_lean_bull = consensus_lean_bull
+    bool match = sig_is_bull == light_lean_bull
+    "🚦 Консенсус со светофором: " + (match ? "✅ Согласован" : "⚠️ Расхождение") + " (светофор клонится: " + (light_lean_bull ? "ПОКУПКА" : "ПРОДАЖА") + ")"
+
+f_score_bar(int cur_s, int req_s) =>
+    int filled = math.min(cur_s, req_s)
+    string bar_str = ""
+    for i = 1 to req_s
+        bar_str += i <= filled ? "█" : "░"
+    string suffix = cur_s >= req_s ? " ✅ Готово" : " (осталось: " + str.tostring(math.max(0, req_s-cur_s)) + ")"
+    "[" + bar_str + "] " + str.tostring(cur_s) + "/" + str.tostring(req_s) + suffix
+
+f_zone_star_rating(side_detail d) =>
+    int layers = d.layers
+    bool virgin = d.virgin
+    bool ob_sd = d.ob_sd
+    bool choch_sw = d.choch_sw
+    int stars = 0
+    if layers >= 3
+        stars += 2
+    else if layers >= 2
+        stars += 1
+    if virgin
+        stars += 1
+    if ob_sd
+        stars += 1
+    if choch_sw
+        stars += 1
+    stars := math.min(stars, 5)
+    string star_str = ""
+    for i = 1 to 5
+        star_str += i <= stars ? "⭐" : "☆"
+    star_str + " (" + str.tostring(stars) + "/5)"
+
+f_freshness_sorted(side_detail d) =>
+    int c_bars = d.chb
+    int s_bars = d.swb
+    int hm_bars = d.hm_bars
+    int di_bars = d.dpb
+    int sm_bars = d.sm_bars
+    int[] ev_b = array.new<int>()
+    string[] ev_n = array.new<string>()
+    int THRESH = 12
+    if c_bars < THRESH
+        ev_b.push(c_bars), ev_n.push("⚡CHoCH")
+    if s_bars < THRESH
+        ev_b.push(s_bars), ev_n.push("🌊Sweep")
+    if hm_bars < THRESH
+        ev_b.push(hm_bars), ev_n.push("🔊HM-Sweep")
+    if di_bars < THRESH
+        ev_b.push(di_bars), ev_n.push("💥Дисплейсмент")
+    if sm_bars < THRESH
+        ev_b.push(sm_bars), ev_n.push("🐋SM-активность")
+    int sz = ev_b.size()
+    if sz > 1
+        for i = 0 to sz-2
+            for j = 0 to sz-2-i
+                if ev_b.get(j) > ev_b.get(j+1)
+                    int tb = ev_b.get(j)
+                    string tn = ev_n.get(j)
+                    ev_b.set(j, ev_b.get(j+1))
+                    ev_n.set(j, ev_n.get(j+1))
+                    ev_b.set(j+1, tb)
+                    ev_n.set(j+1, tn)
+    string out = ""
+    int top_n = math.min(sz-1, 3)
+    if sz > 0
+        for i = 0 to top_n
+            int b = ev_b.get(i)
+            string nm = ev_n.get(i)
+            string ic = b==0 ? "🔴" : b<=2 ? "🟠" : "🟡"
+            out += ic + " " + nm + ": " + str.tostring(b) + " б.назад\n"
+    out
+
+// ====================================================================================================================
+// ТЕКСТОВЫЕ СЕКЦИИ (UserUZR) — компактнее оригинала, без потери фактической информации
+// ====================================================================================================================
+f_struct_section(side_detail d, bool is_bull) =>
+    string out = ""
+    if d.smc
+        out += "📍 SMC: " + (is_bull ? "бычья" : "медвежья") + "\n"
+    if d.choch_sw
+        out += "⚡🌊 CHoCH после Sweep\n"
+    if d.bb
+        out += "🔗 Брейкер активен\n"
+    if d.bos
+        out += "🔄 BOS подтверждён\n"
+    if d.choch
+        out += "⚡ CHoCH активен\n"
+    if d.sweep
+        out += "🌊 Sweep ликвидности\n"
+    if d.sweep and d.ob
+        out += "🌊📦 Sweep+OB\n"
+    if d.disp
+        out += "💥 Displacement\n"
+    if d.disp and d.ob
+        out += "💥📦 Disp+OB\n"
+    if d.disp and d.fvg_p
+        out += "💥📦 Disp+FVG\n"
+    if d.avwap_x
+        out += "🎯 AVWAP пересечён " + (is_bull ? "вверх" : "вниз") + "\n"
+    else if d.avwap
+        out += "📌 Цена на стороне AVWAP\n"
+    if d.ob and d.avwap
+        out += "📦📌 OB+AVWAP\n"
+    if d.virgin
+        out += "✨ Девственный OB (каса.:" + str.tostring(d.touches) + ")\n"
+    else if d.touches == 1
+        out += "⚠️ OB: 1-е повт.каса.\n"
+    else if d.touches > 1
+        out += "⚠️ OB каса.раз: " + str.tostring(d.touches) + "\n"
+    if d.ob_sd
+        out += "🎯 OB в S&D\n"
+    if d.bos_retest
+        out += d.bos_retest_text + "\n🔄🎯 BOS+Retest\n"
+    if d.choch_retest
+        out += d.choch_retest_text + "\n⚡🎯 CHoCH+Retest\n"
+    if d.struct_fresh
+        out += "🏗️ Структ.свежесть-комбо (2+ событий недавно)\n"
+    out += f_freshness_sorted(d)
+    out == "" ? "" : "── 🏗️ Структура ──\n" + out
+
+f_zones_section(side_detail d, bool is_bull) =>
+    string out = ""
+    int v_layers = d.layers
+    string zone_q = v_layers>=3 ? "🔥📦📦📦 Зона 3 слоя\n" : v_layers==2 ? "💪 Зона 2 слоя\n" : v_layers==1 ? "⚪ Зона 1 слой\n" : ""
+    if v_layers >= 1
+        out += zone_q
+    if d.ob_fr
+        out += "✨ Свежий OB\n"
+    else if d.ob
+        out += "📦 OB активен\n"
+    if d.sd
+        out += "📦 Зона " + (is_bull ? "Demand" : "Supply") + "\n"
+    if d.sd and d.fvg_p
+        out += "📦📦 S&D+FVG\n"
+    if d.fvg_p
+        out += "📦 Внутри точного FVG\n🎯 FVG POC\n"
+    int v_ote = d.ote
+    if v_ote == 2
+        out += "⚖️ OTE зона(0.618-0.786)\n"
+        if d.ob
+            out += "⚖️📦 OTE+OB\n"
+        if d.sd
+            out += "⚖️📦 OTE+S&D\n"
+    else if d.pd
+        out += "📉 Зона " + (is_bull ? "дисконта" : "премии") + "\n"
+    if d.cndl and d.ob
+        out += "🕯️📦 Свеча в OB\n"
+    if d.cndl and d.sd
+        out += "🕯️📦 Свеча на границе S&D\n"
+    if d.virgin and d.cndl
+        out += "✨🕯️ FreshOB+Candle\n"
+    out == "" ? "" : "── 📐 Зоны ──\n" + out
+
+f_volume_section(side_detail d) =>
+    string out = ""
+    if d.sm_act
+        out += "🐋 SM Activity\n"
+    else if d.sm_bars <= 5
+        out += "🐋 SM была " + str.tostring(d.sm_bars) + " б.назад\n"
+    if d.sm_idx
+        out += "💰 SM Index\n"
+    if d.sm_int
+        out += "💡 SM Interest\n"
+    if d.sm_act and d.sm_idx
+        out += "🐋💰 SMAct+SMIdx\n"
+    if d.sm_act and d.sm_idx and d.sm_int
+        out += "🐋💰💡 SM Триплет\n"
+    if d.cvd
+        out += "🌊 CVD дивергенция\n"
+    if sm_absorption
+        out += "🧽 Absorption\n"
+    if d.cvd and sm_absorption
+        out += "🌊🧽 CVD+Absorption\n"
+    if d.hm_bars <= 5
+        out += "🔊 HM-Sweep " + str.tostring(d.hm_bars) + " б.назад\n"
+    if d.hm_vol_sig
+        out += "📦🔊 HM Sweep Vol(>1.5×SMA): " + str.tostring(p1_hm_vol, format.volume) + "\n"
+    if d.hm_vol_sig and d.cvd and d.sm_act
+        out += "🐋🔊 CVD+SM+HM (тройной)\n"
+    if d.sdinv
+        out += "💥 S&D Break\n"
+    out == "" ? "" : "── 📊 Объём ──\n" + out
+
+f_osc_section(side_detail d) =>
+    string out = ""
+    if d.kde
+        out += "📐 KDE RSI вышел из плотности\n"
+    if d.stoch
+        out += "🌀 Stoch Z развернулся\n"
+    if d.kde and d.stoch
+        out += "📐🌀 KDE+StochZ\n"
+    if d.macd
+        out += "⚙️ MACD Deluxe пересёк\n"
+    if d.cci
+        out += "🎢 Advanced CCI\n"
+    if d.macd and d.cci
+        out += "⚙️🎢 MACD+CCI\n"
+    if d.mdiv
+        out += "🔍 Multi-Div(" + str.tostring(d.mdiv_cnt) + ")\n"
+    if d.mdiv_cnt >= 3
+        out += "🔍🔍 Multi-Div 3+\n"
+    if d.peter
+        out += "🔎 Div-Engine B\n"
+    if d.tfdiv
+        out += "🧩 Div-Engine C\n"
+    if d.peter and d.tfdiv
+        out += "🔎🧩 EngineB+EngineC\n"
+    if d.smt
+        out += "🌐 SMT дивергенция\n"
+    if d.cvd and d.mdiv
+        out += "🌊🔍 CVD+MDiv\n"
+    if d.smt and d.mdiv
+        out += "🌐🔍 SMT+MDiv\n"
+    if d.mdiv and d.peter and d.smt
+        out += "🔍🔎🌐 Triple Div\n"
+    if d.osc6
+        out += "💪 OSC10 6+/10\n"
+    out += "📊 OSC10 сумма LTF: " + str.tostring(d.osc10_sum,"#.#") + "/30" + (d.osc10_sum>=osc10_sum_min?" ✅":"") + "\n"
+    out == "" ? "" : "── 🎛️ Осцилляторы ──\n" + out
+
+f_cndl_ma_section(side_detail d, bool is_bull) =>
+    string out = ""
+    out += "🕯️ Свеча в моменте: " + d.cndl_name + "\n"
+    if d.ma_x
+        out += "✕ MA Cross " + (is_bull ? "вверх" : "вниз") + "\n"
+    if d.ma_tr
+        out += "📈 MA Trend " + (is_bull ? "бычий" : "медвежий") + "\n"
+    if d.ma_x and d.ma_tr
+        out += "✕📈 MACross+MATrend\n"
+    "── 🕯️ Свечи и MA ──\n" + out
+
+f_market_section(side_detail d, bool is_bull) =>
+    string out = ""
+    if d.regime
+        out += "📈 Regime: ADX " + str.tostring(math.round(adx_val)) + " тир" + str.tostring(d.adx_tier) + " " + (is_bull ? "бычий" : "медвежий") + "\n"
+    else if regime_ranging
+        out += "😴 Ranging\n"
+    if regime_trending
+        out += "📊 Trending\n"
+    if regime_compression
+        out += "🔇 Compression\n"
+    if vol_ok
+        out += "🌪️ Волатильность расширена\n"
+    if d.regime and d.smc
+        out += "📊📍 Regime+SMC\n"
+    out == "" ? "" : "── 🌡️ Режим ──\n" + out
+
+f_mtf_complex_section(int ltf_sc, int htf_sc, int sc, int req, bool master_active, bool conf_ok) =>
+    string out = ""
+    if ltf_sc == 3 and htf_sc == 3
+        out += "🔵🟢 LTF3/3+HTF3/3 — A+ потенциал\n"
+    else if ltf_sc == 3 and htf_sc >= 2 and (sc >= req)
+        out += "🔵🟡 LTF3/3+HTF2/3 — A потенциал\n"
+    else if ltf_sc >= 2 and htf_sc >= 2 and sc >= req
+        out += "🟡🟡 LTF2/3+HTF2/3 — B потенциал\n"
+    else if ltf_sc >= 1 and htf_sc >= 1
+        out += "⚪⚪ Накопление контекста (C)\n"
+    if master_active
+        out += "✅ Master Signal P1\n"
+    if conf_ok
+        out += "✅ Confluence Main ≥7\n"
+    if master_active and conf_ok and ltf_sc == 3 and htf_sc == 3 and sc >= req
+        out += "💎 Снайперский комплекс (A+)\n"
+    out == "" ? "" : "── 🧬 MTF-комплексы ──\n" + out
+
+f_all_factors_block(side_detail d, bool is_bull, int ltf_sc, int htf_sc, int sc, int req) =>
+    f_struct_section(d, is_bull) + f_zones_section(d, is_bull) + f_volume_section(d) + f_osc_section(d) + f_cndl_ma_section(d, is_bull) + f_market_section(d, is_bull) + f_mtf_complex_section(ltf_sc, htf_sc, sc, req, is_bull ? b_master_bull : b_master_bear, is_bull ? b_conf_bull_ok : b_conf_bear_ok)
+
+// ====================================================================================================================
+// ИНФОБЛОК — добавлены строки консенсуса и противовеса (UserUZR)
+// ====================================================================================================================
+f_build_info(side_detail d, tf_detail_strings tf, int ltf_sc, int htf_sc, int layers, int sc, float sig_px, string grade, bool is_bull) =>
+    string info = ""
+    if not p1_connected
+        info := "⛔ Main P1 не подключён"
+    else
+        info += f_grade_emoji(grade) + " Грейд: " + grade + "\n"
+        info += "💲 Цена сигнала: " + str.tostring(sig_px, format.mintick) + "\n"
+        if info_show_time
+            info += "🕐 " + str.format_time(time, "HH:mm dd.MM.yy", "UTC") + " UTC\n"
+        if info_show_regime
+            string regime_str = d.regime ? "📈 " + (is_bull?"Бычий":"Медвежий") + " (ADX=" + str.tostring(math.round(adx_val)) + ")" : regime_compression ? "🔇 Сжатие" : regime_ranging ? "😴 Боковик" : "❓ Переход"
+            info += "🔭 Режим: " + regime_str + "\n"
+        info += "──────────────\n"
+        info += f_htf_icon(htf_sc) + " HTF(" + str.tostring(htf_sc) + "/3)──\n"
+        info += tf.htf1 + "\n" + tf.htf2 + "\n" + tf.htf3 + "\n" + tf.htf_verdict + "\n"
+        info += f_ltf_icon(ltf_sc) + " LTF(" + str.tostring(ltf_sc) + "/3)──\n"
+        info += tf.ltf1 + "\n" + tf.ltf2 + "\n" + tf.ltf3 + "\n" + tf.ltf_cascade_verdict + "\n"
+        info += "──────────────\n"
+        if info_show_zone_stars
+            info += "⭐ Зона: " + f_zone_star_rating(d) + "\n──────────────\n"
+        info += "🎯 СКОР: " + str.tostring(sc) + "/" + str.tostring(req_score) + "\n"
+        if info_show_counter
+            info += f_counter_side_summary(is_bull) + "\n"
+        if info_show_consensus
+            info += f_consensus_line(is_bull) + "\n"
+        info += "── ✅ Активные факторы ──\n"
+        info += f_all_factors_block(d, is_bull, ltf_sc, htf_sc, sc, req_score)
+    f_cap_lines(info, info_max_lines)
+
+// ====================================================================================================================
+// ЖИВОЙ СВЕТОФОР — работает постоянно, независимо от скоринга/must-флагов. Показывает ВСЁ активное сейчас,
+// включая факторы, помеченные "Обязат.", даже если условие ещё не выполнено. Пересчитывает имя свечи каждый тик.
+// ====================================================================================================================
+var label dynamic_lbl = na
+if (barstate.isrealtime or barstate.islast) and en_live_lbl and p1_connected
+    int cur_ltf_bull = mtf_state_bull
+    int cur_ltf_bear = mtf_state_bear
+    int cur_htf_bull = htf_bull_conf
+    int cur_htf_bear = htf_bear_conf
+    float strength_bull = f_side_strength(cur_ltf_bull, cur_htf_bull, buy_score)
+    float strength_bear = f_side_strength(cur_ltf_bear, cur_htf_bear, sell_score)
+    bool is_bull_d = strength_bull > strength_bear and (cur_ltf_bull > 0 or cur_htf_bull > 0 or buy_score > 0)
+    bool is_bear_d = not is_bull_d and (cur_ltf_bear > 0 or cur_htf_bear > 0 or sell_score > 0)
+    int cur_ltf = is_bull_d ? cur_ltf_bull : cur_ltf_bear
+    int cur_htf = is_bull_d ? cur_htf_bull : cur_htf_bear
+    bool live_now = is_bull_d ? intrabar_signal_live_buy : intrabar_signal_live_sell
+    float live_price = is_bull_d ? intrabar_signal_price_buy : intrabar_signal_price_sell
+
+    if cur_ltf > 0 or cur_htf > 0 or live_now or buy_score > 0 or sell_score > 0
+        string dir = is_bull_d ? "ПОКУПКА ↑" : "ПРОДАЖА ↓"
+        int cur_layers = is_bull_d ? p1_zone_layers_bull : p1_zone_layers_bear
+        int cur_score = is_bull_d ? buy_score : sell_score
+        bool cur_regime_aligned = is_bull_d ? final_regime_bull : final_regime_bear
+        string cur_grade = f_signal_grade(cur_ltf, cur_htf, cur_layers, cur_score, req_score, cur_regime_aligned)
+        side_detail cur_pack = is_bull_d ? pack_bull : pack_bear
+        tf_detail_strings cur_tf_pack = is_bull_d ? tf_pack_bull : tf_pack_bear
+        bool ready = (is_bull_d ? buy_score : sell_score) >= req_score and (is_bull_d ? buy_valid : sell_valid) and (is_bull_d ? full_gate_bull : full_gate_bear)
+        color bg_c = live_now ? live_bg_intrabar : f_grade_live_bg(cur_grade, is_bull_d)
+        string tier_txt = live_now ? "⚡ СИГНАЛ ВНУТРИ БАРА — " + dir + " @ " + str.tostring(live_price, format.mintick) : ready ? f_grade_emoji(cur_grade) + " СНАЙПЕРСКИЙ ВХОД (" + dir + ")" : cur_grade=="B" ? f_grade_emoji(cur_grade) + " Готов (" + dir + ")" : cur_grade=="C" ? f_grade_emoji(cur_grade) + " Почти готов (" + dir + ")" : cur_grade=="D" ? f_grade_emoji(cur_grade) + " Накопление (" + dir + ")" : "⏳ Нет контекста (" + dir + ")"
+        string poi_s = is_bull_d ? (b_ob_bull?"OB ":"")+(b_sd_bull?"S&D ":"")+(b_fvg_precise_bull?"FVG ":"")+(ote_score_bull>=2?"OTE":"") : (b_ob_bear?"OB ":"")+(b_sd_bear?"S&D ":"")+(b_fvg_precise_bear?"FVG ":"")+(ote_score_bear>=2?"OTE":"")
+        string metrics = f_htf_icon(cur_htf) + " HTF:" + str.tostring(cur_htf) + "/3│" + f_ltf_icon(cur_ltf) + " LTF:" + str.tostring(cur_ltf) + "/3\n📊 " + f_score_bar(cur_score, req_score) + "\n💲 " + str.tostring(close, format.mintick) + (live_show_session ? "│" + f_session_context() : "") + "\n🕯️ Свеча сейчас: " + cndl_name_live + "\n" + (info_show_counter ? f_counter_side_summary(is_bull_d) + "\n" : "") + (info_show_consensus ? f_consensus_line(is_bull_d) + "\n" : "")
+        string live_txt_raw = tier_txt + "\n" + metrics + "─────────\n── HTF ──\n" + cur_tf_pack.htf1 + "\n" + cur_tf_pack.htf2 + "\n" + cur_tf_pack.htf3 + "\n── LTF ──\n" + cur_tf_pack.ltf1 + "\n" + cur_tf_pack.ltf2 + "\n" + cur_tf_pack.ltf3 + "\n── POI: " + (poi_s=="" ? "нет" : poi_s) + " ──\n" + f_all_factors_block(cur_pack, is_bull_d, cur_ltf, cur_htf, cur_score, req_score)
+        string live_txt = f_cap_lines(live_txt_raw, live_max_lines)
+        float y_pos = is_bull_d ? low - atr14*live_lbl_gap : high + atr14*live_lbl_gap
+        string lbl_st = is_bull_d ? label.style_label_up : label.style_label_down
+        if not na(dynamic_lbl)
+            label.delete(dynamic_lbl)
+        dynamic_lbl := label.new(bar_index, y_pos, text=live_txt, style=lbl_st, color=bg_c, textcolor=live_text_col, size=get_size(live_text_size))
+    else
+        if not na(dynamic_lbl)
+            label.delete(dynamic_lbl)
+            dynamic_lbl := na
+
+if barstate.isconfirmed
+    if not na(dynamic_lbl)
+        label.delete(dynamic_lbl)
+        dynamic_lbl := na
+
+// ====================================================================================================================
+// 9. АЛЕРТЫ (Webhook/Telegram, UserUZR)
+// ====================================================================================================================
+grp_alert = "9. Алерты"
+en_alert_buy = input.bool(true, "Алерт ПОКУПКА", group=grp_alert)
+en_alert_sell = input.bool(true, "Алерт ПРОДАЖА", group=grp_alert)
+en_alert_intrabar = input.bool(true, "Алерт внутри бара", group=grp_alert)
+alert_prefix = input.string("🤖 UserUZR Sniper", "Префикс", group=grp_alert)
+alert_max_chars = input.int(3800, "Макс.символов", minval=500, maxval=4000, group=grp_alert)
+
+f_tv_link() => "https://www.tradingview.com/chart/?symbol=" + syminfo.tickerid
+f_alert_header(string direction, string grade, float price) => alert_prefix + "\n━━━━━━━━━━━━\n" + direction + " [" + grade + "] " + f_grade_emoji(grade) + "\n━━━━━━━━━━━━\n📊 " + syminfo.tickerid + " │ТФ:" + timeframe.period + "\n🔗 " + f_tv_link() + "\n💲 Вход: " + str.tostring(price, format.mintick) + "\n🕐 " + str.format_time(time, "HH:mm dd.MM.yyyy", "UTC") + " UTC\n━━━━━━━━━━━━\n"
+f_cap_chars(string txt, int max_c) => str.length(txt) > max_c ? str.substring(txt, 0, max_c) + "\n…[обрезано]" : txt
+
+// ====================================================================================================================
+// 10. УПРАВЛЕНИЕ СДЕЛКОЙ (SL/TP1/TP2/TP3, UserUZR)
+// ====================================================================================================================
+grp_trade = "10. Управление сделкой"
+en_trade_mgmt = input.bool(true, "🟢 Модуль сделки", group=grp_trade)
+sl_mode = input.string("Под свечу сигнала", "Режим стопа", options=["% от входа", "Под свечу сигнала"], group=grp_trade)
+sl_pct = input.float(1.0, "SL % от входа", minval=0.01, step=0.05, group=grp_trade)
+tp1_pct = input.float(0.4, "TP1 % от входа", minval=0.01, step=0.05, inline="tp1", group=grp_trade)
+tp1_vol = input.float(25.0, "TP1 % объёма", minval=1.0, maxval=100.0, step=1.0, inline="tp1", group=grp_trade)
+tp2_pct = input.float(2.0, "TP2 % от входа", minval=0.01, step=0.05, inline="tp2", group=grp_trade)
+tp2_vol = input.float(35.0, "TP2 % объёма", minval=1.0, maxval=100.0, step=1.0, inline="tp2", group=grp_trade)
+tp3_pct = input.float(3.0, "TP3 % от входа", minval=0.01, step=0.05, inline="tp3", group=grp_trade)
+en_be_on_tp1 = input.bool(true, "Перенос SL в БУ на TP1", group=grp_trade)
+en_alert_trade_open = input.bool(true, "Алерт: открытие", group=grp_trade)
+en_alert_tp1 = input.bool(true, "Алерт: TP1", group=grp_trade)
+en_alert_tp2 = input.bool(true, "Алерт: TP2", group=grp_trade)
+en_alert_tp3 = input.bool(true, "Алерт: TP3(закрытие)", group=grp_trade)
+en_alert_sl = input.bool(true, "Алерт: SL", group=grp_trade)
+en_alert_be = input.bool(true, "Алерт: перенос в БУ", group=grp_trade)
+en_alert_replaced = input.bool(true, "Алерт: закрыта новым сигналом", group=grp_trade)
+en_trade_info_lbl = input.bool(true, "Метка уровней на графике", group=grp_trade)
+
+var trade_state cur_trade = trade_state.new()
+
+f_calc_sl(bool is_bull, float entry_px, float sig_low, float sig_high) =>
+    float sl_result = na
+    if sl_mode == "% от входа"
+        sl_result := is_bull ? entry_px * (1 - sl_pct/100) : entry_px * (1 + sl_pct/100)
+    else
+        sl_result := is_bull ? sig_low : sig_high
+    sl_result
+
+f_trade_ref(trade_state t) =>
+    string dir_str = t.is_buy ? "📈 ПОКУПКА" : "📉 ПРОДАЖА"
+    "🔗 " + dir_str + " [" + t.grade + "]\n💲 Вход:" + str.tostring(t.entry, format.mintick) + "│🕐" + str.format_time(t.entry_time, "HH:mm dd.MM.yyyy", "UTC") + " UTC\n📊 " + syminfo.tickerid + "│🔗 " + f_tv_link() + "\n"
+
+if en_trade_mgmt and barstate.isconfirmed and (is_buy or is_sell)
+    bool new_is_buy = is_buy
+    float new_entry = new_is_buy ? signal_price_buy : signal_price_sell
+    string new_grade = new_is_buy ? signal_grade_buy : signal_grade_sell
+    if cur_trade.active and not cur_trade.closed
+        bool had_remaining = not cur_trade.tp3_hit and not cur_trade.sl_hit
+        if had_remaining and en_alert_replaced
+            string msg_repl = f_alert_header("🔁 СДЕЛКА ЗАКРЫТА НОВЫМ СИГНАЛОМ", cur_trade.grade, close) + f_trade_ref(cur_trade) + "Новый: " + (new_is_buy ? "ПОКУПКА" : "ПРОДАЖА") + "[" + new_grade + "]@" + str.tostring(new_entry, format.mintick)
+            alert(f_cap_chars(msg_repl, alert_max_chars), alert.freq_once_per_bar_close)
+        cur_trade.active := false
+        cur_trade.closed := true
+    trade_state t = trade_state.new()
+    t.active := true
+    t.is_buy := new_is_buy
+    t.entry := new_entry
+    t.sl := f_calc_sl(new_is_buy, new_entry, low, high)
+    t.tp1 := new_is_buy ? new_entry * (1 + tp1_pct/100) : new_entry * (1 - tp1_pct/100)
+    t.tp2 := new_is_buy ? new_entry * (1 + tp2_pct/100) : new_entry * (1 - tp2_pct/100)
+    t.tp3 := new_is_buy ? new_entry * (1 + tp3_pct/100) : new_entry * (1 - tp3_pct/100)
+    t.grade := new_grade
+    t.entry_time := time
+    t.signal_bar := bar_index
+    t.signal_price := new_entry
+    t.sl_pct_calc := math.abs(new_entry - t.sl) / new_entry * 100
+    cur_trade := t
+    if en_alert_trade_open
+        string dir_lbl = new_is_buy ? "📈 ОТКРЫТА — ПОКУПКА" : "📉 ОТКРЫТА — ПРОДАЖА"
+        string msg_open = f_alert_header(dir_lbl, new_grade, new_entry) + "🛡️ SL:" + str.tostring(cur_trade.sl, format.mintick) + "(" + str.tostring(cur_trade.sl_pct_calc,"#.##") + "%,реж:" + sl_mode + ")\n🎯 TP1:" + str.tostring(cur_trade.tp1, format.mintick) + "(" + str.tostring(tp1_pct,"#.##") + "%,vol" + str.tostring(tp1_vol,"#") + "%)\n🎯 TP2:" + str.tostring(cur_trade.tp2, format.mintick) + "(" + str.tostring(tp2_pct,"#.##") + "%,vol" + str.tostring(tp2_vol,"#") + "%)\n🎯 TP3:" + str.tostring(cur_trade.tp3, format.mintick) + "(" + str.tostring(tp3_pct,"#.##") + "%,остаток)\n" + (en_be_on_tp1 ? "🔄 БУ на TP1: вкл\n" : "")
+        alert(f_cap_chars(msg_open, alert_max_chars), alert.freq_once_per_bar_close)
+    if en_trade_info_lbl
+        string lvl_txt = "SL " + str.tostring(cur_trade.sl, format.mintick) + "(" + str.tostring(cur_trade.sl_pct_calc,"#.##") + "%)\nTP1 " + str.tostring(cur_trade.tp1, format.mintick) + "\nTP2 " + str.tostring(cur_trade.tp2, format.mintick) + "\nTP3 " + str.tostring(cur_trade.tp3, format.mintick)
+        label.new(bar_index, new_is_buy ? low - atr14*2.2 : high + atr14*2.2, text=lvl_txt, style=new_is_buy ? label.style_label_up : label.style_label_down, color=color.new(color.blue,85), textcolor=color.black, size=size.tiny)
+
+if en_trade_mgmt and barstate.isconfirmed and cur_trade.active and not cur_trade.closed
+    bool event_happened = false
+    if cur_trade.is_buy
+        if not event_happened and low <= cur_trade.sl
+            cur_trade.sl_hit := true, cur_trade.active := false, cur_trade.closed := true, event_happened := true
+            if en_alert_sl
+                alert(f_cap_chars(f_alert_header("🛑 SL СРАБОТАЛ", cur_trade.grade, cur_trade.sl) + f_trade_ref(cur_trade) + "SL:" + str.tostring(cur_trade.sl, format.mintick) + (cur_trade.be_active?"(был в БУ)":""), alert_max_chars), alert.freq_once_per_bar_close)
+        if not event_happened and not cur_trade.tp1_hit and high >= cur_trade.tp1
+            cur_trade.tp1_hit := true, event_happened := true
+            if en_alert_tp1
+                alert(f_cap_chars(f_alert_header("🎯 TP1", cur_trade.grade, cur_trade.tp1) + f_trade_ref(cur_trade) + "Зафикс:" + str.tostring(tp1_vol,"#") + "%│Остаток:" + str.tostring(100-tp1_vol,"#") + "%", alert_max_chars), alert.freq_once_per_bar_close)
+            if en_be_on_tp1
+                cur_trade.sl := cur_trade.entry, cur_trade.be_active := true
+                if en_alert_be
+                    alert(f_cap_chars(f_alert_header("🔄 БЕЗУБЫТОК", cur_trade.grade, cur_trade.entry) + f_trade_ref(cur_trade) + "Новый SL:" + str.tostring(cur_trade.sl, format.mintick), alert_max_chars), alert.freq_once_per_bar_close)
+        if not event_happened and cur_trade.tp1_hit and not cur_trade.tp2_hit and high >= cur_trade.tp2
+            cur_trade.tp2_hit := true, event_happened := true
+            if en_alert_tp2
+                alert(f_cap_chars(f_alert_header("🎯 TP2", cur_trade.grade, cur_trade.tp2) + f_trade_ref(cur_trade) + "Зафикс:" + str.tostring(tp2_vol,"#") + "%│Остаток:" + str.tostring(math.max(0.0,100-tp1_vol-tp2_vol),"#") + "%", alert_max_chars), alert.freq_once_per_bar_close)
+        if not event_happened and cur_trade.tp2_hit and not cur_trade.tp3_hit and high >= cur_trade.tp3
+            cur_trade.tp3_hit := true, cur_trade.active := false, cur_trade.closed := true, event_happened := true
+            if en_alert_tp3
+                alert(f_cap_chars(f_alert_header("🎯 TP3-ЗАКРЫТИЕ", cur_trade.grade, cur_trade.tp3) + f_trade_ref(cur_trade) + "Остаток зафиксирован.", alert_max_chars), alert.freq_once_per_bar_close)
+    else
+        if not event_happened and high >= cur_trade.sl
+            cur_trade.sl_hit := true, cur_trade.active := false, cur_trade.closed := true, event_happened := true
+            if en_alert_sl
+                alert(f_cap_chars(f_alert_header("🛑 SL СРАБОТАЛ", cur_trade.grade, cur_trade.sl) + f_trade_ref(cur_trade) + "SL:" + str.tostring(cur_trade.sl, format.mintick) + (cur_trade.be_active?"(был в БУ)":""), alert_max_chars), alert.freq_once_per_bar_close)
+        if not event_happened and not cur_trade.tp1_hit and low <= cur_trade.tp1
+            cur_trade.tp1_hit := true, event_happened := true
+            if en_alert_tp1
+                alert(f_cap_chars(f_alert_header("🎯 TP1", cur_trade.grade, cur_trade.tp1) + f_trade_ref(cur_trade) + "Зафикс:" + str.tostring(tp1_vol,"#") + "%│Остаток:" + str.tostring(100-tp1_vol,"#") + "%", alert_max_chars), alert.freq_once_per_bar_close)
+            if en_be_on_tp1
+                cur_trade.sl := cur_trade.entry, cur_trade.be_active := true
+                if en_alert_be
+                    alert(f_cap_chars(f_alert_header("🔄 БЕЗУБЫТОК", cur_trade.grade, cur_trade.entry) + f_trade_ref(cur_trade) + "Новый SL:" + str.tostring(cur_trade.sl, format.mintick), alert_max_chars), alert.freq_once_per_bar_close)
+        if not event_happened and cur_trade.tp1_hit and not cur_trade.tp2_hit and low <= cur_trade.tp2
+            cur_trade.tp2_hit := true, event_happened := true
+            if en_alert_tp2
+                alert(f_cap_chars(f_alert_header("🎯 TP2", cur_trade.grade, cur_trade.tp2) + f_trade_ref(cur_trade) + "Зафикс:" + str.tostring(tp2_vol,"#") + "%│Остаток:" + str.tostring(math.max(0.0,100-tp1_vol-tp2_vol),"#") + "%", alert_max_chars), alert.freq_once_per_bar_close)
+        if not event_happened and cur_trade.tp2_hit and not cur_trade.tp3_hit and low <= cur_trade.tp3
+            cur_trade.tp3_hit := true, cur_trade.active := false, cur_trade.closed := true, event_happened := true
+            if en_alert_tp3
+                alert(f_cap_chars(f_alert_header("🎯 TP3-ЗАКРЫТИЕ", cur_trade.grade, cur_trade.tp3) + f_trade_ref(cur_trade) + "Остаток зафиксирован.", alert_max_chars), alert.freq_once_per_bar_close)
+
+// ====================================================================================================================
+// ВИЗУАЛИЗАЦИЯ ЛЕЙБЛОВ BUY/SELL — signal-имя свечи (замороженное) идёт в инфоблок
+// ====================================================================================================================
+if is_buy
+    int ltf_s = mtf_state_bull
+    int htf_s = htf_bull_conf
+    int layers = p1_zone_layers_bull
+    string grade = signal_grade_buy
+    color buy_col = f_label_color_bull(grade)
+    string zone_ic = layers>=3 ? "🔥" : layers==2 ? "💪" : ""
+    string buy_txt = f_grade_emoji(grade) + " " + f_htf_icon(htf_s) + f_ltf_icon(ltf_s) + zone_ic + " ПОКУПКА[" + grade + "]\nСкор:" + str.tostring(buy_score) + "/" + str.tostring(req_score)
+    if en_sig_labels
+        label.new(bar_index, low - atr14, text=buy_txt, style=label.style_label_up, color=buy_col, textcolor=sig_text_col, size=get_size(sig_text_size))
+    side_detail pack_bull_signal = pack_bull
+    pack_bull_signal.cndl_name := signal_cndl_name_buy
+    if en_info_block
+        color info_bg = f_grade_info_bg(grade, true)
+        label.new(bar_index, low - atr14*(1+info_gap), text=f_build_info(pack_bull_signal, tf_pack_bull, ltf_s, htf_s, layers, buy_score, signal_price_buy, grade, true), style=label.style_label_up, color=info_bg, textcolor=info_text_col, size=get_size(info_text_size), textalign=f_get_align(info_align))
+    if en_alert_buy
+        string msg_buy = f_alert_header("📈 ПОКУПКА", signal_grade_buy, signal_price_buy) + f_build_info(pack_bull_signal, tf_pack_bull, mtf_state_bull, htf_bull_conf, p1_zone_layers_bull, buy_score, signal_price_buy, signal_grade_buy, true)
+        alert(f_cap_chars(msg_buy, alert_max_chars), alert.freq_once_per_bar_close)
+
+if is_sell
+    int ltf_s = mtf_state_bear
+    int htf_s = htf_bear_conf
+    int layers = p1_zone_layers_bear
+    string grade = signal_grade_sell
+    color sell_col = f_label_color_bear(grade)
+    string zone_ic = layers>=3 ? "🔥" : layers==2 ? "💪" : ""
+    string sell_txt = f_grade_emoji(grade) + " " + f_htf_icon(htf_s) + f_ltf_icon(ltf_s) + zone_ic + " ПРОДАЖА[" + grade + "]\nСкор:" + str.tostring(sell_score) + "/" + str.tostring(req_score)
+    if en_sig_labels
+        label.new(bar_index, high + atr14, text=sell_txt, style=label.style_label_down, color=sell_col, textcolor=sig_text_col, size=get_size(sig_text_size))
+    side_detail pack_bear_signal = pack_bear
+    pack_bear_signal.cndl_name := signal_cndl_name_sell
+    if en_info_block
+        color info_bg = f_grade_info_bg(grade, false)
+        label.new(bar_index, high + atr14*(1+info_gap), text=f_build_info(pack_bear_signal, tf_pack_bear, ltf_s, htf_s, layers, sell_score, signal_price_sell, grade, false), style=label.style_label_down, color=info_bg, textcolor=info_text_col, size=get_size(info_text_size), textalign=f_get_align(info_align))
+    if en_alert_sell
+        string msg_sell = f_alert_header("📉 ПРОДАЖА", signal_grade_sell, signal_price_sell) + f_build_info(pack_bear_signal, tf_pack_bear, mtf_state_bear, htf_bear_conf, p1_zone_layers_bear, sell_score, signal_price_sell, signal_grade_sell, false)
+        alert(f_cap_chars(msg_sell, alert_max_chars), alert.freq_once_per_bar_close)
+
+if en_alert_intrabar and intrabar_signal_live_buy
+    string ib_grade_b = f_signal_grade(mtf_state_bull, htf_bull_conf, p1_zone_layers_bull, buy_score, req_score, final_regime_bull)
+    string msg_ib_buy = f_alert_header("⚡ ВНУТРИ БАРА — ПОКУПКА", ib_grade_b, intrabar_signal_price_buy) + f_htf_icon(htf_bull_conf) + " HTF:" + str.tostring(htf_bull_conf) + "/3│" + f_ltf_icon(mtf_state_bull) + " LTF:" + str.tostring(mtf_state_bull) + "/3\n📊 " + f_score_bar(buy_score, req_score) + "\n🕯️ " + cndl_name_live + "\n─────\n" + f_all_factors_block(pack_bull, true, mtf_state_bull, htf_bull_conf, buy_score, req_score)
+    alert(f_cap_chars(msg_ib_buy, alert_max_chars), alert.freq_once_per_bar)
+
+if en_alert_intrabar and intrabar_signal_live_sell
+    string ib_grade_s = f_signal_grade(mtf_state_bear, htf_bear_conf, p1_zone_layers_bear, sell_score, req_score, final_regime_bear)
+    string msg_ib_sell = f_alert_header("⚡ ВНУТРИ БАРА — ПРОДАЖА", ib_grade_s, intrabar_signal_price_sell) + f_htf_icon(htf_bear_conf) + " HTF:" + str.tostring(htf_bear_conf) + "/3│" + f_ltf_icon(mtf_state_bear) + " LTF:" + str.tostring(mtf_state_bear) + "/3\n📊 " + f_score_bar(sell_score, req_score) + "\n🕯️ " + cndl_name_live + "\n─────\n" + f_all_factors_block(pack_bear, false, mtf_state_bear, htf_bear_conf, sell_score, req_score)
+    alert(f_cap_chars(msg_ib_sell, alert_max_chars), alert.freq_once_per_bar)
