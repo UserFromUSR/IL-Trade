@@ -1,0 +1,1441 @@
+//@version=6
+indicator("UserUZR Elliote Waves Auto-Detect Engine v1", overlay=true, max_bars_back=5000)
+
+// ================================================================
+// SECTION 1 — INPUTS
+// ================================================================
+grpMethod   = "Метод определения пивотов"
+pivotMethod = input.string("ZigZag %", "Метод пивотов", options=["ZigZag %", "ZigZag ATR", "Fractals N"], group=grpMethod)
+
+grpZZP = "ZigZag % — параметры"
+devPercent = input.float(5.0, "Отклонение, %", minval=0.1, step=0.1, group=grpZZP)
+
+grpZZA = "ZigZag ATR — параметры"
+atrLen  = input.int(14, "Длина ATR", minval=1, group=grpZZA)
+atrMult = input.float(2.0, "Множитель ATR", minval=0.1, step=0.1, group=grpZZA)
+
+grpFR = "Fractals N — параметры"
+fractalLen = input.int(2, "Баров с каждой стороны", minval=1, maxval=20, group=grpFR)
+
+grpGen    = "Общие"
+maxPivots = input.int(300, "Макс. хранимых пивотов (Primary)", minval=50, maxval=2000, group=grpGen)
+
+grpDisp    = "Отображение пивотов"
+showLabels = input.bool(true, "Показывать цены пивотов", group=grpDisp)
+lineWidth  = input.int(2, "Толщина линии пивотов", minval=1, maxval=5, group=grpDisp)
+colorUp    = input.color(color.new(color.lime, 0), "Цвет восх. сегмента", group=grpDisp)
+colorDown  = input.color(color.new(color.red, 0), "Цвет нисх. сегмента", group=grpDisp)
+
+grpScan       = "Сканер структур"
+scanMaxDraw   = input.int(50, "Макс. отрисованных находок", minval=5, maxval=500, group=grpScan)
+minConfidence = input.float(60.0, "Мин. confidence для отрисовки", minval=0.0, maxval=100.0, group=grpScan)
+showImpulses   = input.bool(true, "Показывать импульсы", group=grpScan)
+showZigzags    = input.bool(true, "Показывать зигзаги", group=grpScan)
+showDblZigzags = input.bool(true, "Показывать двойные зигзаги", group=grpScan)
+showDiagonals  = input.bool(true, "Показывать диагонали", group=grpScan)
+showFlats      = input.bool(true, "Показывать плоскости", group=grpScan)
+showTriangles  = input.bool(true, "Показывать треугольники", group=grpScan)
+showCombos     = input.bool(true, "Показывать комбинации", group=grpScan)
+
+grpColors = "Цвета структур (по типам)"
+colImpulse      = input.color(color.lime,     "Импульс", group=grpColors)
+colZigzagK      = input.color(color.orange,   "Зигзаг", group=grpColors)
+colDoubleZigzag = input.color(color.olive,    "Двойной зигзаг", group=grpColors)
+colDiagonalK    = input.color(color.aqua,     "Диагональ", group=grpColors)
+colFlatK        = input.color(color.yellow,   "Плоскость", group=grpColors)
+colTriangleK    = input.color(color.purple,   "Треугольник", group=grpColors)
+colCombinationK = input.color(color.fuchsia,  "Комбинация", group=grpColors)
+structTextColor = input.color(color.white,    "Цвет текста подписей структур", group=grpColors)
+structTextSizeS = input.string("Крошечный", "Размер текста подписей структур",
+     options=["Крошечный","Маленький","Обычный","Большой","Огромный"], group=grpColors)
+
+grpDeg       = "Вложенность степеней"
+enableNesting = input.bool(true, "Искать вложенные волны (Intermediate)", group=grpDeg)
+finerDivisor  = input.float(2.5, "Во сколько раз мельче порог для Intermediate", minval=1.2, maxval=10, group=grpDeg)
+
+grpMTF     = "Мультитаймфрейм"
+htfEnabled = input.bool(true, "Показывать структуры со старшего TF", group=grpMTF)
+htfTF      = input.timeframe("240", "Старший таймфрейм", group=grpMTF)
+htfMaxSend = input.int(15, "Макс. структур для передачи с HTF", minval=1, maxval=50, group=grpMTF)
+
+grpProj = "Прогноз — зоны (боксы)"
+showProjection      = input.bool(true, "Показывать прогнозные зоны", group=grpProj)
+projBarsForward     = input.int(20, "Ширина прогнозной зоны, баров", minval=5, maxval=200, group=grpProj)
+projZoneOverride    = input.bool(false, "Использовать один цвет для всех зон вместо контекстных", group=grpProj)
+projZoneCustomColor = input.color(color.blue, "Свой цвет зон (если включено выше)", group=grpProj)
+projZoneTextColor   = input.color(color.white, "Цвет текста подписей зон", group=grpProj)
+projZoneTextSizeS   = input.string("Маленький", "Размер текста подписей зон",
+     options=["Крошечный","Маленький","Обычный","Большой","Огромный"], group=grpProj)
+
+grpProjLvl = "Прогноз — горизонтальные линии уровней"
+showProjLevelLines    = input.bool(true, "Показывать линии границ зон", group=grpProjLvl)
+levelLineOverride     = input.bool(false, "Использовать свой цвет для линий уровней", group=grpProjLvl)
+levelLineCustomColor  = input.color(color.gray, "Свой цвет линий уровней (если включено выше)", group=grpProjLvl)
+levelLineWidth        = input.int(1, "Толщина линии уровня", minval=1, maxval=4, group=grpProjLvl)
+levelLineStyleS       = input.string("Пунктир", "Стиль линии уровня",
+     options=["Сплошная","Пунктир","Точки"], group=grpProjLvl)
+
+grpProjChan = "Прогноз — трендовые линии каналов"
+showChannelLines     = input.bool(true, "Показывать трендовые линии каналов", group=grpProjChan)
+channelLineOverride  = input.bool(false, "Использовать свой цвет для линий каналов", group=grpProjChan)
+channelLineCustom    = input.color(color.white, "Свой цвет линий каналов (если включено выше)", group=grpProjChan)
+channelLineWidth     = input.int(2, "Толщина линии канала", minval=1, maxval=5, group=grpProjChan)
+channelTextColor     = input.color(color.white, "Цвет текста подписей каналов", group=grpProjChan)
+channelTextSizeS     = input.string("Маленький", "Размер текста подписей каналов",
+     options=["Крошечный","Маленький","Обычный","Большой","Огромный"], group=grpProjChan)
+
+grpProjRisk = "Прогноз — ограничение экстраполяции"
+projMaxAtrMult = input.float(15.0, "Макс. отклонение прогноза (в ATR)", minval=1.0, maxval=100.0, group=grpProjRisk)
+
+grpPath = "Прогноз — путь движения к цели"
+showPathStraight    = input.bool(true, "Показывать прямую траекторию", group=grpPath)
+pathStraightColor   = input.color(color.white, "Цвет прямой траектории", group=grpPath)
+pathStraightWidth   = input.int(1, "Толщина прямой траектории", minval=1, maxval=4, group=grpPath)
+showPathZigzag      = input.bool(true, "Показывать волновой путь (мини-зигзаг)", group=grpPath)
+pathZigzagColor     = input.color(color.aqua, "Цвет волнового пути", group=grpPath)
+pathZigzagWidth     = input.int(1, "Толщина волнового пути", minval=1, maxval=4, group=grpPath)
+pathZigzagSegments  = input.int(4, "Сегментов волнового пути", minval=2, maxval=8, group=grpPath)
+showPathCone        = input.bool(true, "Показывать конус вероятности", group=grpPath)
+pathConeColor       = input.color(color.gray, "Цвет линий конуса", group=grpPath)
+pathConeWidth       = input.int(1, "Толщина линий конуса", minval=1, maxval=4, group=grpPath)
+pathConeFillTransp  = input.int(85, "Прозрачность заливки конуса", minval=50, maxval=98, group=grpPath)
+pathLabelBgColor    = input.color(color.new(color.black, 70), "Фон подписей пути", group=grpPath)
+pathTextColor       = input.color(color.white, "Цвет текста подписей пути", group=grpPath)
+pathTextSizeS       = input.string("Крошечный", "Размер текста подписей пути",
+     options=["Крошечный","Маленький","Обычный","Большой","Огромный"], group=grpPath)
+
+grpSignals = "Лейблы Покупка/Продажа"
+showSignalTouch     = input.bool(true, "Сигнал по касанию границы прогнозной зоны", group=grpSignals)
+showSignalStructure = input.bool(true, "Сигнал по завершению подтверждённой структуры", group=grpSignals)
+buySignalColor      = input.color(color.new(color.lime, 20), "Цвет фона 'Покупка'", group=grpSignals)
+sellSignalColor     = input.color(color.new(color.red, 20), "Цвет фона 'Продажа'", group=grpSignals)
+signalTextColor     = input.color(color.white, "Цвет текста лейблов", group=grpSignals)
+signalTextSizeS     = input.string("Маленький", "Размер текста лейблов",
+     options=["Крошечный","Маленький","Обычный","Большой","Огромный"], group=grpSignals)
+
+grpDash = "Дашборд"
+showDashboard   = input.bool(true, "Показывать дашборд", group=grpDash)
+dashPositionS   = input.string("Верх справа", "Позиция дашборда",
+     options=["Верх слева","Верх по центру","Верх справа","Середина слева","Середина справа","Низ слева","Низ по центру","Низ справа"], group=grpDash)
+dashBgColor     = input.color(color.new(color.black, 80), "Цвет фона дашборда", group=grpDash)
+dashTextColor   = input.color(color.white, "Цвет текста дашборда", group=grpDash)
+dashTextSizeS   = input.string("Обычный", "Размер текста дашборда",
+     options=["Крошечный","Маленький","Обычный","Большой","Огромный"], group=grpDash)
+showSentiment       = input.bool(true, "Показывать настроение рынка", group=grpDash)
+sentimentBullColor  = input.color(color.new(color.lime, 30), "Цвет 'бычьего' настроения", group=grpDash)
+sentimentBearColor  = input.color(color.new(color.red, 30), "Цвет 'медвежьего' настроения", group=grpDash)
+sentimentNeutralColor = input.color(color.new(color.gray, 30), "Цвет нейтрального настроения", group=grpDash)
+showDebugRow    = input.bool(false, "Показывать строку диагностики (DBG)", group=grpDash)
+
+// ================================================================
+// SECTION 1.1 — ХЕЛПЕРЫ ОТОБРАЖЕНИЯ (маппинг строк инпутов на константы Pine)
+// ================================================================
+f_text_size(string s) =>
+    switch s
+        "Крошечный" => size.tiny
+        "Маленький" => size.small
+        "Обычный"   => size.normal
+        "Большой"   => size.large
+        "Огромный"  => size.huge
+        => size.small
+
+f_dash_position(string s) =>
+    switch s
+        "Верх слева"      => position.top_left
+        "Верх по центру"  => position.top_center
+        "Верх справа"     => position.top_right
+        "Середина слева"  => position.middle_left
+        "Середина справа" => position.middle_right
+        "Низ слева"       => position.bottom_left
+        "Низ по центру"   => position.bottom_center
+        "Низ справа"      => position.bottom_right
+        => position.top_right
+
+f_line_style(string s) =>
+    switch s
+        "Сплошная" => line.style_solid
+        "Пунктир"  => line.style_dashed
+        "Точки"    => line.style_dotted
+        => line.style_dashed
+
+// ================================================================
+// SECTION 2 — TYPES
+// ================================================================
+type ImpulseCheck
+    bool  rule1_ok
+    bool  rule2_ok
+    bool  rule3_ok
+    bool  valid
+    int   dir
+    float confidence
+
+type ZigzagCheck
+    bool  rule1_ok
+    bool  rule2_ok
+    bool  valid
+    int   dir
+    float confidence
+
+type DoubleZigzagCheck
+    bool  rule1_ok
+    bool  rule2_ok
+    bool  valid
+    int   dir
+    float confidence
+
+type DiagonalCheck
+    bool  rule1_ok
+    bool  rule2_ok
+    bool  rule3_ok
+    bool  rule4_ok
+    bool  rule5_ok
+    bool  rule6_initial
+    bool  valid_generic
+    bool  qualifies_initial
+    int   dir
+    float confidence
+
+type FlatCheck
+    bool  rule1_ok
+    bool  rule2_ok
+    bool  valid
+    int   dir
+    float confidence
+
+type TriangleCheck
+    bool  rule1_ok
+    bool  rule2_ok
+    bool  rule3_ok
+    bool  valid
+    int   dir
+    float confidence
+    bool  is_running
+
+type CombinationCheck
+    bool  rule1_ok
+    bool  valid
+    int   dir
+    float confidence
+
+type StructureMatch2
+    string kind
+    int    startBar
+    int    endBar
+    int    startTime
+    int    endTime
+    float  topPrice
+    float  botPrice
+    int    dir
+    float  confidence
+    bool   accepted
+    int    degree
+    int    parentRow
+    array<int> waveBars
+    int    waveRole
+    bool   localOk
+    bool   isLeading
+
+type ZigzagState
+    float extreme
+    int   extremeBar
+    int   extremeTime
+    int   dir
+
+// ================================================================
+// SECTION 3 — STORAGE (пивоты уровня Primary и Intermediate)
+// ================================================================
+var array<int>   pBar    = array.new<int>()
+var array<float> pPrice  = array.new<float>()
+var array<int>   pDir    = array.new<int>()
+var array<int>   pTime   = array.new<int>()
+var array<line>  pLines  = array.new<line>()
+var array<label> pLabels = array.new<label>()
+
+var array<int>   p2Bar   = array.new<int>()
+var array<float> p2Price = array.new<float>()
+var array<int>   p2Dir   = array.new<int>()
+var array<int>   p2Time  = array.new<int>()
+
+var array<StructureMatch2> allMatches2 = array.new<StructureMatch2>()
+
+var array<box>   arbBoxes  = array.new<box>()
+var array<label> arbLabels = array.new<label>()
+
+var array<box>   projBoxes        = array.new<box>()
+var array<label> projLabels       = array.new<label>()
+var array<line>  projChannelLines = array.new<line>()
+var array<line>  projLevelLines   = array.new<line>()
+var int          barDeltaMs = na
+
+var array<line>     pathStraightLines  = array.new<line>()
+var array<line>     pathZigzagSegLines = array.new<line>()
+var array<line>     pathConeLines      = array.new<line>()
+var array<linefill> pathConeFills      = array.new<linefill>()
+var array<label>    pathLabels         = array.new<label>()
+
+var array<label>    signalLabels       = array.new<label>()
+
+var ZigzagState zzState  = ZigzagState.new(na, na, na, 0)
+var ZigzagState zz2State = ZigzagState.new(na, na, na, 0)
+
+// ================================================================
+// SECTION 4 — PIVOT DETECTION (Primary)
+// ================================================================
+f_trim_primary() =>
+    if array.size(pBar) > maxPivots
+        array.shift(pBar)
+        array.shift(pPrice)
+        array.shift(pDir)
+        array.shift(pTime)
+        if array.size(pLines) > 0
+            line.delete(array.shift(pLines))
+        if array.size(pLabels) > 0
+            label.delete(array.shift(pLabels))
+
+f_draw_last_segment() =>
+    n = array.size(pBar)
+    if n >= 2
+        b1 = array.get(pBar, n - 2)
+        p1 = array.get(pPrice, n - 2)
+        b2 = array.get(pBar, n - 1)
+        p2 = array.get(pPrice, n - 1)
+        d2 = array.get(pDir, n - 1)
+        ln = line.new(b1, p1, b2, p2, color = d2 == 1 ? colorUp : colorDown, width = lineWidth)
+        array.push(pLines, ln)
+        if showLabels
+            lbl = label.new(b2, p2, str.tostring(p2, format.mintick),
+                 style     = d2 == 1 ? label.style_label_down : label.style_label_up,
+                 color     = color.new(color.black, 100),
+                 textcolor = d2 == 1 ? colorUp : colorDown,
+                 size      = size.small)
+            array.push(pLabels, lbl)
+
+f_add_pivot(int b, float p, int d, int t) =>
+    array.push(pBar, b)
+    array.push(pPrice, p)
+    array.push(pDir, d)
+    array.push(pTime, t)
+    f_draw_last_segment()
+    f_trim_primary()
+
+f_update_or_add_pivot(int b, float p, int d, int t) =>
+    n = array.size(pBar)
+    if n > 0 and array.get(pDir, n - 1) == d
+        prevPrice = array.get(pPrice, n - 1)
+        isMoreExtreme = d == 1 ? p > prevPrice : p < prevPrice
+        if isMoreExtreme
+            array.set(pBar, n - 1, b)
+            array.set(pPrice, n - 1, p)
+            array.set(pTime, n - 1, t)
+            if array.size(pLines) > 0
+                line.delete(array.pop(pLines))
+            if array.size(pLabels) > 0
+                label.delete(array.pop(pLabels))
+            f_draw_last_segment()
+    else
+        f_add_pivot(b, p, d, t)
+
+f_zigzag_step(ZigzagState st, float atrValue) =>
+    useAtr = pivotMethod == "ZigZag ATR"
+    if na(st.extreme)
+        st.extreme     := high
+        st.extremeBar  := bar_index
+        st.extremeTime := time
+        st.dir         := 1
+    else
+        if st.dir == 1
+            if high >= st.extreme
+                st.extreme     := high
+                st.extremeBar  := bar_index
+                st.extremeTime := time
+            else
+                dev = useAtr ? (st.extreme - low) : (st.extreme - low) / st.extreme * 100
+                thr = useAtr ? atrValue * atrMult : devPercent
+                if dev >= thr
+                    f_update_or_add_pivot(st.extremeBar, st.extreme, 1, st.extremeTime)
+                    st.dir         := -1
+                    st.extreme     := low
+                    st.extremeBar  := bar_index
+                    st.extremeTime := time
+        else
+            if low <= st.extreme
+                st.extreme     := low
+                st.extremeBar  := bar_index
+                st.extremeTime := time
+            else
+                dev = useAtr ? (high - st.extreme) : (high - st.extreme) / st.extreme * 100
+                thr = useAtr ? atrValue * atrMult : devPercent
+                if dev >= thr
+                    f_update_or_add_pivot(st.extremeBar, st.extreme, -1, st.extremeTime)
+                    st.dir         := 1
+                    st.extreme     := high
+                    st.extremeBar  := bar_index
+                    st.extremeTime := time
+
+f_fractals_step(float ph, float pl) =>
+    if not na(ph)
+        f_update_or_add_pivot(bar_index - fractalLen, ph, 1, time[fractalLen])
+    if not na(pl)
+        f_update_or_add_pivot(bar_index - fractalLen, pl, -1, time[fractalLen])
+
+// ================================================================
+// SECTION 5 — PIVOT DETECTION (Intermediate, всегда ZigZag-стиль)
+// ================================================================
+f_trim_p2() =>
+    if array.size(p2Bar) > maxPivots
+        array.shift(p2Bar)
+        array.shift(p2Price)
+        array.shift(p2Dir)
+        array.shift(p2Time)
+    true
+
+f_add_pivot2(int b, float p, int d, int t) =>
+    n = array.size(p2Bar)
+    if n > 0 and array.get(p2Dir, n - 1) == d
+        prevPrice = array.get(p2Price, n - 1)
+        isMoreExtreme = d == 1 ? p > prevPrice : p < prevPrice
+        if isMoreExtreme
+            array.set(p2Bar, n - 1, b)
+            array.set(p2Price, n - 1, p)
+            array.set(p2Time, n - 1, t)
+    else
+        array.push(p2Bar, b)
+        array.push(p2Price, p)
+        array.push(p2Dir, d)
+        array.push(p2Time, t)
+        f_trim_p2()
+    true
+
+f_zigzag_step2(ZigzagState st, float atrValue) =>
+    useAtr  = pivotMethod == "ZigZag ATR"
+    dev_thr = useAtr ? atrValue * atrMult / finerDivisor : devPercent / finerDivisor
+    if na(st.extreme)
+        st.extreme     := high
+        st.extremeBar  := bar_index
+        st.extremeTime := time
+        st.dir         := 1
+    else
+        if st.dir == 1
+            if high >= st.extreme
+                st.extreme     := high
+                st.extremeBar  := bar_index
+                st.extremeTime := time
+            else
+                dev = useAtr ? (st.extreme - low) : (st.extreme - low) / st.extreme * 100
+                if dev >= dev_thr
+                    f_add_pivot2(st.extremeBar, st.extreme, 1, st.extremeTime)
+                    st.dir         := -1
+                    st.extreme     := low
+                    st.extremeBar  := bar_index
+                    st.extremeTime := time
+        else
+            if low <= st.extreme
+                st.extreme     := low
+                st.extremeBar  := bar_index
+                st.extremeTime := time
+            else
+                dev = useAtr ? (high - st.extreme) : (high - st.extreme) / st.extreme * 100
+                if dev >= dev_thr
+                    f_add_pivot2(st.extremeBar, st.extreme, -1, st.extremeTime)
+                    st.dir         := 1
+                    st.extreme     := high
+                    st.extremeBar  := bar_index
+                    st.extremeTime := time
+
+// ================================================================
+// SECTION 6 — VALIDATORS (правила из гайдов)
+// ================================================================
+f_check_impulse(float p0, float p1, float p2, float p3, float p4, float p5) =>
+    dir   = p1 > p0 ? 1 : -1
+    w1len = math.abs(p1 - p0)
+    w2len = math.abs(p2 - p1)
+    w3len = math.abs(p3 - p2)
+    w4len = math.abs(p4 - p3)
+    w5len = math.abs(p5 - p4)
+
+    rule1_ok = dir == 1 ? p2 > p0 : p2 < p0
+    rule2_ok = not (w3len < w1len and w3len < w5len)
+    rule3_ok = dir == 1 ? p4 > p1 : p4 < p1
+    valid = rule1_ok and rule2_ok and rule3_ok
+
+    fib_w2 = w2len / w1len
+    fib_w4 = w4len / w3len
+    norm_fib_w2    = fib_w2 >= 0.5 and fib_w2 <= 0.75
+    norm_fib_w4    = fib_w4 >= 0.25 and fib_w4 <= 0.45
+    norm_altern_24 = math.abs(fib_w2 - fib_w4) > 0.15
+    norm_extension = w3len > w1len * 1.3 or w5len > w1len * 1.3
+    norm_altern_15 = math.abs(w1len - w5len) > w1len * 0.2
+
+    normsPassed = (norm_fib_w2 ? 1 : 0) + (norm_fib_w4 ? 1 : 0) +
+                  (norm_altern_24 ? 1 : 0) + (norm_extension ? 1 : 0) +
+                  (norm_altern_15 ? 1 : 0)
+    confidence = valid ? (60.0 + normsPassed * 8.0) : 0.0
+
+    ImpulseCheck.new(rule1_ok, rule2_ok, rule3_ok, valid, dir, confidence)
+
+f_check_zigzag(float p0, float p1, float p2, float p3) =>
+    dir   = p1 > p0 ? 1 : -1
+    wAlen = math.abs(p1 - p0)
+    wClen = math.abs(p3 - p2)
+
+    rule1_ok = dir == 1 ? p2 > p0 : p2 < p0
+    rule2_ok = dir == 1 ? p3 > p1 : p3 < p1
+    valid = rule1_ok and rule2_ok
+
+    fibC = wClen / wAlen
+    norm_fib_B = math.abs(p2 - p1) / wAlen >= 0.5 and math.abs(p2 - p1) / wAlen <= 0.75
+    norm_fib_C = (fibC >= 0.85 and fibC <= 1.15) or (fibC >= 1.45 and fibC <= 1.8)
+
+    normsPassed = (norm_fib_B ? 1 : 0) + (norm_fib_C ? 1 : 0)
+    confidence = valid ? (65.0 + normsPassed * 12.5) : 0.0
+
+    ZigzagCheck.new(rule1_ok, rule2_ok, valid, dir, confidence)
+
+f_check_double_zigzag(float p0, float p1, float p2, float p3) =>
+    dir   = p1 > p0 ? 1 : -1
+    wLen  = math.abs(p1 - p0)
+    xLen  = math.abs(p2 - p1)
+    yLen  = math.abs(p3 - p2)
+
+    rule1_ok = dir == 1 ? p2 > p0 : p2 < p0
+    rule2_ok = dir == 1 ? p3 > p1 : p3 < p1
+    valid = rule1_ok and rule2_ok
+
+    xRatio = xLen / wLen
+    yRatio = yLen / wLen
+    norm_x_618  = xRatio >= 0.5 and xRatio <= 0.75
+    norm_y_100  = (yRatio >= 0.85 and yRatio <= 1.15) or (yRatio >= 1.45 and yRatio <= 1.8)
+
+    normsPassed = (norm_x_618 ? 1 : 0) + (norm_y_100 ? 1 : 0)
+    confidence = valid ? (62.0 + normsPassed * 12.0) : 0.0
+
+    DoubleZigzagCheck.new(rule1_ok, rule2_ok, valid, dir, confidence)
+
+f_check_diagonal(float p0, float p1, float p2, float p3, float p4, float p5) =>
+    dir   = p1 > p0 ? 1 : -1
+    w1len = math.abs(p1 - p0)
+    w2len = math.abs(p2 - p1)
+    w3len = math.abs(p3 - p2)
+    w4len = math.abs(p4 - p3)
+    w5len = math.abs(p5 - p4)
+
+    rule1_ok = dir == 1 ? p2 > p0 : p2 < p0
+    rule2_ok = dir == 1 ? p3 > p1 : p3 < p1
+    rule3_ok = dir == 1 ? p4 < p2 : p4 > p2
+    rule4_ok = w1len > w3len and w3len > w5len
+    rule5_ok = w2len > w4len
+    rule6_initial = dir == 1 ? p5 > p3 : p5 < p3
+
+    valid_generic    = rule1_ok and rule2_ok and rule3_ok and rule4_ok and rule5_ok
+    qualifies_initial = valid_generic and rule6_initial
+    confidence = valid_generic ? (qualifies_initial ? 90.0 : 75.0) : 0.0
+
+    DiagonalCheck.new(rule1_ok, rule2_ok, rule3_ok, rule4_ok, rule5_ok, rule6_initial,
+         valid_generic, qualifies_initial, dir, confidence)
+
+f_check_flat(float p0, float p1, float p2, float p3) =>
+    dir   = p1 > p0 ? 1 : -1
+    wAlen = math.abs(p1 - p0)
+    wBlen = math.abs(p2 - p1)
+    wClen = math.abs(p3 - p2)
+
+    rule1_ok = wBlen / wAlen >= 0.9
+    b_beyond_start = dir == 1 ? p2 < p0 : p2 > p0
+    c_beyond_a_end  = dir == 1 ? p3 > p1 : p3 < p1
+    rule2_ok = b_beyond_start ? true : c_beyond_a_end
+    valid = rule1_ok and rule2_ok
+
+    bRatio = wBlen / wAlen
+    cRatio = wClen / wAlen
+    norm_b_1236 = bRatio >= 1.15 and bRatio <= 1.45
+    norm_c_1618 = cRatio >= 1.45 and cRatio <= 1.8
+
+    normsPassed = (norm_b_1236 ? 1 : 0) + (norm_c_1618 ? 1 : 0)
+    confidence = valid ? (60.0 + normsPassed * 15.0) : 0.0
+
+    FlatCheck.new(rule1_ok, rule2_ok, valid, dir, confidence)
+
+f_check_triangle(float p0, float p1, float p2, float p3, float p4, float p5) =>
+    dir = p1 > p0 ? 1 : -1
+
+    rule1_ok = dir == 1 ? p3 < p1 : p3 > p1
+    rule2_ok = dir == 1 ? p4 < p2 : p4 > p2
+    rule3_ok = dir == 1 ? p5 < p3 : p5 > p3
+    valid = rule1_ok and rule2_ok and rule3_ok
+
+    is_running = dir == 1 ? p2 > p0 : p2 < p0
+
+    wAlen = math.abs(p1 - p0)
+    wClen = math.abs(p3 - p2)
+    wElen = math.abs(p5 - p4)
+
+    cRatio = wClen / wAlen
+    eRatio = wElen / wClen
+    norm_c_618 = cRatio >= 0.5 and cRatio <= 0.75
+    norm_e_618 = eRatio >= 0.5 and eRatio <= 0.75
+
+    normsPassed = (norm_c_618 ? 1 : 0) + (norm_e_618 ? 1 : 0) + (is_running ? 1 : 0)
+    confidence = valid ? (55.0 + normsPassed * 10.0) : 0.0
+
+    TriangleCheck.new(rule1_ok, rule2_ok, rule3_ok, valid, dir, confidence, is_running)
+
+f_check_combination(float p0, float p1, float p2, float p3) =>
+    dir   = p1 > p0 ? 1 : -1
+    wWlen = math.abs(p1 - p0)
+    wXlen = math.abs(p2 - p1)
+
+    rule1_ok = wXlen / wWlen >= 0.9
+    valid = rule1_ok
+
+    xRatio = wXlen / wWlen
+    norm_x_1236 = xRatio >= 1.15 and xRatio <= 1.45
+    confidence = valid ? (55.0 + (norm_x_1236 ? 20.0 : 0.0)) : 0.0
+
+    CombinationCheck.new(rule1_ok, valid, dir, confidence)
+
+// ================================================================
+// SECTION 7 — СКАНЕР (переиспользуемый для Primary и Intermediate)
+// ================================================================
+f_window_minmax(array<float> arr, int fromI, int toI) =>
+    mn = array.get(arr, fromI)
+    mx = array.get(arr, fromI)
+    for i = fromI + 1 to toI
+        v = array.get(arr, i)
+        mn := math.min(mn, v)
+        mx := math.max(mx, v)
+    [mn, mx]
+
+f_bars6(array<int> bArr, int i) =>
+    out = array.new<int>()
+    array.push(out, array.get(bArr, i))
+    array.push(out, array.get(bArr, i+1))
+    array.push(out, array.get(bArr, i+2))
+    array.push(out, array.get(bArr, i+3))
+    array.push(out, array.get(bArr, i+4))
+    array.push(out, array.get(bArr, i+5))
+    out
+
+f_bars4(array<int> bArr, int i) =>
+    out = array.new<int>()
+    array.push(out, array.get(bArr, i))
+    array.push(out, array.get(bArr, i+1))
+    array.push(out, array.get(bArr, i+2))
+    array.push(out, array.get(bArr, i+3))
+    out
+
+f_scan_range(array<int> bArr, array<float> pArr, array<int> tArr, int fromIdx, int toIdx, int degree, int parentRow) =>
+    n = toIdx - fromIdx + 1
+
+    if n >= 6
+        for i = fromIdx to toIdx - 5
+            ic = f_check_impulse(array.get(pArr,i), array.get(pArr,i+1), array.get(pArr,i+2),
+                 array.get(pArr,i+3), array.get(pArr,i+4), array.get(pArr,i+5))
+            if ic.valid
+                [mn, mx] = f_window_minmax(pArr, i, i+5)
+                array.push(allMatches2, StructureMatch2.new("Impulse", array.get(bArr,i), array.get(bArr,i+5),
+                     array.get(tArr,i), array.get(tArr,i+5), mx, mn, ic.dir, ic.confidence, false, degree, parentRow,
+                     f_bars6(bArr, i), -1, true, false))
+
+            dc = f_check_diagonal(array.get(pArr,i), array.get(pArr,i+1), array.get(pArr,i+2),
+                 array.get(pArr,i+3), array.get(pArr,i+4), array.get(pArr,i+5))
+            if dc.valid_generic
+                [mn2, mx2] = f_window_minmax(pArr, i, i+5)
+                array.push(allMatches2, StructureMatch2.new("Diagonal", array.get(bArr,i), array.get(bArr,i+5),
+                     array.get(tArr,i), array.get(tArr,i+5), mx2, mn2, dc.dir, dc.confidence, false, degree, parentRow,
+                     f_bars6(bArr, i), -1, true, dc.qualifies_initial))
+
+            tc = f_check_triangle(array.get(pArr,i), array.get(pArr,i+1), array.get(pArr,i+2),
+                 array.get(pArr,i+3), array.get(pArr,i+4), array.get(pArr,i+5))
+            if tc.valid
+                [mn3, mx3] = f_window_minmax(pArr, i, i+5)
+                array.push(allMatches2, StructureMatch2.new("Triangle", array.get(bArr,i), array.get(bArr,i+5),
+                     array.get(tArr,i), array.get(tArr,i+5), mx3, mn3, tc.dir, tc.confidence, false, degree, parentRow,
+                     f_bars6(bArr, i), -1, true, false))
+
+    if n >= 4
+        for i = fromIdx to toIdx - 3
+            zc = f_check_zigzag(array.get(pArr,i), array.get(pArr,i+1), array.get(pArr,i+2), array.get(pArr,i+3))
+            if zc.valid
+                [mn4, mx4] = f_window_minmax(pArr, i, i+3)
+                array.push(allMatches2, StructureMatch2.new("Zigzag", array.get(bArr,i), array.get(bArr,i+3),
+                     array.get(tArr,i), array.get(tArr,i+3), mx4, mn4, zc.dir, zc.confidence, false, degree, parentRow,
+                     f_bars4(bArr, i), -1, true, false))
+
+            dzc = f_check_double_zigzag(array.get(pArr,i), array.get(pArr,i+1), array.get(pArr,i+2), array.get(pArr,i+3))
+            if dzc.valid
+                [mn7, mx7] = f_window_minmax(pArr, i, i+3)
+                array.push(allMatches2, StructureMatch2.new("DoubleZigzag", array.get(bArr,i), array.get(bArr,i+3),
+                     array.get(tArr,i), array.get(tArr,i+3), mx7, mn7, dzc.dir, dzc.confidence, false, degree, parentRow,
+                     f_bars4(bArr, i), -1, true, false))
+
+            fc = f_check_flat(array.get(pArr,i), array.get(pArr,i+1), array.get(pArr,i+2), array.get(pArr,i+3))
+            if fc.valid
+                [mn5, mx5] = f_window_minmax(pArr, i, i+3)
+                array.push(allMatches2, StructureMatch2.new("Flat", array.get(bArr,i), array.get(bArr,i+3),
+                     array.get(tArr,i), array.get(tArr,i+3), mx5, mn5, fc.dir, fc.confidence, false, degree, parentRow,
+                     f_bars4(bArr, i), -1, true, false))
+
+            cc = f_check_combination(array.get(pArr,i), array.get(pArr,i+1), array.get(pArr,i+2), array.get(pArr,i+3))
+            if cc.valid
+                [mn6, mx6] = f_window_minmax(pArr, i, i+3)
+                array.push(allMatches2, StructureMatch2.new("Combination", array.get(bArr,i), array.get(bArr,i+3),
+                     array.get(tArr,i), array.get(tArr,i+3), mx6, mn6, cc.dir, cc.confidence, false, degree, parentRow,
+                     f_bars4(bArr, i), -1, true, false))
+
+// ================================================================
+// SECTION 8 — АРБИТРАЖ (жадный отбор непересекающихся окон)
+// ================================================================
+f_arbitrate_range(int fromRow, int toRow) =>
+    n = toRow - fromRow + 1
+    if n > 0
+        order = array.new<int>(n)
+        for i = 0 to n - 1
+            array.set(order, i, fromRow + i)
+
+        if n >= 2
+            for i = 0 to n - 2
+                bestPos = i
+                for j = i + 1 to n - 1
+                    if array.get(allMatches2, array.get(order,j)).confidence > array.get(allMatches2, array.get(order,bestPos)).confidence
+                        bestPos := j
+                if bestPos != i
+                    tmp = array.get(order, i)
+                    array.set(order, i, array.get(order, bestPos))
+                    array.set(order, bestPos, tmp)
+
+        acceptedStart = array.new<int>()
+        acceptedEnd   = array.new<int>()
+        for i = 0 to n - 1
+            row = array.get(order, i)
+            m = array.get(allMatches2, row)
+            overlap = false
+            if array.size(acceptedStart) > 0
+                for k = 0 to array.size(acceptedStart) - 1
+                    aS = array.get(acceptedStart, k)
+                    aE = array.get(acceptedEnd, k)
+                    if m.startBar <= aE and m.endBar >= aS
+                        overlap := true
+            if not overlap
+                array.push(acceptedStart, m.startBar)
+                array.push(acceptedEnd, m.endBar)
+                upd = StructureMatch2.new(m.kind, m.startBar, m.endBar, m.startTime, m.endTime,
+                     m.topPrice, m.botPrice, m.dir, m.confidence, true, m.degree, m.parentRow,
+                     m.waveBars, m.waveRole, m.localOk, m.isLeading)
+                array.set(allMatches2, row, upd)
+
+// ================================================================
+// SECTION 8.1 — ЛОКАЛЬНЫЙ СОСТАВ ВОЛН (композиция по гайдам)
+// ================================================================
+f_zz_family(string k) =>
+    k == "" or k == "Zigzag" or k == "DoubleZigzag"
+
+f_imp_kind(string k) =>
+    k == "" or k == "Impulse"
+
+f_allowed_kinds_for_role(string parentKind, int role) =>
+    result = ""
+    if parentKind == "Impulse"
+        if role == 0
+            result := "Impulse|Diagonal"
+        else if role == 1
+            result := "Zigzag|DoubleZigzag|Flat|Combination"
+        else if role == 2
+            result := "Impulse"
+        else if role == 3
+            result := "Zigzag|DoubleZigzag|Flat|Triangle|Combination"
+        else if role == 4
+            result := "Impulse|Diagonal"
+    else if parentKind == "Triangle"
+        result := "Zigzag|DoubleZigzag|Triangle"
+    else if parentKind == "Zigzag"
+        if role == 0 or role == 2
+            result := "Impulse|Diagonal"
+        else if role == 1
+            result := "Zigzag|DoubleZigzag|Flat|Triangle|Combination"
+    else if parentKind == "Flat"
+        if role == 0 or role == 1
+            result := "Zigzag|DoubleZigzag"
+        else if role == 2
+            result := "Impulse|Diagonal"
+    else if parentKind == "Combination"
+        if role == 0
+            result := "Zigzag|Flat"
+        else if role == 1
+            result := "Zigzag|DoubleZigzag|Flat"
+        else if role == 2
+            result := "Zigzag|Flat|Triangle"
+    else if parentKind == "DoubleZigzag"
+        if role == 0 or role == 2
+            result := "Zigzag"
+        else if role == 1
+            result := "Zigzag|DoubleZigzag|Flat|Triangle|Combination"
+    result
+
+f_kind_allowed(string parentKind, int role, string childKind) =>
+    allowed = f_allowed_kinds_for_role(parentKind, role)
+    allowed != "" and str.contains("|" + allowed + "|", "|" + childKind + "|")
+
+f_assign_role(array<int> parentWaveBars, int childStartBar, int childEndBar) =>
+    segCount = array.size(parentWaveBars) - 1
+    bestRole = -1
+    bestOverlap = -1
+    if segCount >= 1
+        for k = 0 to segCount - 1
+            segStart = array.get(parentWaveBars, k)
+            segEnd   = array.get(parentWaveBars, k + 1)
+            ovStart  = math.max(childStartBar, segStart)
+            ovEnd    = math.min(childEndBar, segEnd)
+            overlap  = ovEnd - ovStart
+            if overlap > bestOverlap
+                bestOverlap := overlap
+                bestRole    := k
+    bestRole
+
+f_validate_local_structure(int parentRow, int subRowStart, int subRowEnd) =>
+    parent = array.get(allMatches2, parentRow)
+    complexCount = 0
+    zigzagAtW = false
+    zigzagAtY = false
+    violation = false
+    foundAny = false
+    roleKinds = array.new<string>(5, "")
+    if subRowEnd >= subRowStart
+        for i = subRowStart to subRowEnd
+            child = array.get(allMatches2, i)
+            if child.accepted
+                role = f_assign_role(parent.waveBars, child.startBar, child.endBar)
+                childOk = true
+                if parent.kind != "Diagonal"
+                    childOk := role >= 0 and f_kind_allowed(parent.kind, role, child.kind)
+                updChild = StructureMatch2.new(child.kind, child.startBar, child.endBar, child.startTime, child.endTime,
+                     child.topPrice, child.botPrice, child.dir, child.confidence, child.accepted, child.degree, child.parentRow,
+                     child.waveBars, role, childOk, child.isLeading)
+                array.set(allMatches2, i, updChild)
+                foundAny := true
+                if role >= 0 and role < 5
+                    array.set(roleKinds, role, child.kind)
+                if not childOk
+                    violation := true
+                if parent.kind == "Triangle" and child.kind != "Zigzag"
+                    complexCount += 1
+                if parent.kind == "Combination"
+                    if role == 0 and child.kind == "Zigzag"
+                        zigzagAtW := true
+                    if role == 2 and child.kind == "Zigzag"
+                        zigzagAtY := true
+
+    if parent.kind == "Triangle" and complexCount > 1
+        violation := true
+    if parent.kind == "Combination" and zigzagAtW and zigzagAtY
+        violation := true
+
+    if parent.kind == "Diagonal" and foundAny
+        k0 = array.get(roleKinds, 0)
+        k1 = array.get(roleKinds, 1)
+        k2 = array.get(roleKinds, 2)
+        k3 = array.get(roleKinds, 3)
+        k4 = array.get(roleKinds, 4)
+        allZigzagFamily = f_zz_family(k0) and f_zz_family(k1) and f_zz_family(k2) and f_zz_family(k3) and f_zz_family(k4)
+        alternation = f_imp_kind(k0) and f_zz_family(k1) and f_imp_kind(k2) and f_zz_family(k3) and f_imp_kind(k4)
+        diagOk = parent.isLeading ? (allZigzagFamily or alternation) : allZigzagFamily
+        if not diagOk
+            violation := true
+
+    parentLocalOk = foundAny ? not violation : parent.localOk
+    updParent = StructureMatch2.new(parent.kind, parent.startBar, parent.endBar, parent.startTime, parent.endTime,
+         parent.topPrice, parent.botPrice, parent.dir, parent.confidence, parent.accepted, parent.degree, parent.parentRow,
+         parent.waveBars, parent.waveRole, parentLocalOk, parent.isLeading)
+    array.set(allMatches2, parentRow, updParent)
+
+// ================================================================
+// SECTION 9 — ГЛАВНЫЙ ПРОХОД: Primary, затем Intermediate внутри каждого принятого Primary
+// ================================================================
+f_run_nested_scan() =>
+    array.clear(allMatches2)
+    nPrimary = array.size(pBar)
+    primaryRowStart = 0
+    f_scan_range(pBar, pPrice, pTime, 0, nPrimary - 1, 0, -1)
+    primaryRowEnd = array.size(allMatches2) - 1
+    f_arbitrate_range(primaryRowStart, primaryRowEnd)
+
+    if enableNesting and primaryRowEnd >= primaryRowStart
+        n2 = array.size(p2Bar)
+        for r = primaryRowStart to primaryRowEnd
+            if r >= 0 and r < array.size(allMatches2)
+                m = array.get(allMatches2, r)
+                if m.accepted
+                    fromIdx2 = -1
+                    toIdx2   = -1
+                    if n2 > 0
+                        for k = 0 to n2 - 1
+                            bk = array.get(p2Bar, k)
+                            if bk >= m.startBar and bk <= m.endBar
+                                if fromIdx2 == -1
+                                    fromIdx2 := k
+                                toIdx2 := k
+                    if fromIdx2 != -1 and toIdx2 - fromIdx2 >= 3
+                        subRowStart = array.size(allMatches2)
+                        f_scan_range(p2Bar, p2Price, p2Time, fromIdx2, toIdx2, 1, r)
+                        subRowEnd = array.size(allMatches2) - 1
+                        f_arbitrate_range(subRowStart, subRowEnd)
+                        f_validate_local_structure(r, subRowStart, subRowEnd)
+
+// ================================================================
+// SECTION 10 — ОТРИСОВКА СТРУКТУР
+// ================================================================
+f_kind_color(string kind) =>
+    switch kind
+        "Impulse"      => colImpulse
+        "Zigzag"       => colZigzagK
+        "DoubleZigzag" => colDoubleZigzag
+        "Diagonal"     => colDiagonalK
+        "Flat"         => colFlatK
+        "Triangle"     => colTriangleK
+        "Combination"  => colCombinationK
+        => color.gray
+
+f_kind_visible(string kind) =>
+    switch kind
+        "Impulse"      => showImpulses
+        "Zigzag"       => showZigzags
+        "DoubleZigzag" => showDblZigzags
+        "Diagonal"     => showDiagonals
+        "Flat"         => showFlats
+        "Triangle"     => showTriangles
+        "Combination"  => showCombos
+        => true
+
+f_draw_arbitrated() =>
+    if array.size(arbBoxes) > 0
+        for i = array.size(arbBoxes) - 1 to 0
+            box.delete(array.get(arbBoxes, i))
+    if array.size(arbLabels) > 0
+        for i = array.size(arbLabels) - 1 to 0
+            label.delete(array.get(arbLabels, i))
+    array.clear(arbBoxes)
+    array.clear(arbLabels)
+
+    structSize = f_text_size(structTextSizeS)
+    drawn = 0
+    if array.size(allMatches2) > 0
+        for i = 0 to array.size(allMatches2) - 1
+            m = array.get(allMatches2, i)
+            if m.accepted and m.confidence >= minConfidence and f_kind_visible(m.kind)
+                if drawn >= scanMaxDraw
+                    break
+                col = f_kind_color(m.kind)
+                bw  = m.degree == 0 ? 2 : 1
+                bx = box.new(m.startTime, m.topPrice, m.endTime, m.botPrice,
+                     xloc = xloc.bar_time,
+                     border_color = col, bgcolor = color.new(col, m.degree == 0 ? 88 : 94), border_width = bw)
+                array.push(arbBoxes, bx)
+                prefix = m.degree == 0 ? "" : "  ↳ "
+                composMark = m.localOk ? "" : " ⚠"
+                lb = label.new(m.endTime, m.topPrice, prefix + m.kind + composMark + " " + str.tostring(m.confidence, "#") + "%",
+                     xloc = xloc.bar_time,
+                     style = label.style_label_down, color = color.new(col, 70),
+                     textcolor = structTextColor, size = structSize)
+                array.push(arbLabels, lb)
+                drawn += 1
+
+// ================================================================
+// SECTION 11 — СЕРИАЛИЗАЦИЯ ДЛЯ MTF (с ценами top/bot)
+// ================================================================
+f_serialize_matches() =>
+    result = ""
+    sent = 0
+    n = array.size(allMatches2)
+    if n > 0
+        for i = n - 1 to 0
+            if sent >= htfMaxSend
+                break
+            m = array.get(allMatches2, i)
+            if m.accepted and m.degree == 0
+                entry = m.kind + "|" + str.tostring(m.dir) + "|" + str.tostring(m.startTime) + "|" + str.tostring(m.endTime) + "|" + str.tostring(m.topPrice) + "|" + str.tostring(m.botPrice) + "|" + str.tostring(m.confidence, "#")
+                result := result == "" ? entry : result + ";" + entry
+                sent += 1
+    result
+
+f_draw_htf_matches(string payload) =>
+    if payload != "" and htfEnabled
+        entries = str.split(payload, ";")
+        if array.size(entries) > 0
+            for e = 0 to array.size(entries) - 1
+                fields = str.split(array.get(entries, e), "|")
+                if array.size(fields) == 7
+                    kind = array.get(fields, 0)
+                    t0   = int(str.tonumber(array.get(fields, 2)))
+                    t1   = int(str.tonumber(array.get(fields, 3)))
+                    top  = str.tonumber(array.get(fields, 4))
+                    bot  = str.tonumber(array.get(fields, 5))
+                    conf = str.tonumber(array.get(fields, 6))
+                    col  = f_kind_color(kind)
+                    box.new(t0, top, t1, bot, border_color = col, bgcolor = color.new(col, 95),
+                         border_width = 3, xloc = xloc.bar_time, extend = extend.none)
+                    label.new(t1, top, "HTF " + kind + " " + str.tostring(conf, "#") + "%",
+                         xloc = xloc.bar_time, style = label.style_label_down,
+                         color = color.new(col, 60), textcolor = color.white, size = size.small)
+
+// ================================================================
+// SECTION 14 — ПРОГНОЗИРУЕМАЯ ПРОЕКЦИЯ ЦЕНЫ (зоны, каналы, путь, касание)
+// ================================================================
+f_clear_projections() =>
+    if array.size(projBoxes) > 0
+        for i = array.size(projBoxes) - 1 to 0
+            box.delete(array.get(projBoxes, i))
+    if array.size(projLabels) > 0
+        for i = array.size(projLabels) - 1 to 0
+            label.delete(array.get(projLabels, i))
+    if array.size(projChannelLines) > 0
+        for i = array.size(projChannelLines) - 1 to 0
+            line.delete(array.get(projChannelLines, i))
+    if array.size(projLevelLines) > 0
+        for i = array.size(projLevelLines) - 1 to 0
+            line.delete(array.get(projLevelLines, i))
+    if array.size(pathStraightLines) > 0
+        for i = array.size(pathStraightLines) - 1 to 0
+            line.delete(array.get(pathStraightLines, i))
+    if array.size(pathZigzagSegLines) > 0
+        for i = array.size(pathZigzagSegLines) - 1 to 0
+            line.delete(array.get(pathZigzagSegLines, i))
+    if array.size(pathConeLines) > 0
+        for i = array.size(pathConeLines) - 1 to 0
+            line.delete(array.get(pathConeLines, i))
+    if array.size(pathConeFills) > 0
+        for i = array.size(pathConeFills) - 1 to 0
+            linefill.delete(array.get(pathConeFills, i))
+    if array.size(pathLabels) > 0
+        for i = array.size(pathLabels) - 1 to 0
+            label.delete(array.get(pathLabels, i))
+    array.clear(projBoxes)
+    array.clear(projLabels)
+    array.clear(projChannelLines)
+    array.clear(projLevelLines)
+    array.clear(pathStraightLines)
+    array.clear(pathZigzagSegLines)
+    array.clear(pathConeLines)
+    array.clear(pathConeFills)
+    array.clear(pathLabels)
+
+f_clear_signals() =>
+    if array.size(signalLabels) > 0
+        for i = array.size(signalLabels) - 1 to 0
+            label.delete(array.get(signalLabels, i))
+    array.clear(signalLabels)
+
+f_draw_proj_zone(int fromTime, float lo, float hi, string txt, color col) =>
+    toTime = fromTime + barDeltaMs * projBarsForward
+    boxColor = projZoneOverride ? projZoneCustomColor : col
+    bx = box.new(fromTime, hi, toTime, lo, xloc = xloc.bar_time,
+         border_color = boxColor, border_width = 1, bgcolor = color.new(boxColor, 90),
+         extend = extend.right)
+    array.push(projBoxes, bx)
+    lb = label.new(toTime, hi, txt, xloc = xloc.bar_time,
+         style = label.style_label_left, color = color.new(boxColor, 60),
+         textcolor = projZoneTextColor, size = f_text_size(projZoneTextSizeS))
+    array.push(projLabels, lb)
+    if showProjLevelLines
+        lvlColor = levelLineOverride ? levelLineCustomColor : col
+        lvlStyle = f_line_style(levelLineStyleS)
+        lnLo = line.new(fromTime, lo, toTime, lo, xloc = xloc.bar_time,
+             color = lvlColor, width = levelLineWidth, style = lvlStyle, extend = extend.right)
+        lnHi = line.new(fromTime, hi, toTime, hi, xloc = xloc.bar_time,
+             color = lvlColor, width = levelLineWidth, style = lvlStyle, extend = extend.right)
+        array.push(projLevelLines, lnLo)
+        array.push(projLevelLines, lnHi)
+
+f_channel_slope(int barA, float priceA, int barB, float priceB) =>
+    dBar = barB - barA
+    dBar != 0 ? (priceB - priceA) / dBar : 0.0
+
+f_clamp_price(float v, float center, float maxDev) =>
+    lo = center - maxDev
+    hi = center + maxDev
+    math.min(math.max(v, lo), hi)
+
+f_draw_channel_target(int barThrough, float priceThrough, float slope, int atBar, color col, string txt, float maxDev) =>
+    x2 = barThrough + math.max(projBarsForward, 1)
+    y2raw = priceThrough + slope * (x2 - barThrough)
+    y2 = f_clamp_price(y2raw, priceThrough, maxDev)
+    clamped = y2 != y2raw
+    lineColor = channelLineOverride ? channelLineCustom : col
+    ln = line.new(barThrough, priceThrough, x2, y2, color = lineColor, width = channelLineWidth, extend = extend.none)
+    array.push(projChannelLines, ln)
+    targetPrice = priceThrough + slope * (atBar - barThrough)
+    targetPriceClamped = f_clamp_price(targetPrice, priceThrough, maxDev)
+    clampNote = clamped ? " (экстраполяция за пределами разумного — показан клэмп)" : ""
+    lb = label.new(x2, y2, txt + " ≈ " + str.tostring(targetPriceClamped, format.mintick) + clampNote,
+         style = label.style_label_left, color = color.new(lineColor, 60),
+         textcolor = channelTextColor, size = f_text_size(channelTextSizeS))
+    array.push(projLabels, lb)
+
+// --- Путь движения к цели: три независимых типа визуализации ---
+
+f_draw_path_straight(int fromTime, float fromPrice, int toTime, float targetPrice) =>
+    if showPathStraight
+        ln = line.new(fromTime, fromPrice, toTime, targetPrice, xloc = xloc.bar_time,
+             color = pathStraightColor, width = pathStraightWidth, style = line.style_solid)
+        array.push(pathStraightLines, ln)
+        lb = label.new(toTime, targetPrice, "путь: прямой", xloc = xloc.bar_time,
+             style = label.style_label_left, color = pathLabelBgColor,
+             textcolor = pathTextColor, size = f_text_size(pathTextSizeS))
+        array.push(pathLabels, lb)
+
+f_draw_path_zigzag(int fromTime, float fromPrice, int toTime, float lo, float hi) =>
+    if showPathZigzag
+        segs = pathZigzagSegments
+        centerPrice = (lo + hi) / 2
+        totalTimeSpan = toTime - fromTime
+        halfHeight = (hi - lo) * 0.5
+        prevT = fromTime
+        prevP = fromPrice
+        for s = 1 to segs
+            frac = float(s) / float(segs)
+            baseP = fromPrice + (centerPrice - fromPrice) * frac
+            ampSign = s % 2 == 0 ? 1.0 : -1.0
+            amp = halfHeight * (1 - frac) * ampSign
+            segT = fromTime + int(totalTimeSpan * frac)
+            segP = s == segs ? centerPrice : baseP + amp
+            ln = line.new(prevT, prevP, segT, segP, xloc = xloc.bar_time,
+                 color = pathZigzagColor, width = pathZigzagWidth, style = line.style_solid)
+            array.push(pathZigzagSegLines, ln)
+            prevT := segT
+            prevP := segP
+        lb = label.new(prevT, prevP, "путь: волновой", xloc = xloc.bar_time,
+             style = label.style_label_left, color = pathLabelBgColor,
+             textcolor = pathTextColor, size = f_text_size(pathTextSizeS))
+        array.push(pathLabels, lb)
+
+f_draw_path_cone(int fromTime, float fromPrice, int toTime, float lo, float hi) =>
+    if showPathCone
+        lnHi = line.new(fromTime, fromPrice, toTime, hi, xloc = xloc.bar_time,
+             color = pathConeColor, width = pathConeWidth, style = line.style_solid)
+        lnLo = line.new(fromTime, fromPrice, toTime, lo, xloc = xloc.bar_time,
+             color = pathConeColor, width = pathConeWidth, style = line.style_solid)
+        array.push(pathConeLines, lnHi)
+        array.push(pathConeLines, lnLo)
+        fl = linefill.new(lnHi, lnLo, color = color.new(pathConeColor, pathConeFillTransp))
+        array.push(pathConeFills, fl)
+        lb = label.new(toTime, hi, "путь: конус вероятности", xloc = xloc.bar_time,
+             style = label.style_label_left, color = pathLabelBgColor,
+             textcolor = pathTextColor, size = f_text_size(pathTextSizeS))
+        array.push(pathLabels, lb)
+
+// Рисует все три типа пути разом (каждый внутри проверяет свой собственный тумблер).
+f_draw_all_paths(int fromTime, float fromPrice, int toTime, float lo, float hi) =>
+    f_draw_path_straight(fromTime, fromPrice, toTime, (lo + hi) / 2)
+    f_draw_path_zigzag(fromTime, fromPrice, toTime, lo, hi)
+    f_draw_path_cone(fromTime, fromPrice, toTime, lo, hi)
+
+// --- Лейблы Покупка/Продажа ---
+
+f_draw_signal(int atTime, float atPrice, bool isBuy, string reason) =>
+    col = isBuy ? buySignalColor : sellSignalColor
+    txt = (isBuy ? "▲ ПОКУПКА" : "▼ ПРОДАЖА") + " (" + reason + ")"
+    lb = label.new(atTime, atPrice, txt, xloc = xloc.bar_time,
+         style = isBuy ? label.style_label_up : label.style_label_down,
+         color = col, textcolor = signalTextColor, size = f_text_size(signalTextSizeS))
+    array.push(signalLabels, lb)
+
+// "Касание" зоны трактуется как: цена закрытия текущего бара уже находится
+// внутри только что рассчитанной прогнозной зоны (см. пояснение в чате —
+// снапшот-архитектура не отслеживает историю пересечений между барами).
+f_check_zone_touch_signal(float lo, float hi, int reactionDir, string reasonText) =>
+    if showSignalTouch and close >= lo and close <= hi
+        isBuy = reactionDir == 1
+        f_draw_signal(time, close, isBuy, "касание зоны: " + reasonText)
+
+// Правило 1 импульса: волна 2 не заходит за начало волны 1 (точка "0").
+f_imp_rule1(int dir, float p0, float p2) =>
+    dir == 1 ? p2 > p0 : p2 < p0
+
+// Правило 3 импульса: волна 4 не заходит на территорию волны 1.
+f_imp_rule3(int dir, float p1, float p4) =>
+    dir == 1 ? p4 > p1 : p4 < p1
+
+f_run_projection(float atrValIn) =>
+    f_clear_projections()
+    nP = array.size(pBar)
+    maxDev = atrValIn * projMaxAtrMult
+    if showProjection and nP >= 2
+        lastTime = array.get(pTime, nP - 1)
+        p1 = array.get(pPrice, nP - 1)
+        p0 = array.get(pPrice, nP - 2)
+        legLen = math.abs(p1 - p0)
+        dirLast = p1 > p0 ? 1 : -1
+        pathToTime = time + barDeltaMs * projBarsForward
+
+        if nP == 2
+            zz1 = dirLast == 1 ? p1 - legLen * 0.75 : p1 + legLen * 0.5
+            zz2 = dirLast == 1 ? p1 - legLen * 0.5  : p1 + legLen * 0.75
+            zoneLoA = math.min(zz1, zz2)
+            zoneHiA = math.max(zz1, zz2)
+            f_draw_proj_zone(lastTime, zoneLoA, zoneHiA,
+                 "Прогноз: волна 2/B/X — Zigzag-норма (0.5–0.75)", color.orange)
+            f_draw_all_paths(time, close, pathToTime, zoneLoA, zoneHiA)
+            f_check_zone_touch_signal(zoneLoA, zoneHiA, dirLast, "волна 2/B/X (Zigzag-норма)")
+
+            fl1 = dirLast == 1 ? p1 - legLen * 1.382 : p1 + legLen * 1.236
+            fl2 = dirLast == 1 ? p1 - legLen * 1.236 : p1 + legLen * 1.382
+            zoneLoB = math.min(fl1, fl2)
+            zoneHiB = math.max(fl1, fl2)
+            f_draw_proj_zone(lastTime, zoneLoB, zoneHiB,
+                 "Прогноз: волна 2/B/X — Flat/Comb-норма (1.236–1.382)", color.yellow)
+            f_draw_all_paths(time, close, pathToTime, zoneLoB, zoneHiB)
+            f_check_zone_touch_signal(zoneLoB, zoneHiB, dirLast, "волна 2/B/X (Flat/Comb-норма)")
+
+        if nP == 3
+            pm2 = array.get(pPrice, nP - 3)
+            barBaseA = array.get(pBar, nP - 3)
+            barEndA  = array.get(pBar, nP - 2)
+            barEndB  = array.get(pBar, nP - 1)
+            wave1Len = math.abs(p0 - pm2)
+            dir1 = p0 > pm2 ? 1 : -1
+            retrRatio = wave1Len > 0 ? legLen / wave1Len : 0.0
+
+            impulseInvalidated = not f_imp_rule1(dir1, pm2, p1)
+            warnNote = impulseInvalidated ?
+                 " | ⚠ откат вышел за начало волны 1/A — вариант Импульса/Zigzag для волны 1 исключён" : ""
+
+            zoneLoC = 0.0
+            zoneHiC = 0.0
+            if retrRatio < 0.9
+                c1 = dir1 == 1 ? p0 + wave1Len * 1.0   : p0 - wave1Len * 1.0
+                c2 = dir1 == 1 ? p0 + wave1Len * 1.618 : p0 - wave1Len * 1.618
+                zoneLoC := math.min(c1, c2)
+                zoneHiC := math.max(c1, c2)
+                f_draw_proj_zone(lastTime, zoneLoC, zoneHiC,
+                     "Прогноз: волна C/Y — равенство A / 1.618×A" + warnNote, color.orange)
+            else
+                c1 = dir1 == 1 ? p0 + wave1Len * 1.618 : p0 - wave1Len * 1.618
+                c2 = dir1 == 1 ? p0 + wave1Len * 1.0   : p0 - wave1Len * 1.0
+                zoneLoC := math.min(c1, c2)
+                zoneHiC := math.max(c1, c2)
+                f_draw_proj_zone(lastTime, zoneLoC, zoneHiC,
+                     "Прогноз: волна C — 1.618×A (Flat) / равенство A" + warnNote, color.yellow)
+
+            f_draw_all_paths(time, close, pathToTime, zoneLoC, zoneHiC)
+            f_check_zone_touch_signal(zoneLoC, zoneHiC, dir1, "волна C/Y")
+
+            slopeAB = f_channel_slope(barBaseA, pm2, barEndB, p1)
+            if showChannelLines
+                f_draw_channel_target(barEndA, p0, slopeAB, bar_index, color.orange,
+                     "Трендовая линия — цель C/Y", maxDev)
+
+        if nP == 4
+            pm3 = array.get(pPrice, nP - 4)
+            pm2 = array.get(pPrice, nP - 3)
+            barEnd1 = array.get(pBar, nP - 3)
+            barEnd2 = array.get(pBar, nP - 2)
+            barEnd3 = array.get(pBar, nP - 1)
+            wave1Len = math.abs(pm2 - pm3)
+            wave3Len = math.abs(p1 - p0)
+            dirTrend = pm2 > pm3 ? 1 : -1
+
+            rule1Ok = f_imp_rule1(dirTrend, pm3, p0)
+            invalidNote = rule1Ok ? "" :
+                 " | ⚠ правило 1 нарушено (волна 2 зашла за начало волны 1) — Импульс исключён"
+
+            wave3ShorterThan1 = wave3Len < wave1Len
+            rule2Note = wave3ShorterThan1 ?
+                 " | волна 3 короче волны 1 → по правилу 2 волна 5 обязана быть длиннее обеих" : ""
+
+            f4_1 = dirTrend == 1 ? p1 - wave3Len * 0.25 : p1 + wave3Len * 0.25
+            f4_2 = dirTrend == 1 ? p1 - wave3Len * 0.45 : p1 + wave3Len * 0.45
+            zoneLo4 = math.min(f4_1, f4_2)
+            zoneHi4 = math.max(f4_1, f4_2)
+            f_draw_proj_zone(lastTime, zoneLo4, zoneHi4,
+                 "Прогноз: волна 4 импульса (0.25–0.45×волна 3)" + invalidNote + rule2Note, color.lime)
+            f_draw_all_paths(time, close, pathToTime, zoneLo4, zoneHi4)
+            f_check_zone_touch_signal(zoneLo4, zoneHi4, dirTrend, "волна 4")
+
+            slope13 = f_channel_slope(barEnd1, pm2, barEnd3, p1)
+            if showChannelLines
+                f_draw_channel_target(barEnd2, p0, slope13, bar_index, color.lime,
+                     "Трендовая линия — цель волны 4", maxDev)
+
+            waveBLen = math.abs(p0 - pm2)
+            d1 = p1 - waveBLen * 0.5
+            d2 = p1 - waveBLen * 0.75
+            zoneLoD = math.min(d1, d2)
+            zoneHiD = math.max(d1, d2)
+            f_draw_proj_zone(lastTime, zoneLoD, zoneHiD,
+                 "Прогноз: волна D треугольника (0.5–0.75×волна B, приближённо)", color.purple)
+            f_draw_all_paths(time, close, pathToTime, zoneLoD, zoneHiD)
+            f_check_zone_touch_signal(zoneLoD, zoneHiD, dirTrend, "волна D (приближённо)")
+
+            slope0B = f_channel_slope(barEnd1, pm2, barEnd3, p1)
+            if showChannelLines
+                f_draw_channel_target(barEnd1, pm2, slope0B, bar_index, color.purple,
+                     "Граница канала треугольника (0→B) — ориентир для D", maxDev)
+
+        if nP >= 5
+            pm4 = array.get(pPrice, nP - 5)
+            pm3 = array.get(pPrice, nP - 4)
+            pm2 = array.get(pPrice, nP - 3)
+            barEnd1 = array.get(pBar, nP - 4)
+            barEnd2 = array.get(pBar, nP - 3)
+            barEnd3 = array.get(pBar, nP - 2)
+            barEnd4 = array.get(pBar, nP - 1)
+            wave1Len = math.abs(pm3 - pm4)
+            wave3Len = math.abs(p0 - pm2)
+            dirTrend = pm3 > pm4 ? 1 : -1
+
+            rule1Ok = f_imp_rule1(dirTrend, pm4, pm2)
+            rule3Ok = f_imp_rule3(dirTrend, pm3, p1)
+            invalidNote = ""
+            if not rule1Ok
+                invalidNote := invalidNote + " | ⚠ правило 1 нарушено (волна 2 зашла за начало 1)"
+            if not rule3Ok
+                invalidNote := invalidNote + " | ⚠ правило 3 нарушено (волна 4 зашла на территорию волны 1)"
+            impulseFullyInvalid = not rule1Ok or not rule3Ok
+            if impulseFullyInvalid
+                invalidNote := invalidNote + " — вариант Импульса исключён"
+
+            wave1Extended = wave1Len > 0 and wave3Len > wave1Len * 1.3
+            noExtensionYet = wave3Len <= wave1Len * 1.3
+            extNote = wave1Extended ?
+                 " | волна 3 растянута → вероятнее равенство с 1, а не расширение" :
+                 (noExtensionYet ? " | ни 1, ни 3 не растянуты → волна 5 может оказаться растянутой" : "")
+
+            wave3ShorterThan1 = wave3Len < wave1Len
+            rule2Note = wave3ShorterThan1 ?
+                 " | волна 3 короче волны 1 → волна 5 обязана быть длиннее обеих" : ""
+
+            eq5  = dirTrend == 1 ? p1 + wave1Len : p1 - wave1Len
+            ext5 = dirTrend == 1 ? p1 + wave3Len * 0.618 : p1 - wave3Len * 0.618
+            zoneLo5 = math.min(eq5, ext5)
+            zoneHi5 = math.max(eq5, ext5)
+            f_draw_proj_zone(lastTime, zoneLo5, zoneHi5,
+                 "Прогноз: волна 5 импульса (равенство с 1 / 0.618×волна 3)" + extNote + rule2Note + invalidNote, color.lime)
+            f_draw_all_paths(time, close, pathToTime, zoneLo5, zoneHi5)
+            f_check_zone_touch_signal(zoneLo5, zoneHi5, -dirTrend, "волна 5 (завершение импульса)")
+
+            slope13b = f_channel_slope(barEnd1, pm3, barEnd3, p0)
+            if showChannelLines
+                f_draw_channel_target(barEnd4, p1, slope13b, bar_index, color.lime,
+                     "Трендовая линия — цель волны 5", maxDev)
+
+            waveCLen = math.abs(p0 - pm2)
+            e1 = p1 - waveCLen * 0.5
+            e2 = p1 - waveCLen * 0.75
+            zoneLoE = math.min(e1, e2)
+            zoneHiE = math.max(e1, e2)
+            f_draw_proj_zone(lastTime, zoneLoE, zoneHiE,
+                 "Прогноз: волна E треугольника (0.5–0.75×волна C, приближённо)", color.purple)
+            f_draw_all_paths(time, close, pathToTime, zoneLoE, zoneHiE)
+            f_check_zone_touch_signal(zoneLoE, zoneHiE, dirTrend, "волна E (приближённо)")
+
+            slopeBD = f_channel_slope(barEnd2, pm2, barEnd4, p1)
+            if showChannelLines
+                f_draw_channel_target(barEnd2, pm2, slopeBD, bar_index, color.purple,
+                     "Граница канала треугольника (B→D) — ориентир для E", maxDev)
+
+// ================================================================
+// SECTION 15 — СИГНАЛЫ ПО ЗАВЕРШЕНИЮ ПОДТВЕРЖДЁННЫХ СТРУКТУР
+// ================================================================
+// Мотивные (Impulse/Diagonal) и коррекционные (Zigzag/DoubleZigzag/Flat/
+// Combination) структуры при завершении сигналят РАЗВОРОТ против направления
+// только что завершённой структуры. Треугольник — приближение: обычно
+// продолжение (тяга в направлении m.dir), не строгий сигнал из гайда.
+f_run_structure_signals() =>
+    if showSignalStructure
+        nP = array.size(pBar)
+        if nP >= 1
+            lastPivotBar = array.get(pBar, nP - 1)
+            n = array.size(allMatches2)
+            if n > 0
+                for i = 0 to n - 1
+                    m = array.get(allMatches2, i)
+                    if m.accepted and m.degree == 0 and m.endBar == lastPivotBar
+                        isMotive = m.kind == "Impulse" or m.kind == "Diagonal"
+                        isCorrective = m.kind == "Zigzag" or m.kind == "DoubleZigzag" or m.kind == "Flat" or m.kind == "Combination"
+                        isTriangle = m.kind == "Triangle"
+                        atPrice = m.dir == 1 ? m.topPrice : m.botPrice
+                        if isMotive or isCorrective
+                            isBuy = m.dir == -1
+                            f_draw_signal(m.endTime, atPrice, isBuy, "структура " + m.kind + " завершена")
+                        if isTriangle
+                            isBuyT = m.dir == 1
+                            f_draw_signal(m.endTime, atPrice, isBuyT, "треугольник: ожидаемый импульс (приближённо)")
+
+// ================================================================
+// SECTION 12 — MAIN EXECUTION
+// ================================================================
+atrVal    = ta.atr(atrLen)
+fractHigh = ta.pivothigh(high, fractalLen, fractalLen)
+fractLow  = ta.pivotlow(low, fractalLen, fractalLen)
+
+barDeltaMs := time - time[1]
+
+if barstate.isconfirmed
+    if pivotMethod == "ZigZag %" or pivotMethod == "ZigZag ATR"
+        f_zigzag_step(zzState, atrVal)
+    else
+        f_fractals_step(fractHigh, fractLow)
+    if enableNesting
+        f_zigzag_step2(zz2State, atrVal)
+
+if barstate.islast
+    f_run_nested_scan()
+    f_draw_arbitrated()
+    f_clear_signals()
+    f_run_projection(atrVal)
+    f_run_structure_signals()
+
+var string mtfPayload = ""
+if barstate.islast
+    mtfPayload := f_serialize_matches()
+
+string htfPayload = request.security(syminfo.tickerid, htfTF, mtfPayload, lookahead = barmerge.lookahead_off)
+
+if barstate.islast
+    f_draw_htf_matches(htfPayload)
+
+// ================================================================
+// SECTION 13 — ДАШБОРД (с настроением рынка)
+// ================================================================
+f_compute_sentiment() =>
+    bullScore = 0.0
+    bearScore = 0.0
+    n = array.size(allMatches2)
+    if n > 0
+        for i = 0 to n - 1
+            m = array.get(allMatches2, i)
+            if m.accepted and m.degree == 0
+                if m.dir == 1
+                    bullScore += m.confidence
+                else
+                    bearScore += m.confidence
+    total = bullScore + bearScore
+    bullShare = total > 0 ? bullScore / total : 0.5
+    [bullShare, bullScore, bearScore]
+
+var table infoTable = table.new(position.top_right, 1, 7, bgcolor = color.new(color.black, 80))
+if barstate.islast and showDashboard
+    accCount = 0
+    if array.size(allMatches2) > 0
+        for i = 0 to array.size(allMatches2) - 1
+            if array.get(allMatches2, i).accepted
+                accCount += 1
+
+    dashSize = f_text_size(dashTextSizeS)
+    table.cell(infoTable, 0, 0, "Метод: " + pivotMethod, text_color = dashTextColor, text_size = dashSize, bgcolor = dashBgColor)
+    table.cell(infoTable, 0, 1, "Пивотов (Primary): " + str.tostring(array.size(pBar)), text_color = dashTextColor, text_size = dashSize, bgcolor = dashBgColor)
+    table.cell(infoTable, 0, 2, "Пивотов (Intermediate): " + str.tostring(array.size(p2Bar)), text_color = dashTextColor, text_size = dashSize, bgcolor = dashBgColor)
+    table.cell(infoTable, 0, 3, "Принято структур: " + str.tostring(accCount), text_color = dashTextColor, text_size = dashSize, bgcolor = dashBgColor)
+    table.cell(infoTable, 0, 4, "Активных сигналов: " + str.tostring(array.size(signalLabels)), text_color = dashTextColor, text_size = dashSize, bgcolor = dashBgColor)
+
+    if showSentiment
+        [bullShare, bullScore, bearScore] = f_compute_sentiment()
+        sentLabel = bullShare > 0.6 ? "Бычье" : bullShare < 0.4 ? "Медвежье" : "Нейтральное"
+        sentColor = bullShare > 0.6 ? sentimentBullColor : bullShare < 0.4 ? sentimentBearColor : sentimentNeutralColor
+        table.cell(infoTable, 0, 5, "Настроение: " + sentLabel + " (" + str.tostring(bullShare * 100, "#") + "% быки)",
+             text_color = dashTextColor, text_size = dashSize, bgcolor = sentColor)
+
+    if showDebugRow
+        debugThr2 = pivotMethod == "ZigZag ATR" ? atrVal * atrMult / finerDivisor : devPercent / finerDivisor
+        debugExtreme2 = na(zz2State.extreme) ? "na" : str.tostring(zz2State.extreme, format.mintick)
+        table.cell(infoTable, 0, 6, "DBG: nesting=" + str.tostring(enableNesting) + " dir2=" + str.tostring(zz2State.dir) +
+             " extreme2=" + debugExtreme2 + " thr2=" + str.tostring(debugThr2, "#.####"),
+             text_color = color.yellow, text_size = dashSize, bgcolor = dashBgColor)
