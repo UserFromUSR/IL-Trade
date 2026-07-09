@@ -1044,15 +1044,6 @@ if bar_index == 0
         TMR.push(bar_timer.new())
 
 // ====================================================================================================================
-// КЭШ PRESET_FACTOR (производительность): вычисляется один раз на первом баре, устраняет дублирующие
-// вызовы f_pr_get для одних и тех же индексов при скоринге и при построении inc_fN-флагов гейтинга.
-// ====================================================================================================================
-var array<preset_factor> PF_CACHE = array.new<preset_factor>(68)
-if bar_index == 0
-    for i = 0 to 67
-        PF_CACHE.set(i, f_pr_get(i, SCORE_RAW_INC.get(i), SCORE_RAW_WEIGHT.get(i), SCORE_RAW_MUST.get(i)))
-
-// ====================================================================================================================
 // ГЛОБАЛЬНЫЕ ИНДИКАТОРЫ, LOWER-TF ЗАПРОСЫ, MA/ТРЕНД
 // ====================================================================================================================
 [g_mac_line, g_mac_signal, g_mac_hist] = ta.macd(close, 12, 26, 9)
@@ -1795,7 +1786,7 @@ bool b_lvz_confirmed_bull = p1_connected and p1_lvz_bull == 2
 bool b_lvz_confirmed_bear = p1_connected and p1_lvz_bear == 2
 
 // ====================================================================================================================
-// OTE РАСЧЁТЫ (включая новый фактор f78 — OTE обычный, точная зона 0.618-0.786)
+// OTE РАСЧЁТЫ (включая фактор f78 — OTE обычный, точная зона 0.618-0.786)
 // ====================================================================================================================
 var float recent_swing_h = na
 var float recent_swing_l = na
@@ -1823,7 +1814,6 @@ else if p1_ote_zone == -1
 bool b_pd_bull = p1_connected ? (ote_score_bull >= 1) : false
 bool b_pd_bear = p1_connected ? (ote_score_bear >= 1) : false
 
-// ── НОВОЕ (f78): OTE обычный — строго точная зона 0.618-0.786, независимо от Prem/Discount (f24) ──
 bool b_ote_zone_bull = ote_score_bull >= 2
 bool b_ote_zone_bear = ote_score_bear >= 2
 
@@ -1899,8 +1889,32 @@ side_detail pack_bull = side_detail.new()
 side_detail pack_bear = side_detail.new()
 
 // ====================================================================================================================
-// СКОРИНГ — 68 факторов (f0-f67) + f68 (LVZ) + f69 (OTE Confluence) + f70-f77 (ТЗ синхронизации)
-// + f78 (НОВЫЙ: OTE обычный, точная зона)
+// КЭШ PRESET_FACTOR (производительность + объединение f0-f78 в единый процесс): вычисляется один раз
+// на первом баре. Индексы 0-67 берут include/weight/must из пресета через f_pr_get; индексы 68-78
+// (LVZ, OTE Confluence, синхронизация ТЗ 6.2-6.4, OTE точная зона) не зависят от пресета и заполняются
+// напрямую из своих чекбоксов — но участвуют в ТОМ ЖЕ массиве и ТОМ ЖЕ цикле скоринга, что и f0-f67.
+// ====================================================================================================================
+var array<preset_factor> PF_CACHE = array.new<preset_factor>(79)
+if bar_index == 0
+    for i = 0 to 67
+        PF_CACHE.set(i, f_pr_get(i, SCORE_RAW_INC.get(i), SCORE_RAW_WEIGHT.get(i), SCORE_RAW_MUST.get(i)))
+    PF_CACHE.set(68, preset_factor.new(s_lvz, lvz_weight, m_lvz))
+    PF_CACHE.set(69, preset_factor.new(s_ote_conf, 1, m_ote_conf))
+    PF_CACHE.set(70, preset_factor.new(s_cvd_mdiv, 1, m_cvd_mdiv))
+    PF_CACHE.set(71, preset_factor.new(s_regime_smc, 1, m_regime_smc))
+    PF_CACHE.set(72, preset_factor.new(s_lvz_sweep, 1, m_lvz_sweep))
+    PF_CACHE.set(73, preset_factor.new(s_lvz_cvd, 1, m_lvz_cvd))
+    PF_CACHE.set(74, preset_factor.new(s_lvz_ob, 1, m_lvz_ob))
+    PF_CACHE.set(75, preset_factor.new(s_lvz_avwap, 1, m_lvz_avwap))
+    PF_CACHE.set(76, preset_factor.new(s_master_p1, 1, m_master_p1))
+    PF_CACHE.set(77, preset_factor.new(s_conf_main, 1, m_conf_main))
+    PF_CACHE.set(78, preset_factor.new(s_ote_zone, 1, m_ote_zone))
+
+// ====================================================================================================================
+// СКОРИНГ — единый процесс f0-f78 (68 базовых факторов + LVZ + OTE Confluence + синхронизация ТЗ 6.2-6.4
+// + OTE точная зона). Отдельно после цикла обрабатываются только 5 индексов с нестандартным весом:
+// 29/30 (HTF Gate — вес по избытку тиров), 31 (Zone Confluence — вес по числу слоёв),
+// 65 (ADX тир — вес умножается на тир), 67 (Консенсус — зависит от уже посчитанного скора).
 // ====================================================================================================================
 int buy_score = 0
 int sell_score = 0
@@ -1950,12 +1964,12 @@ bool b_triple_div_bear = osc_mdiv_bear and osc_peter_bear and osc_smt_bear
 bool b_macross_matrend_bull = x_ma_bull and ma_trend_bull
 bool b_macross_matrend_bear = x_ma_bear and ma_trend_bear
 
-bool[] SCORE_BULL_COND = array.from(osc_kde_bull, osc_stoch_bull, osc_macd_dlx_bull, osc_cci_bull, osc_mdiv_bull, osc_peter_bull, osc_tfdiv_bull, osc_smt_bull, sm_act_bull, sm_idx_bull, sm_int_bull, cndl_bull, x_ma_bull, ma_trend_bull, b_smc_bull, b_ob_bull, b_sd_bull, b_fvg_combo_bull, b_bos_bull, b_bb_bull, b_hm_bull, b_sdinv_bull, b_sweep_bull, b_choch_bull, b_pd_bull, b_avwap_bull, b_avwap_cross_bull, b_disp_bull, b_ob_fresh_bull, false, false, false, b_choch_sw_bull, b_ob_sd_bull, p2_osc6_strong_bull, final_regime_bull, b_bos_retest_bull, b_choch_retest_bull, cvd_bull_div, sm_absorp_bull_dom, hmv_b, b_fvg_poc_bull, b_ob_touch_fresh1_bull, sm_all3_bull, osc_mdiv_multi_bull, b_candle_inside_ob_bull, b_sweep_ob_bull, b_disp_ob_bull, b_disp_fvg_bull, b_ob_avwap_bull, b_freshob_candle_bull, b_sd_fvg_bull, b_ote_ob_bull, b_ote_sd_bull, b_candle_sd_bull, b_smact_smidx_bull, b_cvd_absorp_bull, b_cvd_sm_hm_bull, b_kde_stoch_bull, b_macd_cci_bull, b_peter_tfdiv_bull, b_smt_mdiv_bull, b_triple_div_bull, b_macross_matrend_bull, osc10_sum_bull_ok, false, struct_fresh_bull, false)
+bool[] SCORE_BULL_COND = array.from(osc_kde_bull, osc_stoch_bull, osc_macd_dlx_bull, osc_cci_bull, osc_mdiv_bull, osc_peter_bull, osc_tfdiv_bull, osc_smt_bull, sm_act_bull, sm_idx_bull, sm_int_bull, cndl_bull, x_ma_bull, ma_trend_bull, b_smc_bull, b_ob_bull, b_sd_bull, b_fvg_combo_bull, b_bos_bull, b_bb_bull, b_hm_bull, b_sdinv_bull, b_sweep_bull, b_choch_bull, b_pd_bull, b_avwap_bull, b_avwap_cross_bull, b_disp_bull, b_ob_fresh_bull, false, false, false, b_choch_sw_bull, b_ob_sd_bull, p2_osc6_strong_bull, final_regime_bull, b_bos_retest_bull, b_choch_retest_bull, cvd_bull_div, sm_absorp_bull_dom, hmv_b, b_fvg_poc_bull, b_ob_touch_fresh1_bull, sm_all3_bull, osc_mdiv_multi_bull, b_candle_inside_ob_bull, b_sweep_ob_bull, b_disp_ob_bull, b_disp_fvg_bull, b_ob_avwap_bull, b_freshob_candle_bull, b_sd_fvg_bull, b_ote_ob_bull, b_ote_sd_bull, b_candle_sd_bull, b_smact_smidx_bull, b_cvd_absorp_bull, b_cvd_sm_hm_bull, b_kde_stoch_bull, b_macd_cci_bull, b_peter_tfdiv_bull, b_smt_mdiv_bull, b_triple_div_bull, b_macross_matrend_bull, osc10_sum_bull_ok, false, struct_fresh_bull, false, b_lvz_confirmed_bull, b_ote_conf_bull, b_cvd_mdiv_bull, b_regime_smc_bull, b_lvz_sweep_bull, b_lvz_cvd_bull, b_lvz_ob_bull, b_lvz_avwap_bull, b_master_bull, b_conf_bull_ok, b_ote_zone_bull)
 
-bool[] SCORE_BEAR_COND = array.from(osc_kde_bear, osc_stoch_bear, osc_macd_dlx_bear, osc_cci_bear, osc_mdiv_bear, osc_peter_bear, osc_tfdiv_bear, osc_smt_bear, sm_act_bear, sm_idx_bear, sm_int_bear, cndl_bear, x_ma_bear, ma_trend_bear, b_smc_bear, b_ob_bear, b_sd_bear, b_fvg_combo_bear, b_bos_bear, b_bb_bear, b_hm_bear, b_sdinv_bear, b_sweep_bear, b_choch_bear, b_pd_bear, b_avwap_bear, b_avwap_cross_bear, b_disp_bear, b_ob_fresh_bear, false, false, false, b_choch_sw_bear, b_ob_sd_bear, p2_osc6_strong_bear, final_regime_bear, b_bos_retest_bear, b_choch_retest_bear, cvd_bear_div, sm_absorp_bear_dom, hmv_s, b_fvg_poc_bear, b_ob_touch_fresh1_bear, sm_all3_bear, osc_mdiv_multi_bear, b_candle_inside_ob_bear, b_sweep_ob_bear, b_disp_ob_bear, b_disp_fvg_bear, b_ob_avwap_bear, b_freshob_candle_bear, b_sd_fvg_bear, b_ote_ob_bear, b_ote_sd_bear, b_candle_sd_bear, b_smact_smidx_bear, b_cvd_absorp_bear, b_cvd_sm_hm_bear, b_kde_stoch_bear, b_macd_cci_bear, b_peter_tfdiv_bear, b_smt_mdiv_bear, b_triple_div_bear, b_macross_matrend_bear, osc10_sum_bear_ok, false, struct_fresh_bear, false)
+bool[] SCORE_BEAR_COND = array.from(osc_kde_bear, osc_stoch_bear, osc_macd_dlx_bear, osc_cci_bear, osc_mdiv_bear, osc_peter_bear, osc_tfdiv_bear, osc_smt_bear, sm_act_bear, sm_idx_bear, sm_int_bear, cndl_bear, x_ma_bear, ma_trend_bear, b_smc_bear, b_ob_bear, b_sd_bear, b_fvg_combo_bear, b_bos_bear, b_bb_bear, b_hm_bear, b_sdinv_bear, b_sweep_bear, b_choch_bear, b_pd_bear, b_avwap_bear, b_avwap_cross_bear, b_disp_bear, b_ob_fresh_bear, false, false, false, b_choch_sw_bear, b_ob_sd_bear, p2_osc6_strong_bear, final_regime_bear, b_bos_retest_bear, b_choch_retest_bear, cvd_bear_div, sm_absorp_bear_dom, hmv_s, b_fvg_poc_bear, b_ob_touch_fresh1_bear, sm_all3_bear, osc_mdiv_multi_bear, b_candle_inside_ob_bear, b_sweep_ob_bear, b_disp_ob_bear, b_disp_fvg_bear, b_ob_avwap_bear, b_freshob_candle_bear, b_sd_fvg_bear, b_ote_ob_bear, b_ote_sd_bear, b_candle_sd_bear, b_smact_smidx_bear, b_cvd_absorp_bear, b_cvd_sm_hm_bear, b_kde_stoch_bear, b_macd_cci_bear, b_peter_tfdiv_bear, b_smt_mdiv_bear, b_triple_div_bear, b_macross_matrend_bear, osc10_sum_bear_ok, false, struct_fresh_bear, false, b_lvz_confirmed_bear, b_ote_conf_bear, b_cvd_mdiv_bear, b_regime_smc_bear, b_lvz_sweep_bear, b_lvz_cvd_bear, b_lvz_ob_bear, b_lvz_avwap_bear, b_master_bear, b_conf_bear_ok, b_ote_zone_bear)
 
-for i = 0 to 66
-    if i == 29 or i == 30 or i == 31 or i == 65
+for i = 0 to 78
+    if i == 29 or i == 30 or i == 31 or i == 65 or i == 67
         continue
     preset_factor pf = PF_CACHE.get(i)
     bool cb = SCORE_BULL_COND.get(i)
@@ -2003,78 +2017,8 @@ sell_score += pf67.include ? (b_consensus_bear ? pf67.weight : 0) : 0
 buy_valid := buy_valid and (pf67.must ? b_consensus_bull : true)
 sell_valid := sell_valid and (pf67.must ? b_consensus_bear : true)
 
-preset_factor pf68 = preset_factor.new(s_lvz, lvz_weight, m_lvz)
-buy_score += pf68.include ? (b_lvz_confirmed_bull ? pf68.weight : 0) : 0
-sell_score += pf68.include ? (b_lvz_confirmed_bear ? pf68.weight : 0) : 0
-buy_valid := buy_valid and (pf68.must ? b_lvz_confirmed_bull : true)
-sell_valid := sell_valid and (pf68.must ? b_lvz_confirmed_bear : true)
-
-preset_factor pf69 = preset_factor.new(s_ote_conf, 1, m_ote_conf)
-buy_score += pf69.include ? (b_ote_conf_bull ? pf69.weight : 0) : 0
-sell_score += pf69.include ? (b_ote_conf_bear ? pf69.weight : 0) : 0
-buy_valid := buy_valid and (pf69.must ? b_ote_conf_bull : true)
-sell_valid := sell_valid and (pf69.must ? b_ote_conf_bear : true)
-
-// ── Факторы f70-f77 (ТЗ 6.4) — вес фиксирован=1, вне PR_FACTORS, по образцу f68/f69 ──
-preset_factor pf70 = preset_factor.new(s_cvd_mdiv, 1, m_cvd_mdiv)
-buy_score += pf70.include ? (b_cvd_mdiv_bull ? pf70.weight : 0) : 0
-sell_score += pf70.include ? (b_cvd_mdiv_bear ? pf70.weight : 0) : 0
-buy_valid := buy_valid and (pf70.must ? b_cvd_mdiv_bull : true)
-sell_valid := sell_valid and (pf70.must ? b_cvd_mdiv_bear : true)
-
-preset_factor pf71 = preset_factor.new(s_regime_smc, 1, m_regime_smc)
-buy_score += pf71.include ? (b_regime_smc_bull ? pf71.weight : 0) : 0
-sell_score += pf71.include ? (b_regime_smc_bear ? pf71.weight : 0) : 0
-buy_valid := buy_valid and (pf71.must ? b_regime_smc_bull : true)
-sell_valid := sell_valid and (pf71.must ? b_regime_smc_bear : true)
-
-preset_factor pf72 = preset_factor.new(s_lvz_sweep, 1, m_lvz_sweep)
-buy_score += pf72.include ? (b_lvz_sweep_bull ? pf72.weight : 0) : 0
-sell_score += pf72.include ? (b_lvz_sweep_bear ? pf72.weight : 0) : 0
-buy_valid := buy_valid and (pf72.must ? b_lvz_sweep_bull : true)
-sell_valid := sell_valid and (pf72.must ? b_lvz_sweep_bear : true)
-
-preset_factor pf73 = preset_factor.new(s_lvz_cvd, 1, m_lvz_cvd)
-buy_score += pf73.include ? (b_lvz_cvd_bull ? pf73.weight : 0) : 0
-sell_score += pf73.include ? (b_lvz_cvd_bear ? pf73.weight : 0) : 0
-buy_valid := buy_valid and (pf73.must ? b_lvz_cvd_bull : true)
-sell_valid := sell_valid and (pf73.must ? b_lvz_cvd_bear : true)
-
-preset_factor pf74 = preset_factor.new(s_lvz_ob, 1, m_lvz_ob)
-buy_score += pf74.include ? (b_lvz_ob_bull ? pf74.weight : 0) : 0
-sell_score += pf74.include ? (b_lvz_ob_bear ? pf74.weight : 0) : 0
-buy_valid := buy_valid and (pf74.must ? b_lvz_ob_bull : true)
-sell_valid := sell_valid and (pf74.must ? b_lvz_ob_bear : true)
-
-preset_factor pf75 = preset_factor.new(s_lvz_avwap, 1, m_lvz_avwap)
-buy_score += pf75.include ? (b_lvz_avwap_bull ? pf75.weight : 0) : 0
-sell_score += pf75.include ? (b_lvz_avwap_bear ? pf75.weight : 0) : 0
-buy_valid := buy_valid and (pf75.must ? b_lvz_avwap_bull : true)
-sell_valid := sell_valid and (pf75.must ? b_lvz_avwap_bear : true)
-
-preset_factor pf76 = preset_factor.new(s_master_p1, 1, m_master_p1)
-buy_score += pf76.include ? (b_master_bull ? pf76.weight : 0) : 0
-sell_score += pf76.include ? (b_master_bear ? pf76.weight : 0) : 0
-buy_valid := buy_valid and (pf76.must ? b_master_bull : true)
-sell_valid := sell_valid and (pf76.must ? b_master_bear : true)
-
-preset_factor pf77 = preset_factor.new(s_conf_main, 1, m_conf_main)
-buy_score += pf77.include ? (b_conf_bull_ok ? pf77.weight : 0) : 0
-sell_score += pf77.include ? (b_conf_bear_ok ? pf77.weight : 0) : 0
-buy_valid := buy_valid and (pf77.must ? b_conf_bull_ok : true)
-sell_valid := sell_valid and (pf77.must ? b_conf_bear_ok : true)
-
-// ── НОВЫЙ фактор f78 — OTE (обычный, точная зона 0.618-0.786), вес фиксирован=1, вне PR_FACTORS ──
-preset_factor pf78 = preset_factor.new(s_ote_zone, 1, m_ote_zone)
-buy_score += pf78.include ? (b_ote_zone_bull ? pf78.weight : 0) : 0
-sell_score += pf78.include ? (b_ote_zone_bear ? pf78.weight : 0) : 0
-buy_valid := buy_valid and (pf78.must ? b_ote_zone_bull : true)
-sell_valid := sell_valid and (pf78.must ? b_ote_zone_bear : true)
-
 // ====================================================================================================================
-// GATING (ТЗ 6.5) — include-флаги для каждого фактора f0-f78. Читаются напрямую из PF_CACHE / уже
-// вычисленных pf-переменных (без повторных вызовов f_pr_get) и применяются при заполнении side_detail
-// (Часть 4) по правилу: pack.<поле> := <условие> and inc_fN.
+// GATING (ТЗ 6.5) — include-флаги f0-f78. Все читаются напрямую из PF_CACHE (единый источник).
 // ====================================================================================================================
 bool inc_f0 = PF_CACHE.get(0).include
 bool inc_f1 = PF_CACHE.get(1).include
@@ -2144,17 +2088,17 @@ bool inc_f64 = PF_CACHE.get(64).include
 bool inc_f65 = pf65.include
 bool inc_f66 = PF_CACHE.get(66).include
 bool inc_f67 = pf67.include
-bool inc_f68 = pf68.include
-bool inc_f69 = pf69.include
-bool inc_f70 = pf70.include
-bool inc_f71 = pf71.include
-bool inc_f72 = pf72.include
-bool inc_f73 = pf73.include
-bool inc_f74 = pf74.include
-bool inc_f75 = pf75.include
-bool inc_f76 = pf76.include
-bool inc_f77 = pf77.include
-bool inc_f78 = pf78.include
+bool inc_f68 = PF_CACHE.get(68).include
+bool inc_f69 = PF_CACHE.get(69).include
+bool inc_f70 = PF_CACHE.get(70).include
+bool inc_f71 = PF_CACHE.get(71).include
+bool inc_f72 = PF_CACHE.get(72).include
+bool inc_f73 = PF_CACHE.get(73).include
+bool inc_f74 = PF_CACHE.get(74).include
+bool inc_f75 = PF_CACHE.get(75).include
+bool inc_f76 = PF_CACHE.get(76).include
+bool inc_f77 = PF_CACHE.get(77).include
+bool inc_f78 = PF_CACHE.get(78).include
 
 // ====================================================================================================================
 // ГРЕЙДАЦИЯ (UserUZR, композитная модель)
@@ -2378,7 +2322,6 @@ pack_bull.lvz := b_lvz_bull and inc_f68, pack_bear.lvz := b_lvz_bear and inc_f68
 pack_bull.lvz_confirmed := b_lvz_confirmed_bull and inc_f68, pack_bear.lvz_confirmed := b_lvz_confirmed_bear and inc_f68
 pack_bull.lvz_bars := TMR.get(15).bull, pack_bear.lvz_bars := TMR.get(15).bear
 pack_bull.ote_conf := b_ote_conf_bull and inc_f69, pack_bear.ote_conf := b_ote_conf_bear and inc_f69
-// ── Поля синхронизации (ТЗ 6.1) ──
 pack_bull.hm_sig := b_hm_bull and inc_f20, pack_bear.hm_sig := b_hm_bear and inc_f20
 pack_bull.htf_gate_score := (htf_excess_bull > 0) and inc_f29, pack_bear.htf_gate_score := (htf_excess_bear > 0) and inc_f30
 pack_bull.zone_conf_fresh := b_zone_conf_bull and inc_f31, pack_bear.zone_conf_fresh := b_zone_conf_bear and inc_f31
@@ -2394,7 +2337,6 @@ pack_bull.lvz_ob := b_lvz_ob_bull and inc_f74, pack_bear.lvz_ob := b_lvz_ob_bear
 pack_bull.lvz_avwap := b_lvz_avwap_bull and inc_f75, pack_bear.lvz_avwap := b_lvz_avwap_bear and inc_f75
 pack_bull.master_p1 := b_master_bull and inc_f76, pack_bear.master_p1 := b_master_bear and inc_f76
 pack_bull.conf_main := b_conf_bull_ok and inc_f77, pack_bear.conf_main := b_conf_bear_ok and inc_f77
-// ── НОВОЕ поле (f78): OTE обычный, точная зона ──
 pack_bull.ote_zone := b_ote_zone_bull and inc_f78, pack_bear.ote_zone := b_ote_zone_bear and inc_f78
 
 // ====================================================================================================================
@@ -2516,57 +2458,46 @@ f_freshness_sorted(side_detail d) =>
     out
 
 // ====================================================================================================================
-// ТЕКСТОВЫЕ СЕКЦИИ (ТЗ раздел 4) — исправления по всем пунктам 4.1-4.13
+// ХЕЛПЕР СЖАТИЯ ТЕКСТА: проход по параллельным массивам (условие, текст), склейка совпавших строк.
+// Используется в f_struct_section / f_zones_section / f_volume_section / f_osc_section для всех
+// независимых условий (без else-if цепочек и без динамической подстановки значений).
+// ====================================================================================================================
+f_apply_flags(bool[] conds, string[] texts) =>
+    string out = ""
+    for i = 0 to conds.size()-1
+        if conds.get(i)
+            out += texts.get(i) + "\n"
+    out
+
+// ====================================================================================================================
+// ТЕКСТОВЫЕ СЕКЦИИ (ТЗ раздел 4) — исправления по всем пунктам 4.1-4.13, сжаты через f_apply_flags
 // ====================================================================================================================
 f_struct_section(side_detail d, bool is_bull) =>
     string out = ""
     if d.smc
         out += "📍 SMC: " + (is_bull ? "бычья" : "медвежья") + "\n"
-    if d.choch_sw
-        out += "⚡🌊 CHoCH после Sweep\n"
-    if d.bb
-        out += "🔗 Брейкер активен\n"
-    if d.bos
-        out += "🔄 BOS подтверждён\n"
-    if d.choch
-        out += "⚡ CHoCH активен\n"
-    if d.sweep
-        out += "🌊 Sweep ликвидности\n"
     bool sweep_ob_this = is_bull ? b_sweep_ob_bull : b_sweep_ob_bear
-    if sweep_ob_this and inc_f46
-        out += "🌊📦 Sweep+OB\n"
-    if d.disp
-        out += "💥 Displacement\n"
     bool disp_ob_this = is_bull ? b_disp_ob_bull : b_disp_ob_bear
-    if disp_ob_this and inc_f47
-        out += "💥📦 Disp+OB\n"
     bool disp_fvg_this = is_bull ? b_disp_fvg_bull : b_disp_fvg_bear
-    if disp_fvg_this and inc_f48
-        out += "💥📦 Disp+FVG\n"
+    bool ob_avwap_this = is_bull ? b_ob_avwap_bull : b_ob_avwap_bear
+    bool regime_smc_this = is_bull ? b_regime_smc_bull : b_regime_smc_bear
+    bool[] sc = array.from(d.choch_sw, d.bb, d.bos, d.choch, d.sweep, sweep_ob_this and inc_f46, d.disp, disp_ob_this and inc_f47, disp_fvg_this and inc_f48, ob_avwap_this and inc_f49, d.ob_sd, regime_smc_this and inc_f71, d.struct_fresh)
+    string[] st = array.from("⚡🌊 CHoCH после Sweep", "🔗 Брейкер активен", "🔄 BOS подтверждён", "⚡ CHoCH активен", "🌊 Sweep ликвидности", "🌊📦 Sweep+OB", "💥 Displacement", "💥📦 Disp+OB", "💥📦 Disp+FVG", "📦📌 OB+AVWAP", "🎯 OB в S&D", "📊📍 Regime+SMC", "🏗️ Структ.свежесть-комбо (2+ событий недавно)")
+    out += f_apply_flags(sc, st)
     if d.avwap_x
         out += "🎯 AVWAP пересечён " + (is_bull ? "вверх" : "вниз") + "\n"
     else if d.avwap
         out += "📌 Цена на стороне AVWAP\n"
-    bool ob_avwap_this = is_bull ? b_ob_avwap_bull : b_ob_avwap_bear
-    if ob_avwap_this and inc_f49
-        out += "📦📌 OB+AVWAP\n"
     if d.virgin
         out += "✨ Девственный OB (каса.:" + str.tostring(d.touches) + ")\n"
     else if d.touches == 1 and inc_f42
         out += "⚠️ OB: 1-е повт.каса.\n"
     else if d.touches > 1
         out += "⚠️ OB каса.раз: " + str.tostring(d.touches) + "\n"
-    if d.ob_sd
-        out += "🎯 OB в S&D\n"
     if d.bos_retest
         out += d.bos_retest_text + "\n🔄🎯 BOS+Retest\n"
     if d.choch_retest
         out += d.choch_retest_text + "\n⚡🎯 CHoCH+Retest\n"
-    bool regime_smc_this = is_bull ? b_regime_smc_bull : b_regime_smc_bear
-    if regime_smc_this and inc_f71
-        out += "📊📍 Regime+SMC\n"
-    if d.struct_fresh
-        out += "🏗️ Структ.свежесть-комбо (2+ событий недавно)\n"
     out == "" ? "" : "── 🏗️ Структура ──\n" + out
 
 f_zones_section(side_detail d, bool is_bull) =>
@@ -2575,47 +2506,22 @@ f_zones_section(side_detail d, bool is_bull) =>
     if d.zone_conf_fresh or v_layers >= 1
         string zone_q = v_layers>=3 ? "🔥📦📦📦 Зона 3 слоя\n" : v_layers==2 ? "💪 Зона 2 слоя\n" : v_layers==1 ? "⚪ Зона 1 слой\n" : ""
         out += zone_q
-    // ── ТЗ 4.2: OB Activity и Fresh OB печатаются независимо, без else-if ──
-    if d.ob
-        out += "📦 OB активен\n"
-    if d.ob_fr
-        out += "✨ Свежий OB (каса. недавно)\n"
+    bool sd_fvg_this = is_bull ? b_sd_fvg_bull : b_sd_fvg_bear
+    bool cndl_ob_this = is_bull ? b_candle_inside_ob_bull : b_candle_inside_ob_bear
+    bool cndl_sd_this = is_bull ? b_candle_sd_bull : b_candle_sd_bear
+    bool freshob_cndl_this = is_bull ? b_freshob_candle_bull : b_freshob_candle_bear
+    int v_ote = d.ote
+    bool[] zc = array.from(d.ob, d.ob_fr, sd_fvg_this and inc_f51, d.fvg_poc, v_ote==2, d.ote_zone, d.ote_ob, d.ote_sd, d.ote_conf, cndl_ob_this and inc_f45, cndl_sd_this and inc_f54, freshob_cndl_this and inc_f50)
+    string[] zt = array.from("📦 OB активен", "✨ Свежий OB (каса. недавно)", "📦📦 S&D+FVG", "🎯 FVG POC (точный центр)", "⚖️ OTE зона(0.618-0.786)", "⚖️ OTE (точная зона) — фактор подтверждён ✅", "⚖️📦 OTE+OB", "⚖️📦 OTE+S&D", "⚖️🎯 OTE Confluence (Main+Sniper совпали)", "🕯️📦 Свеча в OB", "🕯️📦 Свеча на границе S&D", "✨🕯️ FreshOB+Candle")
+    out += f_apply_flags(zc, zt)
     if d.sd
         out += "📦 Зона " + (is_bull ? "Demand" : "Supply") + "\n"
-    bool sd_fvg_this = is_bull ? b_sd_fvg_bull : b_sd_fvg_bear
-    if sd_fvg_this and inc_f51
-        out += "📦📦 S&D+FVG\n"
-    // ── ТЗ 4.3: FVG — d.fvg_p и d.fvg суть одна форма фактора f17 (OR), гейт единый ──
     if d.fvg_p
         out += "📦 Внутри точного FVG\n"
     else if d.fvg
         out += "📦 FVG (направление, без точн. каса.)\n"
-    if d.fvg_poc
-        out += "🎯 FVG POC (точный центр)\n"
-    // ── ТЗ 4.5: OTE и Prem/Discount — раздельные if, без else, отдельный gating для комбо ──
-    int v_ote = d.ote
-    if v_ote == 2
-        out += "⚖️ OTE зона(0.618-0.786)\n"
-    // ── НОВОЕ (f78): OTE обычный, точная зона — отдельный независимый фактор ──
-    if d.ote_zone
-        out += "⚖️ OTE (точная зона) — фактор подтверждён ✅\n"
-    if d.ote_ob
-        out += "⚖️📦 OTE+OB\n"
-    if d.ote_sd
-        out += "⚖️📦 OTE+S&D\n"
     if d.pd
         out += "📉 Зона " + (is_bull ? "дисконта" : "премии") + "\n"
-    if d.ote_conf
-        out += "⚖️🎯 OTE Confluence (Main+Sniper совпали)\n"
-    bool cndl_ob_this = is_bull ? b_candle_inside_ob_bull : b_candle_inside_ob_bear
-    if cndl_ob_this and inc_f45
-        out += "🕯️📦 Свеча в OB\n"
-    bool cndl_sd_this = is_bull ? b_candle_sd_bull : b_candle_sd_bear
-    if cndl_sd_this and inc_f54
-        out += "🕯️📦 Свеча на границе S&D\n"
-    bool freshob_cndl_this = is_bull ? b_freshob_candle_bull : b_freshob_candle_bear
-    if freshob_cndl_this and inc_f50
-        out += "✨🕯️ FreshOB+Candle\n"
     out == "" ? "" : "── 📐 Зоны ──\n" + out
 
 f_volume_section(side_detail d, bool is_bull) =>
@@ -2624,92 +2530,39 @@ f_volume_section(side_detail d, bool is_bull) =>
         out += "🐋 SM Activity\n"
     else if d.sm_bars <= 5
         out += "🐋 SM была " + str.tostring(d.sm_bars) + " б.назад\n"
-    if d.sm_idx
-        out += "💰 SM Index\n"
-    if d.sm_int
-        out += "💡 SM Interest\n"
     bool smact_smidx_this = is_bull ? b_smact_smidx_bull : b_smact_smidx_bear
-    if smact_smidx_this and inc_f55
-        out += "🐋💰 SMAct+SMIdx\n"
     bool sm_all3_this = is_bull ? sm_all3_bull : sm_all3_bear
-    if sm_all3_this and inc_f43
-        out += "🐋💰💡 SM Триплет\n"
-    if d.cvd
-        out += "🌊 CVD дивергенция\n"
     bool cvd_mdiv_this = is_bull ? b_cvd_mdiv_bull : b_cvd_mdiv_bear
-    if cvd_mdiv_this and inc_f70
-        out += "🌊🔍 CVD+MDiv\n"
-    // ── ТЗ 4.8: Absorption направленно на свою сторону, без нейтральной ветки ──
+    bool cvd_absorp_this = is_bull ? b_cvd_absorp_bull : b_cvd_absorp_bear
+    bool cvd_sm_hm_this = is_bull ? b_cvd_sm_hm_bull : b_cvd_sm_hm_bear
+    bool[] vc = array.from(d.sm_idx, d.sm_int, smact_smidx_this and inc_f55, sm_all3_this and inc_f43, d.cvd, cvd_mdiv_this and inc_f70, cvd_absorp_this and inc_f56, d.hm_sig, cvd_sm_hm_this and inc_f57, d.sdinv, d.lvz_sweep, d.lvz_cvd, d.lvz_ob, d.lvz_avwap)
+    string[] vt = array.from("💰 SM Index", "💡 SM Interest", "🐋💰 SMAct+SMIdx", "🐋💰💡 SM Триплет", "🌊 CVD дивергенция", "🌊🔍 CVD+MDiv", "🌊🧽 CVD+Absorption(направл.)", "🔊 HM Sweep (в этом баре)", "🐋🔊 CVD+SM+HM (тройной)", "💥 S&D Break", "⚡🌊 LVZ+Sweep", "⚡🌊 LVZ+CVD", "⚡📦 LVZ+OB", "⚡📌 LVZ+AVWAP Cross")
+    out += f_apply_flags(vc, vt)
     if d.absorp_this_side
         out += "🧽 Absorption (" + (is_bull ? "бычье доминир." : "медвежье доминир.") + ")\n"
-    bool cvd_absorp_this = is_bull ? b_cvd_absorp_bull : b_cvd_absorp_bear
-    if cvd_absorp_this and inc_f56
-        out += "🌊🧽 CVD+Absorption(направл.)\n"
     if d.hm_bars <= 5
         out += "🔊 HM-Sweep " + str.tostring(d.hm_bars) + " б.назад\n"
-    // ── ТЗ 4.4: HeatMap Sweep (f20) — поле hm_sig ──
-    if d.hm_sig
-        out += "🔊 HM Sweep (в этом баре)\n"
     if d.hm_vol_sig
         out += "📦🔊 HM Sweep Vol(аномальный): " + str.tostring(p1_hm_vol, format.volume) + "\n"
-    bool cvd_sm_hm_this = is_bull ? b_cvd_sm_hm_bull : b_cvd_sm_hm_bear
-    if cvd_sm_hm_this and inc_f57
-        out += "🐋🔊 CVD+SM+HM (тройной)\n"
-    if d.sdinv
-        out += "💥 S&D Break\n"
     if d.lvz_confirmed
         out += "⚡🎯 LVZ подтверждён (снятие ликвидности в вакууме)\n"
     else if d.lvz
         out += "⚡ Цена в LVZ (ожидание подтверждения)\n"
-    if d.lvz_sweep
-        out += "⚡🌊 LVZ+Sweep\n"
-    if d.lvz_cvd
-        out += "⚡🌊 LVZ+CVD\n"
-    if d.lvz_ob
-        out += "⚡📦 LVZ+OB\n"
-    if d.lvz_avwap
-        out += "⚡📌 LVZ+AVWAP Cross\n"
     out == "" ? "" : "── 📊 Объём ──\n" + out
 
 f_osc_section(side_detail d, bool is_bull) =>
     string out = ""
-    if d.kde
-        out += "📐 KDE RSI вышел из плотности\n"
-    if d.stoch
-        out += "🌀 Stoch Z развернулся\n"
     bool kde_stoch_this = is_bull ? b_kde_stoch_bull : b_kde_stoch_bear
-    if kde_stoch_this and inc_f58
-        out += "📐🌀 KDE+StochZ\n"
-    if d.macd
-        out += "⚙️ MACD Deluxe пересёк\n"
-    if d.cci
-        out += "🎢 Advanced CCI\n"
     bool macd_cci_this = is_bull ? b_macd_cci_bull : b_macd_cci_bear
-    if macd_cci_this and inc_f59
-        out += "⚙️🎢 MACD+CCI\n"
+    bool mdiv_multi_this = is_bull ? osc_mdiv_multi_bull : osc_mdiv_multi_bear
+    bool peter_tfdiv_this = is_bull ? b_peter_tfdiv_bull : b_peter_tfdiv_bear
+    bool smt_mdiv_this = is_bull ? b_smt_mdiv_bull : b_smt_mdiv_bear
+    bool triple_div_this = is_bull ? b_triple_div_bull : b_triple_div_bear
+    bool[] oc = array.from(d.kde, d.stoch, kde_stoch_this and inc_f58, d.macd, d.cci, macd_cci_this and inc_f59, mdiv_multi_this and inc_f44, d.peter, d.tfdiv, peter_tfdiv_this and inc_f60, d.smt, smt_mdiv_this and inc_f61, triple_div_this and inc_f62, d.osc6)
+    string[] ot = array.from("📐 KDE RSI вышел из плотности", "🌀 Stoch Z развернулся", "📐🌀 KDE+StochZ", "⚙️ MACD Deluxe пересёк", "🎢 Advanced CCI", "⚙️🎢 MACD+CCI", "🔍🔍 Multi-Div 3+", "🔎 Div-Engine B", "🧩 Div-Engine C", "🔎🧩 EngineB+EngineC", "🌐 SMT дивергенция", "🌐🔍 SMT+MDiv", "🔍🔎🌐 Triple Div", "💪 OSC10 6+/10")
+    out += f_apply_flags(oc, ot)
     if d.mdiv
         out += "🔍 Multi-Div(" + str.tostring(d.mdiv_cnt) + ")\n"
-    bool mdiv_multi_this = is_bull ? osc_mdiv_multi_bull : osc_mdiv_multi_bear
-    if mdiv_multi_this and inc_f44
-        out += "🔍🔍 Multi-Div 3+\n"
-    if d.peter
-        out += "🔎 Div-Engine B\n"
-    if d.tfdiv
-        out += "🧩 Div-Engine C\n"
-    bool peter_tfdiv_this = is_bull ? b_peter_tfdiv_bull : b_peter_tfdiv_bear
-    if peter_tfdiv_this and inc_f60
-        out += "🔎🧩 EngineB+EngineC\n"
-    if d.smt
-        out += "🌐 SMT дивергенция\n"
-    bool smt_mdiv_this = is_bull ? b_smt_mdiv_bull : b_smt_mdiv_bear
-    if smt_mdiv_this and inc_f61
-        out += "🌐🔍 SMT+MDiv\n"
-    bool triple_div_this = is_bull ? b_triple_div_bull : b_triple_div_bear
-    if triple_div_this and inc_f62
-        out += "🔍🔎🌐 Triple Div\n"
-    if d.osc6
-        out += "💪 OSC10 6+/10\n"
-    // ── ТЗ 4.10: OSC10 сумма — строка с ✅ только при выполнении условия и включённом чекбоксе ──
     if d.osc10_sum_ok
         out += "📊 OSC10 сумма LTF: " + str.tostring(d.osc10_sum,"#.#") + "/30 ✅\n"
     out == "" ? "" : "── 🎛️ Осцилляторы ──\n" + out
@@ -2730,7 +2583,6 @@ f_market_section(side_detail d, bool is_bull) =>
     string out = ""
     if d.regime
         out += "📈 Regime: ADX " + str.tostring(math.round(adx_val)) + " тир" + str.tostring(d.adx_tier) + " " + (is_bull ? "бычий" : "медвежий") + "\n"
-    // ── ТЗ 4.11: ADX-тир — независимая строка от d.regime (own gating через d.adx_tier, уже гейтован inc_f65) ──
     if d.adx_tier >= 1 and not d.regime
         out += "🌡️ ADX тир " + str.tostring(d.adx_tier) + " (без учёта режима)\n"
     out == "" ? "" : "── 🌡️ Режим ──\n" + out
@@ -2745,7 +2597,6 @@ f_mtf_complex_section(side_detail d, int ltf_sc, int htf_sc, int sc, int req) =>
         out += "🟡🟡 LTF2/3+HTF2/3 — B потенциал\n"
     else if ltf_sc >= 1 and htf_sc >= 1
         out += "⚪⚪ Накопление контекста (C)\n"
-    // ── ТЗ 4.13: используем гейтованные d.master_p1/d.conf_main вместо сырых булевых ──
     if d.master_p1
         out += "✅ Master Signal P1\n"
     if d.conf_main
@@ -2905,7 +2756,7 @@ if en_alert_intrabar and intrabar_signal_live_sell
     alert(f_cap_chars(msg_ib_sell, alert_max_chars), alert.freq_once_per_bar)
 
 // ====================================================================================================================
-// УПРАВЛЕНИЕ СДЕЛКОЙ — открытие/отслеживание
+// УПРАВЛЕНИЕ СДЕЛКОЙ — открытие
 // ====================================================================================================================
 if en_trade_mgmt and barstate.isconfirmed and (is_buy or is_sell)
     bool new_is_buy = is_buy
@@ -2941,50 +2792,38 @@ if en_trade_mgmt and barstate.isconfirmed and (is_buy or is_sell)
         string lvl_txt = "SL " + str.tostring(cur_trade.sl, format.mintick) + "(" + str.tostring(cur_trade.sl_pct_calc,"#.##") + "%)\nTP1 " + str.tostring(cur_trade.tp1, format.mintick) + "\nTP2 " + str.tostring(cur_trade.tp2, format.mintick) + "\nTP3 " + str.tostring(cur_trade.tp3, format.mintick)
         label.new(bar_index, new_is_buy ? low - atr14*2.2 : high + atr14*2.2, text=lvl_txt, style=new_is_buy ? label.style_label_up : label.style_label_down, color=trade_lbl_bg_col, textcolor=trade_lbl_text_col, size=get_size(trade_lbl_text_size))
 
+// ====================================================================================================================
+// УПРАВЛЕНИЕ СДЕЛКОЙ — отслеживание SL/TP1/TP2/TP3/БУ, единая направленная логика вместо двух зеркальных
+// веток is_buy/else. dir_buy определяет знак сравнения: для покупки SL пробивается снизу (low<=sl),
+// TP — сверху (high>=tpX); для продажи наоборот. Порядок проверок и все алерты идентичны исходной версии.
+// ====================================================================================================================
 if en_trade_mgmt and barstate.isconfirmed and cur_trade.active and not cur_trade.closed
     bool event_happened = false
-    if cur_trade.is_buy
-        if not event_happened and low <= cur_trade.sl
-            cur_trade.sl_hit := true, cur_trade.active := false, cur_trade.closed := true, event_happened := true
-            if en_alert_sl
-                alert(f_cap_chars(f_alert_header("🛑 SL СРАБОТАЛ", cur_trade.grade, cur_trade.sl) + f_trade_ref(cur_trade) + "SL:" + str.tostring(cur_trade.sl, format.mintick) + (cur_trade.be_active?"(был в БУ)":""), alert_max_chars), alert.freq_once_per_bar_close)
-        if not event_happened and not cur_trade.tp1_hit and high >= cur_trade.tp1
-            cur_trade.tp1_hit := true, event_happened := true
-            if en_alert_tp1
-                alert(f_cap_chars(f_alert_header("🎯 TP1", cur_trade.grade, cur_trade.tp1) + f_trade_ref(cur_trade) + "Зафикс:" + str.tostring(tp1_vol,"#") + "%│Остаток:" + str.tostring(100-tp1_vol,"#") + "%", alert_max_chars), alert.freq_once_per_bar_close)
-            if en_be_on_tp1
-                cur_trade.sl := cur_trade.entry, cur_trade.be_active := true
-                if en_alert_be
-                    alert(f_cap_chars(f_alert_header("🔄 БЕЗУБЫТОК", cur_trade.grade, cur_trade.entry) + f_trade_ref(cur_trade) + "Новый SL:" + str.tostring(cur_trade.sl, format.mintick), alert_max_chars), alert.freq_once_per_bar_close)
-        if not event_happened and cur_trade.tp1_hit and not cur_trade.tp2_hit and high >= cur_trade.tp2
-            cur_trade.tp2_hit := true, event_happened := true
-            if en_alert_tp2
-                alert(f_cap_chars(f_alert_header("🎯 TP2", cur_trade.grade, cur_trade.tp2) + f_trade_ref(cur_trade) + "Зафикс:" + str.tostring(tp2_vol,"#") + "%│Остаток:" + str.tostring(math.max(0.0,100-tp1_vol-tp2_vol),"#") + "%", alert_max_chars), alert.freq_once_per_bar_close)
-        if not event_happened and cur_trade.tp2_hit and not cur_trade.tp3_hit and high >= cur_trade.tp3
-            cur_trade.tp3_hit := true, cur_trade.active := false, cur_trade.closed := true, event_happened := true
-            if en_alert_tp3
-                alert(f_cap_chars(f_alert_header("🎯 TP3-ЗАКРЫТИЕ", cur_trade.grade, cur_trade.tp3) + f_trade_ref(cur_trade) + "Остаток зафиксирован.", alert_max_chars), alert.freq_once_per_bar_close)
-    else
-        if not event_happened and high >= cur_trade.sl
-            cur_trade.sl_hit := true, cur_trade.active := false, cur_trade.closed := true, event_happened := true
-            if en_alert_sl
-                alert(f_cap_chars(f_alert_header("🛑 SL СРАБОТАЛ", cur_trade.grade, cur_trade.sl) + f_trade_ref(cur_trade) + "SL:" + str.tostring(cur_trade.sl, format.mintick) + (cur_trade.be_active?"(был в БУ)":""), alert_max_chars), alert.freq_once_per_bar_close)
-        if not event_happened and not cur_trade.tp1_hit and low <= cur_trade.tp1
-            cur_trade.tp1_hit := true, event_happened := true
-            if en_alert_tp1
-                alert(f_cap_chars(f_alert_header("🎯 TP1", cur_trade.grade, cur_trade.tp1) + f_trade_ref(cur_trade) + "Зафикс:" + str.tostring(tp1_vol,"#") + "%│Остаток:" + str.tostring(100-tp1_vol,"#") + "%", alert_max_chars), alert.freq_once_per_bar_close)
-            if en_be_on_tp1
-                cur_trade.sl := cur_trade.entry, cur_trade.be_active := true
-                if en_alert_be
-                    alert(f_cap_chars(f_alert_header("🔄 БЕЗУБЫТОК", cur_trade.grade, cur_trade.entry) + f_trade_ref(cur_trade) + "Новый SL:" + str.tostring(cur_trade.sl, format.mintick), alert_max_chars), alert.freq_once_per_bar_close)
-        if not event_happened and cur_trade.tp1_hit and not cur_trade.tp2_hit and low <= cur_trade.tp2
-            cur_trade.tp2_hit := true, event_happened := true
-            if en_alert_tp2
-                alert(f_cap_chars(f_alert_header("🎯 TP2", cur_trade.grade, cur_trade.tp2) + f_trade_ref(cur_trade) + "Зафикс:" + str.tostring(tp2_vol,"#") + "%│Остаток:" + str.tostring(math.max(0.0,100-tp1_vol-tp2_vol),"#") + "%", alert_max_chars), alert.freq_once_per_bar_close)
-        if not event_happened and cur_trade.tp2_hit and not cur_trade.tp3_hit and low <= cur_trade.tp3
-            cur_trade.tp3_hit := true, cur_trade.active := false, cur_trade.closed := true, event_happened := true
-            if en_alert_tp3
-                alert(f_cap_chars(f_alert_header("🎯 TP3-ЗАКРЫТИЕ", cur_trade.grade, cur_trade.tp3) + f_trade_ref(cur_trade) + "Остаток зафиксирован.", alert_max_chars), alert.freq_once_per_bar_close)
+    bool dir_buy = cur_trade.is_buy
+    bool sl_hit_now = dir_buy ? (low <= cur_trade.sl) : (high >= cur_trade.sl)
+    if not event_happened and sl_hit_now
+        cur_trade.sl_hit := true, cur_trade.active := false, cur_trade.closed := true, event_happened := true
+        if en_alert_sl
+            alert(f_cap_chars(f_alert_header("🛑 SL СРАБОТАЛ", cur_trade.grade, cur_trade.sl) + f_trade_ref(cur_trade) + "SL:" + str.tostring(cur_trade.sl, format.mintick) + (cur_trade.be_active?"(был в БУ)":""), alert_max_chars), alert.freq_once_per_bar_close)
+    bool tp1_hit_now = dir_buy ? (high >= cur_trade.tp1) : (low <= cur_trade.tp1)
+    if not event_happened and not cur_trade.tp1_hit and tp1_hit_now
+        cur_trade.tp1_hit := true, event_happened := true
+        if en_alert_tp1
+            alert(f_cap_chars(f_alert_header("🎯 TP1", cur_trade.grade, cur_trade.tp1) + f_trade_ref(cur_trade) + "Зафикс:" + str.tostring(tp1_vol,"#") + "%│Остаток:" + str.tostring(100-tp1_vol,"#") + "%", alert_max_chars), alert.freq_once_per_bar_close)
+        if en_be_on_tp1
+            cur_trade.sl := cur_trade.entry, cur_trade.be_active := true
+            if en_alert_be
+                alert(f_cap_chars(f_alert_header("🔄 БЕЗУБЫТОК", cur_trade.grade, cur_trade.entry) + f_trade_ref(cur_trade) + "Новый SL:" + str.tostring(cur_trade.sl, format.mintick), alert_max_chars), alert.freq_once_per_bar_close)
+    bool tp2_hit_now = dir_buy ? (high >= cur_trade.tp2) : (low <= cur_trade.tp2)
+    if not event_happened and cur_trade.tp1_hit and not cur_trade.tp2_hit and tp2_hit_now
+        cur_trade.tp2_hit := true, event_happened := true
+        if en_alert_tp2
+            alert(f_cap_chars(f_alert_header("🎯 TP2", cur_trade.grade, cur_trade.tp2) + f_trade_ref(cur_trade) + "Зафикс:" + str.tostring(tp2_vol,"#") + "%│Остаток:" + str.tostring(math.max(0.0,100-tp1_vol-tp2_vol),"#") + "%", alert_max_chars), alert.freq_once_per_bar_close)
+    bool tp3_hit_now = dir_buy ? (high >= cur_trade.tp3) : (low <= cur_trade.tp3)
+    if not event_happened and cur_trade.tp2_hit and not cur_trade.tp3_hit and tp3_hit_now
+        cur_trade.tp3_hit := true, cur_trade.active := false, cur_trade.closed := true, event_happened := true
+        if en_alert_tp3
+            alert(f_cap_chars(f_alert_header("🎯 TP3-ЗАКРЫТИЕ", cur_trade.grade, cur_trade.tp3) + f_trade_ref(cur_trade) + "Остаток зафиксирован.", alert_max_chars), alert.freq_once_per_bar_close)
 
 // ====================================================================================================================
 // ВИЗУАЛИЗАЦИЯ ЛЕЙБЛОВ BUY/SELL (управляется en_sig_labels из группы 0.2.1)
