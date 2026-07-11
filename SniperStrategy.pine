@@ -2277,7 +2277,7 @@ if barstate.isconfirmed
         signal_cndl_name_sell := cndl_name_live
 
 // ====================================================================================================================
-// ИСПОЛНЕНИЕ СДЕЛОК (STRATEGY) — v4: реверс только с плюсом, раздельные SL/TP, буфер за тенью, честный qty
+// ИСПОЛНЕНИЕ СДЕЛОК (STRATEGY) — v5: захват объёма на СЛЕДУЮЩЕМ баре (fix qty=0), реверс только с плюсом
 // ====================================================================================================================
 var float pos_sl = na
 var float pos_tp1 = na
@@ -2286,14 +2286,18 @@ var float pos_tp3 = na
 var bool pos_is_buy = false
 var bool pos_be_done = false
 var float entry_qty = na
-var bool just_entered = false
+var bool qty_pending = false
+
+// ── ШАГ 1 (в начале бара): если ждём подтверждения объёма после входа на прошлом баре —
+// на ЭТОМ баре strategy.position_size уже отражает реально исполненный ордер. Захватываем сейчас.
+if qty_pending and strategy.position_size != 0
+    entry_qty := math.abs(strategy.position_size)
+    qty_pending := false
 
 // ── LONG ──
 if is_buy and allow_long and bt_in_date_range
     bool was_flat = strategy.position_size == 0
     bool was_short = strategy.position_size < 0
-    // Шорт закрывается реверсом ТОЛЬКО если сейчас в плюсе. Если в минусе — сигнал игнорируется,
-    // текущий шорт продолжает жить и ждёт свой SL (за тенью сигнальной свечи), БУ или TP3.
     bool short_in_profit = was_short and signal_price_buy < strategy.position_avg_price
     bool can_enter = was_flat or short_in_profit
 
@@ -2309,7 +2313,8 @@ if is_buy and allow_long and bt_in_date_range
         pos_tp3 := e_tp3
         pos_is_buy := true
         pos_be_done := false
-        just_entered := true
+        entry_qty := na       // сбрасываем: реальный объём подтвердится только на следующем баре
+        qty_pending := true
 
 // ── SHORT ──
 if is_sell and allow_short and bt_in_date_range
@@ -2330,14 +2335,10 @@ if is_sell and allow_short and bt_in_date_range
         pos_tp3 := e_tp3
         pos_is_buy := false
         pos_be_done := false
-        just_entered := true
+        entry_qty := na
+        qty_pending := true
 
-// Фиксируем реальный объём позиции СРАЗУ после настоящего нового входа
-if just_entered
-    entry_qty := math.abs(strategy.position_size)
-    just_entered := false
-
-// ── Управление открытой позицией ──
+// ── Управление открытой позицией: работает только когда entry_qty УЖЕ подтверждён (не в баре входа) ──
 if strategy.position_size != 0 and not na(pos_sl) and not na(entry_qty)
     if en_be_on_tp1 and not pos_be_done
         bool tp1_reached = pos_is_buy ? high >= pos_tp1 : low <= pos_tp1
@@ -2367,6 +2368,7 @@ if strategy.position_size == 0
     pos_tp3 := na
     pos_be_done := false
     entry_qty := na
+    qty_pending := false
 
 // ====================================================================================================================
 // ВИЗУАЛИЗАЦИЯ УРОВНЕЙ СДЕЛКИ (Entry / SL / TP1 / TP2 / TP3) — лесенка, БУ-метка
