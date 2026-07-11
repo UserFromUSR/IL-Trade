@@ -161,14 +161,12 @@ type bar_timer
 // 0. ПРЕСЕТ ЧУВСТВИТЕЛЬНОСТИ (2 профиля: Скальпинг, Консервативный A+ Only)
 // ====================================================================================================================
 grp_0 = "0. Пресет чувствительности"
-preset_mode_p2 = input.string("Custom", "Профиль", options=["Custom", "Скальпинг", "Консервативный (A+ Only)"], group=grp_0)
+preset_mode_p2 = input.string("Custom", "Профиль", options=["Custom", "Скальпинг"], group=grp_0)
 
 f_preset_idx_p2() =>
     int idx = -1
     if preset_mode_p2 == "Скальпинг"
         idx := 0
-    else if preset_mode_p2 == "Консервативный (A+ Only)"
-        idx := 1
     idx
 
 int preset_idx_p2 = f_preset_idx_p2()
@@ -319,25 +317,7 @@ var array<preset_factor> PR_FACTORS = array.from(
   preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(true,1,false), preset_factor.new(false,1,false),
   preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(true,1,false),
   preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false),
-  preset_factor.new(true,1,false), preset_factor.new(true,1,false),
-
-  // ═══ Профиль 1: Консервативный (A+ Only) ═══
-  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(false,1,false),
-  preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(true,3,true), preset_factor.new(true,2,false),
-  preset_factor.new(false,2,false), preset_factor.new(true,2,true), preset_factor.new(true,2,false), preset_factor.new(true,2,false), preset_factor.new(true,3,true),
-  preset_factor.new(true,3,false), preset_factor.new(true,3,false), preset_factor.new(true,3,false), preset_factor.new(true,3,false), preset_factor.new(true,3,false),
-  preset_factor.new(true,3,false), preset_factor.new(true,3,false), preset_factor.new(true,3,false), preset_factor.new(true,3,false), preset_factor.new(true,3,false),
-  preset_factor.new(true,3,false), preset_factor.new(true,3,false), preset_factor.new(true,4,false), preset_factor.new(true,4,false), preset_factor.new(true,1,true),
-  preset_factor.new(true,1,true), preset_factor.new(false,3,true), preset_factor.new(true,3,false), preset_factor.new(false,3,false), preset_factor.new(true,2,false),
-  preset_factor.new(true,2,false), preset_factor.new(true,3,false), preset_factor.new(true,3,false), preset_factor.new(false,2,false), preset_factor.new(false,2,false),
-  preset_factor.new(true,2,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,2,false), preset_factor.new(true,1,false),
-  preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(true,1,false), preset_factor.new(false,1,false),
-  preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(true,1,false), preset_factor.new(false,1,false),
-  preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(true,1,false), preset_factor.new(false,2,false),
-  preset_factor.new(false,2,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(false,1,false), preset_factor.new(true,1,false),
-  preset_factor.new(true,1,false), preset_factor.new(true,1,false), preset_factor.new(true,2,false), preset_factor.new(true,1,false), preset_factor.new(true,2,false),
-  preset_factor.new(true,3,false), preset_factor.new(true,1,false))
-
+  preset_factor.new(true,1,false), preset_factor.new(true,1,false))
 f_pr_get(int factor_idx, bool raw_inc, int raw_w, bool raw_must) =>
     preset_factor result = preset_factor.new(raw_inc, raw_w, raw_must)
     if preset_idx_p2 >= 0
@@ -2277,7 +2257,9 @@ if barstate.isconfirmed
         signal_cndl_name_sell := cndl_name_live
 
 // ====================================================================================================================
-// ИСПОЛНЕНИЕ СДЕЛОК (STRATEGY) — v5: захват объёма на СЛЕДУЮЩЕМ баре (fix qty=0), реверс только с плюсом
+// ИСПОЛНЕНИЕ СДЕЛОК (STRATEGY) — v6: простая чёткая логика
+// Вход → SL/TP1/TP2/TP3 → TP1 двигает SL в БУ → закрытие по SL/БУ/TP3 → реверс закрывает полностью и переоткрывает.
+// Попутный сигнал (то же направление, позиция уже открыта) — игнорируется.
 // ====================================================================================================================
 var float pos_sl = na
 var float pos_tp1 = na
@@ -2288,23 +2270,21 @@ var bool pos_be_done = false
 var float entry_qty = na
 var bool qty_pending = false
 
-// ── ШАГ 1 (в начале бара): если ждём подтверждения объёма после входа на прошлом баре —
-// на ЭТОМ баре strategy.position_size уже отражает реально исполненный ордер. Захватываем сейчас.
+// Захват реального объёма на баре ПОСЛЕ входа (объём известен только со следующего бара)
 if qty_pending and strategy.position_size != 0
     entry_qty := math.abs(strategy.position_size)
     qty_pending := false
 
 // ── LONG ──
 if is_buy and allow_long and bt_in_date_range
-    bool was_flat = strategy.position_size == 0
     bool was_short = strategy.position_size < 0
-    bool short_in_profit = was_short and signal_price_buy < strategy.position_avg_price
-    bool can_enter = was_flat or short_in_profit
+    bool was_long = strategy.position_size > 0
 
-    if short_in_profit
-        strategy.close("Short", comment="Reverse→Long(+)")
+    if was_short
+        strategy.close("Short", comment="Reverse→Long")
 
-    if can_enter
+    if not was_long
+        // Флэт или только что закрыли шорт — это настоящий новый вход
         [e_sl, e_tp1, e_tp2, e_tp3, e_sl_pct] = f_trade_preview(true, signal_price_buy)
         strategy.entry("Long", strategy.long)
         pos_sl := e_sl
@@ -2313,20 +2293,19 @@ if is_buy and allow_long and bt_in_date_range
         pos_tp3 := e_tp3
         pos_is_buy := true
         pos_be_done := false
-        entry_qty := na       // сбрасываем: реальный объём подтвердится только на следующем баре
+        entry_qty := na
         qty_pending := true
+    // else: уже в лонге — попутный сигнал игнорируется, SL/TP не трогаем
 
 // ── SHORT ──
 if is_sell and allow_short and bt_in_date_range
-    bool was_flat = strategy.position_size == 0
     bool was_long = strategy.position_size > 0
-    bool long_in_profit = was_long and signal_price_sell > strategy.position_avg_price
-    bool can_enter = was_flat or long_in_profit
+    bool was_short = strategy.position_size < 0
 
-    if long_in_profit
-        strategy.close("Long", comment="Reverse→Short(+)")
+    if was_long
+        strategy.close("Long", comment="Reverse→Short")
 
-    if can_enter
+    if not was_short
         [e_sl, e_tp1, e_tp2, e_tp3, e_sl_pct] = f_trade_preview(false, signal_price_sell)
         strategy.entry("Short", strategy.short)
         pos_sl := e_sl
@@ -2338,7 +2317,7 @@ if is_sell and allow_short and bt_in_date_range
         entry_qty := na
         qty_pending := true
 
-// ── Управление открытой позицией: работает только когда entry_qty УЖЕ подтверждён (не в баре входа) ──
+// ── Управление открытой позицией (только когда объём уже подтверждён) ──
 if strategy.position_size != 0 and not na(pos_sl) and not na(entry_qty)
     if en_be_on_tp1 and not pos_be_done
         bool tp1_reached = pos_is_buy ? high >= pos_tp1 : low <= pos_tp1
