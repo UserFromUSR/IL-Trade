@@ -1,7 +1,7 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
 // © UserUZR — All-In-One Sniper: Candlestick Engine, Trade Logic & Complex Patterns, Market Regime, CVD & OTE, Live MTF Cascade Светофор, Calibrated TF Engine, Trade Management, Telegram Alerts
 //@version=6
-strategy("UserUZR Sniper - All-In-One (Strategy)", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500, max_bars_back=2500, initial_capital=10000, currency=currency.USD, default_qty_type=strategy.percent_of_equity, default_qty_value=100, commission_type=strategy.commission.percent, commission_value=0.04, slippage=1, process_orders_on_close=true, calc_on_every_tick=false)
+strategy("UserUZR Sniper - All-In-One (Strategy)", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500, max_bars_back=2500, initial_capital=10000, currency=currency.USD, default_qty_type=strategy.percent_of_equity, default_qty_value=95, commission_type=strategy.commission.percent, commission_value=0.04, slippage=1, process_orders_on_close=true, calc_on_every_tick=false, margin_long=0, margin_short=0)
 
 get_size(str) => switch str
     "tiny" => size.tiny
@@ -2277,7 +2277,7 @@ if barstate.isconfirmed
         signal_cndl_name_sell := cndl_name_live
 
 // ====================================================================================================================
-// ИСПОЛНЕНИЕ СДЕЛОК (STRATEGY) — v3: раздельные SL/TP ордера + фиксированный qty + честный реверс
+// ИСПОЛНЕНИЕ СДЕЛОК (STRATEGY) — v4: реверс только с плюсом, раздельные SL/TP, буфер за тенью, честный qty
 // ====================================================================================================================
 var float pos_sl = na
 var float pos_tp1 = na
@@ -2290,36 +2290,54 @@ var bool just_entered = false
 
 // ── LONG ──
 if is_buy and allow_long and bt_in_date_range
-    if strategy.position_size < 0
-        strategy.close("Short", comment="Reverse→Long")
-    [e_sl, e_tp1, e_tp2, e_tp3, e_sl_pct] = f_trade_preview(true, signal_price_buy)
-    strategy.entry("Long", strategy.long)
-    pos_sl := e_sl
-    pos_tp1 := e_tp1
-    pos_tp2 := e_tp2
-    pos_tp3 := e_tp3
-    pos_is_buy := true
-    pos_be_done := false
-    just_entered := true
+    bool was_flat = strategy.position_size == 0
+    bool was_short = strategy.position_size < 0
+    // Шорт закрывается реверсом ТОЛЬКО если сейчас в плюсе. Если в минусе — сигнал игнорируется,
+    // текущий шорт продолжает жить и ждёт свой SL (за тенью сигнальной свечи), БУ или TP3.
+    bool short_in_profit = was_short and signal_price_buy < strategy.position_avg_price
+    bool can_enter = was_flat or short_in_profit
+
+    if short_in_profit
+        strategy.close("Short", comment="Reverse→Long(+)")
+
+    if can_enter
+        [e_sl, e_tp1, e_tp2, e_tp3, e_sl_pct] = f_trade_preview(true, signal_price_buy)
+        strategy.entry("Long", strategy.long)
+        pos_sl := e_sl
+        pos_tp1 := e_tp1
+        pos_tp2 := e_tp2
+        pos_tp3 := e_tp3
+        pos_is_buy := true
+        pos_be_done := false
+        just_entered := true
 
 // ── SHORT ──
 if is_sell and allow_short and bt_in_date_range
-    if strategy.position_size > 0
-        strategy.close("Long", comment="Reverse→Short")
-    [e_sl, e_tp1, e_tp2, e_tp3, e_sl_pct] = f_trade_preview(false, signal_price_sell)
-    strategy.entry("Short", strategy.short)
-    pos_sl := e_sl
-    pos_tp1 := e_tp1
-    pos_tp2 := e_tp2
-    pos_tp3 := e_tp3
-    pos_is_buy := false
-    pos_be_done := false
-    just_entered := true
+    bool was_flat = strategy.position_size == 0
+    bool was_long = strategy.position_size > 0
+    bool long_in_profit = was_long and signal_price_sell > strategy.position_avg_price
+    bool can_enter = was_flat or long_in_profit
 
+    if long_in_profit
+        strategy.close("Long", comment="Reverse→Short(+)")
+
+    if can_enter
+        [e_sl, e_tp1, e_tp2, e_tp3, e_sl_pct] = f_trade_preview(false, signal_price_sell)
+        strategy.entry("Short", strategy.short)
+        pos_sl := e_sl
+        pos_tp1 := e_tp1
+        pos_tp2 := e_tp2
+        pos_tp3 := e_tp3
+        pos_is_buy := false
+        pos_be_done := false
+        just_entered := true
+
+// Фиксируем реальный объём позиции СРАЗУ после настоящего нового входа
 if just_entered
     entry_qty := math.abs(strategy.position_size)
     just_entered := false
 
+// ── Управление открытой позицией ──
 if strategy.position_size != 0 and not na(pos_sl) and not na(entry_qty)
     if en_be_on_tp1 and not pos_be_done
         bool tp1_reached = pos_is_buy ? high >= pos_tp1 : low <= pos_tp1
@@ -2332,9 +2350,7 @@ if strategy.position_size != 0 and not na(pos_sl) and not na(entry_qty)
     float tp3_qty = math.max(0.0, entry_qty - tp1_qty - tp2_qty)
 
     if pos_is_buy
-        // SL — отдельный ордер на ВСЮ оставшуюся позицию (qty не указан = автоматически весь остаток)
         strategy.exit("SL-Long", "Long", stop=pos_sl)
-        // TP — отдельные лимитные ордера без привязки к стопу, честные имена в отчёте
         strategy.exit("TP1-Long", "Long", limit=pos_tp1, qty=tp1_qty)
         strategy.exit("TP2-Long", "Long", limit=pos_tp2, qty=tp2_qty)
         strategy.exit("TP3-Long", "Long", limit=pos_tp3, qty=tp3_qty)
@@ -2351,6 +2367,69 @@ if strategy.position_size == 0
     pos_tp3 := na
     pos_be_done := false
     entry_qty := na
+
+// ====================================================================================================================
+// ВИЗУАЛИЗАЦИЯ УРОВНЕЙ СДЕЛКИ (Entry / SL / TP1 / TP2 / TP3) — лесенка, БУ-метка
+// ====================================================================================================================
+f_step_line(line ln, float val, color col, int w, string st) =>
+    line result = ln
+    if na(val)
+        result
+    else if na(result)
+        result := line.new(bar_index, val, bar_index, val, color=col, width=w, style=st)
+    else
+        float y1 = line.get_y1(result)
+        if val != y1
+            line.set_x2(result, bar_index)
+            result := line.new(bar_index, val, bar_index, val, color=col, width=w, style=st)
+        else
+            line.set_x2(result, bar_index)
+    result
+
+var line entry_ln = na
+var line sl_ln = na
+var line tp1_ln = na
+var line tp2_ln = na
+var line tp3_ln = na
+var label be_lbl = na
+
+if strategy.position_size != 0
+    entry_ln := f_step_line(entry_ln, strategy.position_avg_price, color.new(color.gray, 20), 1, line.style_dashed)
+    sl_ln := f_step_line(sl_ln, pos_sl, color.new(color.red, 0), 2, line.style_solid)
+    tp1_ln := f_step_line(tp1_ln, pos_tp1, color.new(color.teal, 40), 1, line.style_dotted)
+    tp2_ln := f_step_line(tp2_ln, pos_tp2, color.new(color.teal, 20), 1, line.style_dotted)
+    tp3_ln := f_step_line(tp3_ln, pos_tp3, color.new(color.teal, 0), 1, line.style_dotted)
+
+    if pos_be_done and na(be_lbl)
+        be_lbl := label.new(bar_index, pos_sl, text="🔄 SL→БУ (" + str.tostring(pos_sl, format.mintick) + ")", style=label.style_label_down, color=color.new(color.blue, 10), textcolor=color.white, size=size.tiny)
+
+if strategy.position_size == 0 and not na(sl_ln)
+    entry_ln := na
+    sl_ln := na
+    tp1_ln := na
+    tp2_ln := na
+    tp3_ln := na
+    be_lbl := na
+
+// ====================================================================================================================
+// PnL-МЕТКИ ПО ФАКТИЧЕСКИ ЗАКРЫТЫМ ЧАСТЯМ (TP1/TP2/TP3/SL/БУ/Reverse) — реальные $ и %
+// ====================================================================================================================
+var int last_closed_count = 0
+if strategy.closedtrades > last_closed_count
+    for i = last_closed_count to strategy.closedtrades - 1
+        float t_profit = strategy.closedtrades.profit(i)
+        float t_entry_px = strategy.closedtrades.entry_price(i)
+        float t_exit_px = strategy.closedtrades.exit_price(i)
+        float t_size = math.abs(strategy.closedtrades.size(i))
+        int t_exit_bar = strategy.closedtrades.exit_bar_index(i)
+        string t_exit_id = strategy.closedtrades.exit_id(i)
+        float t_pct = t_entry_px != 0 and t_size != 0 ? (t_profit / (t_entry_px * t_size)) * 100.0 : 0.0
+        bool t_win = t_profit >= 0
+        color lbl_col = t_win ? color.new(color.green, 15) : color.new(color.red, 15)
+        string sign = t_win ? "+" : ""
+        string txt = t_exit_id + "\n" + sign + str.tostring(t_profit, "#.##") + " USDT (" + sign + str.tostring(t_pct, "#.##") + "%)"
+        label.new(t_exit_bar, t_exit_px, text=txt, style=label.style_label_left, color=lbl_col, textcolor=color.white, size=size.tiny)
+    last_closed_count := strategy.closedtrades
 
 // ====================================================================================================================
 // ЗАПОЛНЕНИЕ SIDE_DETAIL (ТЗ раздел 2, 4.1, 6.1) — каждое поле = условие AND include-флаг своего фактора
