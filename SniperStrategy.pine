@@ -1,7 +1,7 @@
 // This source code is subject to the terms of the Mozilla Public License 2.0
 // © UserUZR — All-In-One Sniper: Candlestick Engine, Trade Logic & Complex Patterns, Market Regime, CVD & OTE, Live MTF Cascade Светофор, Calibrated TF Engine, Trade Management, Telegram Alerts
 //@version=6
-strategy("UserUZR Sniper - All-In-One (Strategy)", overlay=true, max_boxes_count=500, max_labels_count=500, max_lines_count=500, max_bars_back=2500, initial_capital=10000, currency=currency.USD, default_qty_type=strategy.percent_of_equity, default_qty_value=95, commission_type=strategy.commission.percent, commission_value=0.04, slippage=1, process_orders_on_close=true, calc_on_every_tick=false, margin_long=0, margin_short=0)
+strategy("UserUZR Sniper - All-In-One (Strategy)", overlay=true, ..., process_orders_on_close=false, calc_on_every_tick=false, margin_long=0, margin_short=0)
 
 get_size(str) => switch str
     "tiny" => size.tiny
@@ -2257,9 +2257,7 @@ if barstate.isconfirmed
         signal_cndl_name_sell := cndl_name_live
 
 // ====================================================================================================================
-// ИСПОЛНЕНИЕ СДЕЛОК (STRATEGY) — v6: простая чёткая логика
-// Вход → SL/TP1/TP2/TP3 → TP1 двигает SL в БУ → закрытие по SL/БУ/TP3 → реверс закрывает полностью и переоткрывает.
-// Попутный сигнал (то же направление, позиция уже открыта) — игнорируется.
+// ИСПОЛНЕНИЕ СДЕЛОК (STRATEGY) — v8: вход по open следующего бара, SL — от тени СИГНАЛЬНОЙ свечи
 // ====================================================================================================================
 var float pos_sl = na
 var float pos_tp1 = na
@@ -2268,12 +2266,9 @@ var float pos_tp3 = na
 var bool pos_is_buy = false
 var bool pos_be_done = false
 var float entry_qty = na
-var bool qty_pending = false
-
-// Захват реального объёма на баре ПОСЛЕ входа (объём известен только со следующего бара)
-if qty_pending and strategy.position_size != 0
-    entry_qty := math.abs(strategy.position_size)
-    qty_pending := false
+var bool entry_pending = false
+var float sig_low_saved = na    // low сигнальной свечи — фиксируется В МОМЕНТ сигнала
+var float sig_high_saved = na   // high сигнальной свечи
 
 // ── LONG ──
 if is_buy and allow_long and bt_in_date_range
@@ -2284,18 +2279,17 @@ if is_buy and allow_long and bt_in_date_range
         strategy.close("Short", comment="Reverse→Long")
 
     if not was_long
-        // Флэт или только что закрыли шорт — это настоящий новый вход
-        [e_sl, e_tp1, e_tp2, e_tp3, e_sl_pct] = f_trade_preview(true, signal_price_buy)
-        strategy.entry("Long", strategy.long)
-        pos_sl := e_sl
-        pos_tp1 := e_tp1
-        pos_tp2 := e_tp2
-        pos_tp3 := e_tp3
+        strategy.entry("Long", strategy.long)   // исполнится по open следующего бара
         pos_is_buy := true
         pos_be_done := false
         entry_qty := na
-        qty_pending := true
-    // else: уже в лонге — попутный сигнал игнорируется, SL/TP не трогаем
+        entry_pending := true
+        sig_low_saved := low     // тень ЭТОЙ (сигнальной) свечи — сохраняем сейчас
+        sig_high_saved := high
+        pos_sl := na
+        pos_tp1 := na
+        pos_tp2 := na
+        pos_tp3 := na
 
 // ── SHORT ──
 if is_sell and allow_short and bt_in_date_range
@@ -2306,18 +2300,35 @@ if is_sell and allow_short and bt_in_date_range
         strategy.close("Long", comment="Reverse→Short")
 
     if not was_short
-        [e_sl, e_tp1, e_tp2, e_tp3, e_sl_pct] = f_trade_preview(false, signal_price_sell)
         strategy.entry("Short", strategy.short)
-        pos_sl := e_sl
-        pos_tp1 := e_tp1
-        pos_tp2 := e_tp2
-        pos_tp3 := e_tp3
         pos_is_buy := false
         pos_be_done := false
         entry_qty := na
-        qty_pending := true
+        entry_pending := true
+        sig_low_saved := low
+        sig_high_saved := high
+        pos_sl := na
+        pos_tp1 := na
+        pos_tp2 := na
+        pos_tp3 := na
 
-// ── Управление открытой позицией (только когда объём уже подтверждён) ──
+// ── Подтверждение исполнения на баре ПОСЛЕ входа: SL считается от тени СОХРАНЁННОЙ сигнальной свечи,
+// TP1/TP2/TP3 — от реальной цены исполнения (могла отличаться от цены сигнала из-за гэпа) ──
+if entry_pending and strategy.position_size != 0
+    entry_qty := math.abs(strategy.position_size)
+    float real_entry_px = strategy.position_avg_price
+    [e_sl, e_tp1, e_tp2, e_tp3, e_sl_pct] = f_trade_preview(pos_is_buy, real_entry_px)
+    // Переопределяем SL, если считаем "под свечу сигнала": подставляем сохранённые low/high вместо текущих
+    if sl_mode == "Под свечу сигнала"
+        pos_sl := pos_is_buy ? sig_low_saved - atr14*sl_buffer_atr : sig_high_saved + atr14*sl_buffer_atr
+    else
+        pos_sl := e_sl
+    pos_tp1 := e_tp1
+    pos_tp2 := e_tp2
+    pos_tp3 := e_tp3
+    entry_pending := false
+
+// ── Управление открытой позицией ──
 if strategy.position_size != 0 and not na(pos_sl) and not na(entry_qty)
     if en_be_on_tp1 and not pos_be_done
         bool tp1_reached = pos_is_buy ? high >= pos_tp1 : low <= pos_tp1
@@ -2347,7 +2358,7 @@ if strategy.position_size == 0
     pos_tp3 := na
     pos_be_done := false
     entry_qty := na
-    qty_pending := false
+    entry_pending := false
 
 // ====================================================================================================================
 // ЗАПОЛНЕНИЕ SIDE_DETAIL (ТЗ раздел 2, 4.1, 6.1) — каждое поле = условие AND include-флаг своего фактора
