@@ -2157,12 +2157,13 @@ f_label_color_bull(string grade) => en_custom_label_color ? buy_label_col : f_gr
 f_label_color_bear(string grade) => en_custom_label_color ? sell_label_col : f_grade_color_bear(grade)
 
 // ====================================================================================================================
-// 10. УПРАВЛЕНИЕ СДЕЛКОЙ
+// 10. УПРАВЛЕНИЕ СДЕЛКОЙ (обновлено: буфер SL за тенью)
 // ====================================================================================================================
 grp_trade = "10. Управление сделкой"
 en_trade_mgmt = input.bool(true, "🟢 Модуль сделки", group=grp_trade)
 sl_mode = input.string("Под свечу сигнала", "Режим стопа", options=["% от входа", "Под свечу сигнала"], group=grp_trade)
 sl_pct = input.float(1.0, "SL % от входа", minval=0.01, step=0.05, group=grp_trade)
+sl_buffer_atr = input.float(0.15, "Буфер SL за тенью (ATR)", minval=0.0, step=0.05, group=grp_trade)
 tp1_pct = input.float(0.4, "TP1 % от входа", minval=0.01, step=0.05, inline="tp1", group=grp_trade)
 tp1_vol = input.float(25.0, "TP1 % объёма", minval=1.0, maxval=100.0, step=1.0, inline="tp1", group=grp_trade)
 tp2_pct = input.float(2.0, "TP2 % от входа", minval=0.01, step=0.05, inline="tp2", group=grp_trade)
@@ -2183,12 +2184,13 @@ trade_lbl_text_size = input.string("tiny", "Размер текста метки
 
 var trade_state cur_trade = trade_state.new()
 
+// SL теперь ВСЕГДА с запасом за тенью (в режиме "Под свечу сигнала")
 f_calc_sl(bool is_bull, float entry_px, float sig_low, float sig_high) =>
     float sl_result = na
     if sl_mode == "% от входа"
         sl_result := is_bull ? entry_px * (1 - sl_pct/100) : entry_px * (1 + sl_pct/100)
     else
-        sl_result := is_bull ? sig_low : sig_high
+        sl_result := is_bull ? sig_low - atr14*sl_buffer_atr : sig_high + atr14*sl_buffer_atr
     sl_result
 
 f_trade_preview(bool is_bull, float entry_px) =>
@@ -2200,14 +2202,14 @@ f_trade_preview(bool is_bull, float entry_px) =>
     [p_sl, p_tp1, p_tp2, p_tp3, p_sl_pct]
 
 f_trade_lvls_text(float p_sl, float p_tp1, float p_tp2, float p_tp3, float p_sl_pct) =>
-    "🛡️ SL:" + str.tostring(p_sl, format.mintick) + "(" + str.tostring(p_sl_pct,"#.##") + "%,реж:" + sl_mode + ")\n" + "🎯 TP1:" + str.tostring(p_tp1, format.mintick) + "(" + str.tostring(tp1_pct,"#.##") + "%,vol" + str.tostring(tp1_vol,"#") + "%)\n" + "🎯 TP2:" + str.tostring(p_tp2, format.mintick) + "(" + str.tostring(tp2_pct,"#.##") + "%,vol" + str.tostring(tp2_vol,"#") + "%)\n" + "🎯 TP3:" + str.tostring(p_tp3, format.mintick) + "(" + str.tostring(tp3_pct,"#.##") + "%,остаток)" + (en_be_on_tp1 ? "\n🔄 БУ на TP1: вкл" : "")
+    "🛡️ SL:" + str.tostring(p_sl, format.mintick) + "(" + str.tostring(p_sl_pct,"#.##") + "%,реж:" + sl_mode + "│буфер:" + str.tostring(sl_buffer_atr,"#.##") + "ATR)\n" + "🎯 TP1:" + str.tostring(p_tp1, format.mintick) + "(" + str.tostring(tp1_pct,"#.##") + "%,vol" + str.tostring(tp1_vol,"#") + "%)\n" + "🎯 TP2:" + str.tostring(p_tp2, format.mintick) + "(" + str.tostring(tp2_pct,"#.##") + "%,vol" + str.tostring(tp2_vol,"#") + "%)\n" + "🎯 TP3:" + str.tostring(p_tp3, format.mintick) + "(" + str.tostring(tp3_pct,"#.##") + "%,остаток)" + (en_be_on_tp1 ? "\n🔄 БУ на TP1: вкл" : "")
 
 f_trade_ref(trade_state t) =>
     string dir_str = t.is_buy ? "📈 ПОКУПКА" : "📉 ПРОДАЖА"
     "🔗 " + dir_str + " [" + t.grade + "]\n💲 Вход:" + str.tostring(t.entry, format.mintick) + "│🕐" + str.format_time(t.entry_time, "HH:mm dd.MM.yyyy", "UTC") + " UTC\n📊 " + syminfo.tickerid + "│🔗 " + "https://www.tradingview.com/chart/?symbol=" + syminfo.tickerid + "\n"
 
 // ====================================================================================================================
-// 11. НАСТРОЙКИ БЭКТЕСТА (добавлено при переводе индикатора в strategy)
+// 11. НАСТРОЙКИ БЭКТЕСТА
 // ====================================================================================================================
 grp_bt = "11. Настройки Бэктеста"
 allow_long = input.bool(true, "Разрешить LONG входы", inline="btdir", group=grp_bt)
@@ -2219,7 +2221,7 @@ bt_end_time = input.time(timestamp("2099-01-01T00:00:00"), "Конец тест�
 bool bt_in_date_range = not bt_use_date_filter or (time >= bt_start_time and time <= bt_end_time)
 
 // ====================================================================================================================
-// ГЕНЕРАЦИЯ СИГНАЛОВ — realtime intrabar + non-repaint итог
+// ГЕНЕРАЦИЯ СИГНАЛОВ (без изменений — как было)
 // ====================================================================================================================
 bool signal_is_score_buy = p1_connected and (buy_score >= req_score and buy_valid and full_gate_bull)
 bool signal_is_score_sell = p1_connected and (sell_score >= req_score and sell_valid and full_gate_bear)
@@ -2275,10 +2277,7 @@ if barstate.isconfirmed
         signal_cndl_name_sell := cndl_name_live
 
 // ====================================================================================================================
-// ИСПОЛНЕНИЕ СДЕЛОК (STRATEGY) — добавлено при переводе индикатора в strategy.
-// Логика скоринга/сигналов/грейдов выше НЕ изменена. Здесь только: вход по is_buy/is_sell,
-// фиксация SL/TP1/TP2/TP3 через уже существующие f_calc_sl/f_trade_preview, 3 частичных
-// strategy.exit с qty_percent = tp1_vol/tp2_vol/остаток, перенос SL в БУ на TP1 (en_be_on_tp1).
+// ИСПОЛНЕНИЕ СДЕЛОК (STRATEGY) — v3: раздельные SL/TP ордера + фиксированный qty + честный реверс
 // ====================================================================================================================
 var float pos_sl = na
 var float pos_tp1 = na
@@ -2286,12 +2285,11 @@ var float pos_tp2 = na
 var float pos_tp3 = na
 var bool pos_is_buy = false
 var bool pos_be_done = false
-var float entry_qty = na      // ← фиксируем объём НА ВХОДЕ, а не пересчитываем каждый бар
+var float entry_qty = na
 var bool just_entered = false
 
 // ── LONG ──
 if is_buy and allow_long and bt_in_date_range
-    // Явно закрываем противоположную позицию перед реверсом
     if strategy.position_size < 0
         strategy.close("Short", comment="Reverse→Long")
     [e_sl, e_tp1, e_tp2, e_tp3, e_sl_pct] = f_trade_preview(true, signal_price_buy)
@@ -2318,12 +2316,10 @@ if is_sell and allow_short and bt_in_date_range
     pos_be_done := false
     just_entered := true
 
-// Фиксируем реальный объём позиции СРАЗУ после входа (один раз за сделку)
 if just_entered
     entry_qty := math.abs(strategy.position_size)
     just_entered := false
 
-// ── Управление открытой позицией ──
 if strategy.position_size != 0 and not na(pos_sl) and not na(entry_qty)
     if en_be_on_tp1 and not pos_be_done
         bool tp1_reached = pos_is_buy ? high >= pos_tp1 : low <= pos_tp1
@@ -2331,19 +2327,22 @@ if strategy.position_size != 0 and not na(pos_sl) and not na(entry_qty)
             pos_sl := strategy.position_avg_price
             pos_be_done := true
 
-    // Абсолютные количества считаем от entry_qty (фикс объёма на входе), а не от "живого" остатка
     float tp1_qty = entry_qty * tp1_vol / 100.0
     float tp2_qty = entry_qty * tp2_vol / 100.0
     float tp3_qty = math.max(0.0, entry_qty - tp1_qty - tp2_qty)
 
     if pos_is_buy
-        strategy.exit("TP1-Long", "Long", stop=pos_sl, limit=pos_tp1, qty=tp1_qty)
-        strategy.exit("TP2-Long", "Long", stop=pos_sl, limit=pos_tp2, qty=tp2_qty)
-        strategy.exit("TP3-Long", "Long", stop=pos_sl, limit=pos_tp3, qty=tp3_qty)
+        // SL — отдельный ордер на ВСЮ оставшуюся позицию (qty не указан = автоматически весь остаток)
+        strategy.exit("SL-Long", "Long", stop=pos_sl)
+        // TP — отдельные лимитные ордера без привязки к стопу, честные имена в отчёте
+        strategy.exit("TP1-Long", "Long", limit=pos_tp1, qty=tp1_qty)
+        strategy.exit("TP2-Long", "Long", limit=pos_tp2, qty=tp2_qty)
+        strategy.exit("TP3-Long", "Long", limit=pos_tp3, qty=tp3_qty)
     else
-        strategy.exit("TP1-Short", "Short", stop=pos_sl, limit=pos_tp1, qty=tp1_qty)
-        strategy.exit("TP2-Short", "Short", stop=pos_sl, limit=pos_tp2, qty=tp2_qty)
-        strategy.exit("TP3-Short", "Short", stop=pos_sl, limit=pos_tp3, qty=tp3_qty)
+        strategy.exit("SL-Short", "Short", stop=pos_sl)
+        strategy.exit("TP1-Short", "Short", limit=pos_tp1, qty=tp1_qty)
+        strategy.exit("TP2-Short", "Short", limit=pos_tp2, qty=tp2_qty)
+        strategy.exit("TP3-Short", "Short", limit=pos_tp3, qty=tp3_qty)
 
 if strategy.position_size == 0
     pos_sl := na
