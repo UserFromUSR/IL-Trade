@@ -2371,69 +2371,6 @@ if strategy.position_size == 0
     qty_pending := false
 
 // ====================================================================================================================
-// ВИЗУАЛИЗАЦИЯ УРОВНЕЙ СДЕЛКИ (Entry / SL / TP1 / TP2 / TP3) — лесенка, БУ-метка
-// ====================================================================================================================
-f_step_line(line ln, float val, color col, int w, string st) =>
-    line result = ln
-    if na(val)
-        result
-    else if na(result)
-        result := line.new(bar_index, val, bar_index, val, color=col, width=w, style=st)
-    else
-        float y1 = line.get_y1(result)
-        if val != y1
-            line.set_x2(result, bar_index)
-            result := line.new(bar_index, val, bar_index, val, color=col, width=w, style=st)
-        else
-            line.set_x2(result, bar_index)
-    result
-
-var line entry_ln = na
-var line sl_ln = na
-var line tp1_ln = na
-var line tp2_ln = na
-var line tp3_ln = na
-var label be_lbl = na
-
-if strategy.position_size != 0
-    entry_ln := f_step_line(entry_ln, strategy.position_avg_price, color.new(color.gray, 20), 1, line.style_dashed)
-    sl_ln := f_step_line(sl_ln, pos_sl, color.new(color.red, 0), 2, line.style_solid)
-    tp1_ln := f_step_line(tp1_ln, pos_tp1, color.new(color.teal, 40), 1, line.style_dotted)
-    tp2_ln := f_step_line(tp2_ln, pos_tp2, color.new(color.teal, 20), 1, line.style_dotted)
-    tp3_ln := f_step_line(tp3_ln, pos_tp3, color.new(color.teal, 0), 1, line.style_dotted)
-
-    if pos_be_done and na(be_lbl)
-        be_lbl := label.new(bar_index, pos_sl, text="🔄 SL→БУ (" + str.tostring(pos_sl, format.mintick) + ")", style=label.style_label_down, color=color.new(color.blue, 10), textcolor=color.white, size=size.tiny)
-
-if strategy.position_size == 0 and not na(sl_ln)
-    entry_ln := na
-    sl_ln := na
-    tp1_ln := na
-    tp2_ln := na
-    tp3_ln := na
-    be_lbl := na
-
-// ====================================================================================================================
-// PnL-МЕТКИ ПО ФАКТИЧЕСКИ ЗАКРЫТЫМ ЧАСТЯМ (TP1/TP2/TP3/SL/БУ/Reverse) — реальные $ и %
-// ====================================================================================================================
-var int last_closed_count = 0
-if strategy.closedtrades > last_closed_count
-    for i = last_closed_count to strategy.closedtrades - 1
-        float t_profit = strategy.closedtrades.profit(i)
-        float t_entry_px = strategy.closedtrades.entry_price(i)
-        float t_exit_px = strategy.closedtrades.exit_price(i)
-        float t_size = math.abs(strategy.closedtrades.size(i))
-        int t_exit_bar = strategy.closedtrades.exit_bar_index(i)
-        string t_exit_id = strategy.closedtrades.exit_id(i)
-        float t_pct = t_entry_px != 0 and t_size != 0 ? (t_profit / (t_entry_px * t_size)) * 100.0 : 0.0
-        bool t_win = t_profit >= 0
-        color lbl_col = t_win ? color.new(color.green, 15) : color.new(color.red, 15)
-        string sign = t_win ? "+" : ""
-        string txt = t_exit_id + "\n" + sign + str.tostring(t_profit, "#.##") + " USDT (" + sign + str.tostring(t_pct, "#.##") + "%)"
-        label.new(t_exit_bar, t_exit_px, text=txt, style=label.style_label_left, color=lbl_col, textcolor=color.white, size=size.tiny)
-    last_closed_count := strategy.closedtrades
-
-// ====================================================================================================================
 // ЗАПОЛНЕНИЕ SIDE_DETAIL (ТЗ раздел 2, 4.1, 6.1) — каждое поле = условие AND include-флаг своего фактора
 // ====================================================================================================================
 pack_bull.smc := b_smc_bull and inc_f14, pack_bear.smc := b_smc_bear and inc_f14
