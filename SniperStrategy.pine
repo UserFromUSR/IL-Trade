@@ -2286,8 +2286,14 @@ var float pos_tp2 = na
 var float pos_tp3 = na
 var bool pos_is_buy = false
 var bool pos_be_done = false
+var float entry_qty = na      // ← фиксируем объём НА ВХОДЕ, а не пересчитываем каждый бар
+var bool just_entered = false
 
+// ── LONG ──
 if is_buy and allow_long and bt_in_date_range
+    // Явно закрываем противоположную позицию перед реверсом
+    if strategy.position_size < 0
+        strategy.close("Short", comment="Reverse→Long")
     [e_sl, e_tp1, e_tp2, e_tp3, e_sl_pct] = f_trade_preview(true, signal_price_buy)
     strategy.entry("Long", strategy.long)
     pos_sl := e_sl
@@ -2296,8 +2302,12 @@ if is_buy and allow_long and bt_in_date_range
     pos_tp3 := e_tp3
     pos_is_buy := true
     pos_be_done := false
+    just_entered := true
 
+// ── SHORT ──
 if is_sell and allow_short and bt_in_date_range
+    if strategy.position_size > 0
+        strategy.close("Long", comment="Reverse→Short")
     [e_sl, e_tp1, e_tp2, e_tp3, e_sl_pct] = f_trade_preview(false, signal_price_sell)
     strategy.entry("Short", strategy.short)
     pos_sl := e_sl
@@ -2306,22 +2316,34 @@ if is_sell and allow_short and bt_in_date_range
     pos_tp3 := e_tp3
     pos_is_buy := false
     pos_be_done := false
+    just_entered := true
 
-if strategy.position_size != 0 and not na(pos_sl)
+// Фиксируем реальный объём позиции СРАЗУ после входа (один раз за сделку)
+if just_entered
+    entry_qty := math.abs(strategy.position_size)
+    just_entered := false
+
+// ── Управление открытой позицией ──
+if strategy.position_size != 0 and not na(pos_sl) and not na(entry_qty)
     if en_be_on_tp1 and not pos_be_done
         bool tp1_reached = pos_is_buy ? high >= pos_tp1 : low <= pos_tp1
         if tp1_reached
             pos_sl := strategy.position_avg_price
             pos_be_done := true
-    float tp3_qty = math.max(0.0, 100.0 - tp1_vol - tp2_vol)
+
+    // Абсолютные количества считаем от entry_qty (фикс объёма на входе), а не от "живого" остатка
+    float tp1_qty = entry_qty * tp1_vol / 100.0
+    float tp2_qty = entry_qty * tp2_vol / 100.0
+    float tp3_qty = math.max(0.0, entry_qty - tp1_qty - tp2_qty)
+
     if pos_is_buy
-        strategy.exit("TP1-Long", "Long", stop=pos_sl, limit=pos_tp1, qty_percent=tp1_vol)
-        strategy.exit("TP2-Long", "Long", stop=pos_sl, limit=pos_tp2, qty_percent=tp2_vol)
-        strategy.exit("TP3-Long", "Long", stop=pos_sl, limit=pos_tp3, qty_percent=tp3_qty)
+        strategy.exit("TP1-Long", "Long", stop=pos_sl, limit=pos_tp1, qty=tp1_qty)
+        strategy.exit("TP2-Long", "Long", stop=pos_sl, limit=pos_tp2, qty=tp2_qty)
+        strategy.exit("TP3-Long", "Long", stop=pos_sl, limit=pos_tp3, qty=tp3_qty)
     else
-        strategy.exit("TP1-Short", "Short", stop=pos_sl, limit=pos_tp1, qty_percent=tp1_vol)
-        strategy.exit("TP2-Short", "Short", stop=pos_sl, limit=pos_tp2, qty_percent=tp2_vol)
-        strategy.exit("TP3-Short", "Short", stop=pos_sl, limit=pos_tp3, qty_percent=tp3_qty)
+        strategy.exit("TP1-Short", "Short", stop=pos_sl, limit=pos_tp1, qty=tp1_qty)
+        strategy.exit("TP2-Short", "Short", stop=pos_sl, limit=pos_tp2, qty=tp2_qty)
+        strategy.exit("TP3-Short", "Short", stop=pos_sl, limit=pos_tp3, qty=tp3_qty)
 
 if strategy.position_size == 0
     pos_sl := na
@@ -2329,6 +2351,7 @@ if strategy.position_size == 0
     pos_tp2 := na
     pos_tp3 := na
     pos_be_done := false
+    entry_qty := na
 
 // ====================================================================================================================
 // ЗАПОЛНЕНИЕ SIDE_DETAIL (ТЗ раздел 2, 4.1, 6.1) — каждое поле = условие AND include-флаг своего фактора
